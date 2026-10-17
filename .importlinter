@@ -32,7 +32,7 @@ forbidden_modules =
     typer
     structlog
     cryptography
-    python_ulid
+    ulid
     authlib
     celpy
     anthropic
@@ -41,6 +41,9 @@ forbidden_modules =
 [importlinter:contract:ports-protocol-only]
 name = ports-protocol-only
 type = forbidden
+# Direct imports only: ports import domain, and domain may use pydantic
+# (domain-pure), so a ports -> domain -> pydantic chain is legitimate.
+allow_indirect_imports = True
 # 01 §2: ports imports only domain and typing — not even pydantic.
 source_modules =
     supportagent.ports
@@ -63,7 +66,7 @@ forbidden_modules =
     typer
     structlog
     cryptography
-    python_ulid
+    ulid
     authlib
     celpy
     anthropic
@@ -124,6 +127,10 @@ forbidden_modules =
 [importlinter:contract:entrypoints-thin]
 name = entrypoints-thin
 type = forbidden
+# Direct imports only: entrypoints call bootstrap, which wires the SQL/HTTP
+# adapters, so entrypoints -> bootstrap -> adapters -> sqlalchemy is the
+# intended shape. The rule is that entrypoints never run SQL/HTTP themselves.
+allow_indirect_imports = True
 source_modules =
     supportagent.entrypoints
 forbidden_modules =
