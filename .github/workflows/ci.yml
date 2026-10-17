@@ -17,6 +17,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  # Minimal scopes. gitleaks-action on pull_request events fetches the PR
+  # diff via the API and needs pull-requests: read (403 without it).
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
