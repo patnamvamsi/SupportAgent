@@ -34,6 +34,8 @@ banned-api = {
 
 [lint.per-file-ignores]
 "src/supportagent/config/loader.py" = ["TID251"]
+# The exception taxonomy (01 §6, 10-wp) pins these names; tests import them.
+"src/supportagent/domain/errors.py" = ["N818"]
 "src/supportagent/adapters/system/*.py" = ["TID251"]
 # Tests assert against literal expected values by design (PLR2004 is a
 # production-code rule); ANN401 is banned in prod but fine in test doubles.

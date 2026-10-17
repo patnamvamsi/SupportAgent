@@ -1,0 +1,84 @@
+"""Error taxonomy (01 §6): one base, typed subclasses, no bare Exception."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+
+class SupportAgentError(Exception):
+    """Base for every supportagent error. Never raised directly (01 §6)."""
+
+
+class ConfigError(SupportAgentError):
+    """Configuration is missing, invalid, or fails the startup check."""
+
+
+class DomainValidationError(SupportAgentError):
+    """A domain rule was violated (bad transition, float in a hashed payload)."""
+
+
+class ConcurrencyConflict(SupportAgentError):
+    """A concurrent write lost the optimistic-concurrency race."""
+
+
+class NotFound(SupportAgentError):
+    """A referenced entity does not exist (or is another tenant's)."""
+
+
+class BudgetExhausted(SupportAgentError):
+    """The tenant's LLM/tool budget is exhausted (spend breaker, 01 §7.3)."""
+
+
+class AuthorizationDenied(SupportAgentError):
+    """An authorization rule rejected the action (01 §6, INV-01)."""
+
+    code: Literal["no_valid_authorization", "self_approval", "immutable", "rbac"]
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: Literal["no_valid_authorization", "self_approval", "immutable", "rbac"] = (
+            "no_valid_authorization"
+        ),
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class ExternalServiceError(SupportAgentError):
+    """An external dependency failed; retryability is typed, not guessed."""
+
+    retryable: bool
+    retry_after_s: float | None
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        retry_after_s: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.retry_after_s = retry_after_s
+
+
+class ServiceNowError(ExternalServiceError):
+    """A ServiceNow call failed (01 §6)."""
+
+
+class LLMUnavailable(ExternalServiceError):
+    """The LLM provider is down or unreachable."""
+
+
+class LLMTimeout(ExternalServiceError):
+    """The LLM call exceeded its deadline (01 §7.2)."""
+
+
+class LLMRateLimited(ExternalServiceError):
+    """The LLM provider rate-limited the request (429)."""
+
+
+class ToolError(ExternalServiceError):
+    """A tool execution failed after its retries."""

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from supportagent.domain.errors import DomainValidationError
-from supportagent.domain.hashing import canonical_json, payload_hash
+from supportagent.domain.hashing import canonical_json, payload_hash, plan_hash
 
 
 def test_canonical_json_sorted_and_compact() -> None:
@@ -46,7 +46,28 @@ def test_payload_hash_stable_across_key_order() -> None:
 def test_payload_hash_nfc_normalized() -> None:
     # é composed vs decomposed → same canonical form, same hash (10-wp).
     composed = {"s": "café", "t": ["résumé", {"n": "naïve"}]}
-    decomposed = {"s": "cafe\u0301", "t": ["resume\u0301", {"n": "nai\u0308ve"}]}
+    decomposed = {"s": "cafe\u0301", "t": ["re\u0301sume\u0301", {"n": "nai\u0308ve"}]}
     assert canonical_json(composed) == canonical_json(decomposed)
     assert payload_hash(composed) == payload_hash(decomposed)
     assert "cafe\u0301" not in canonical_json(composed)
+
+
+def test_plan_hash_is_payload_hash_over_plan_fields() -> None:
+    # 01 §7.1: plan_hash = payload_hash({audience, channel, template_id,
+    # allowed_fields, cadence_minutes}).
+    fields = {"state": "record_state", "next_update_eta": "schedule"}
+    assert plan_hash(
+        audience="customer",
+        channel="email",
+        template_id="tpl_incident_update",
+        allowed_fields=fields,
+        cadence_minutes=15,
+    ) == payload_hash(
+        {
+            "audience": "customer",
+            "channel": "email",
+            "template_id": "tpl_incident_update",
+            "allowed_fields": fields,
+            "cadence_minutes": 15,
+        }
+    )

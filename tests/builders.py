@@ -9,6 +9,7 @@ one field at a time.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.approval import ApprovalStatus
@@ -20,9 +21,9 @@ from supportagent.domain.severity import Severity
 T0 = datetime(2026, 10, 20, 9, 0, 0, tzinfo=UTC)
 
 
-def an_alert(**overrides: object) -> dict[str, object]:
+def an_alert(**overrides: object) -> dict[str, Any]:
     """A valid AlertEvent (01 §4) with one field overridable at a time."""
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "tenant_id": "acme",
         "source": "servicenow",
         "origin": "alert",
@@ -43,24 +44,25 @@ def an_alert(**overrides: object) -> dict[str, object]:
     return base
 
 
-def a_ticket(**overrides: object) -> dict[str, object]:
+def a_ticket(**overrides: object) -> dict[str, Any]:
     """A human-filed ticket: origin == 'ticket' with a ticket_number."""
-    return an_alert(
+    base = an_alert(
         origin="ticket",
-        ticket_number="INC-2026-42",
         subject="Customer reports failed payment",
         body="Customer ticket: payment failed twice.",
-        **overrides,
     )
+    base["ticket_number"] = "INC-2026-42"
+    base.update(overrides)
+    return base
 
 
-def a_proposal(**overrides: object) -> dict[str, object]:
+def a_proposal(**overrides: object) -> dict[str, Any]:
     """A valid Proposal (ARCH §6.2) with one field overridable at a time."""
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "id": "prop_0001",
         "tenant_id": "acme",
         "case_id": "case_0001",
-        "kind": ActionKind.WORK_NOTE,
+        "action_kind": ActionKind.WORK_NOTE,
         "scope": "ticket:INC0000001",
         "payload": {"body": "Investigated: 5xx spike traced to the 08:35 deploy."},
         "payload_hash": "a" * 64,
@@ -73,9 +75,9 @@ def a_proposal(**overrides: object) -> dict[str, object]:
     return base
 
 
-def an_approval(**overrides: object) -> dict[str, object]:
+def an_approval(**overrides: object) -> dict[str, Any]:
     """A valid Approval (ARCH §6.2) with one field overridable at a time."""
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "id": "appr_0001",
         "tenant_id": "acme",
         "proposal_id": "prop_0001",
@@ -89,12 +91,12 @@ def an_approval(**overrides: object) -> dict[str, object]:
     return base
 
 
-def a_grant(**overrides: object) -> dict[str, object]:
+def a_grant(**overrides: object) -> dict[str, Any]:
     """A valid policy grant (ARCH §6.2) with one field overridable at a time."""
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "id": "grnt_0001",
         "tenant_id": "acme",
-        "kind": ActionKind.WORK_NOTE,
+        "action_kind": ActionKind.WORK_NOTE,
         "scope": "ticket:INC0000001",
         "status": GrantStatus.APPROVED,
         "requested_by": "user_ada",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -28,7 +29,7 @@ from supportagent.domain.model.comms import CommsPlanStatus
 from supportagent.domain.model.grant import GrantStatus
 from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.severity import Severity
-from tests.builders import T0, a_approval, a_grant, a_proposal, a_ticket, an_alert
+from tests.builders import T0, a_grant, a_proposal, a_ticket, an_alert, an_approval
 
 UTC_PLUS_5 = timezone(timedelta(hours=5))
 
@@ -65,8 +66,8 @@ def test_alert_event_ticket_requires_number() -> None:
         AlertEvent(**an_alert(not_a_field=1))
 
 
-def _target(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {
+def _target(**overrides: object) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "service": "payments-api",
         "system": "servicenow",
         "ref": "incident:INC0000001",
@@ -99,8 +100,8 @@ def test_action_spec_rejects_float_payload() -> None:
 
 def test_event_payload_requires_version() -> None:
     # 01 §4: Event.payload "must contain 'v': <int> payload schema version".
-    def event_kwargs(**overrides: object) -> dict[str, object]:
-        base: dict[str, object] = {
+    def event_kwargs(**overrides: object) -> dict[str, Any]:
+        base: dict[str, Any] = {
             "id": "evt_0001",
             "tenant_id": "acme",
             "trace_id": "trace-1",
@@ -119,6 +120,8 @@ def test_event_payload_requires_version() -> None:
     # "v" must be an int (bool is an int subclass — reject it).
     with pytest.raises(ValidationError, match="v"):
         Event(**event_kwargs(payload={"v": True}))
+    with pytest.raises(ValidationError, match="v"):
+        Event(**event_kwargs(payload={"v": "1"}))
     event = Event(**event_kwargs())
     assert event.payload["v"] == 1
     assert event.kind is EventKind.INGEST
@@ -158,13 +161,13 @@ def test_triage_result_and_decision_shapes() -> None:
 def test_proposal_shape() -> None:
     proposal = Proposal(**a_proposal())
     assert proposal.status is ProposalStatus.PROPOSED
-    assert proposal.kind is ActionKind.WORK_NOTE
+    assert proposal.action_kind is ActionKind.WORK_NOTE
     assert proposal.payload_hash == "a" * 64
     assert proposal.created_by == "agent"
 
 
 def test_approval_shape() -> None:
-    approval = Approval(**a_approval())
+    approval = Approval(**an_approval())
     assert approval.status is ApprovalStatus.APPROVED
     assert approval.reason is None
     # The hash the approver actually saw (ARCH §6.2).
