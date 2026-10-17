@@ -1,0 +1,263 @@
+# CI pipeline — 04-test-strategy §6 (jobs and gates; hard = merge blocked).
+#
+#   Parallel:  lint | typecheck | architecture | unit+property | contract | invariants[sqlite|postgres] | security
+#   Chain:     unit+property ─┬─► integration ─► e2e ─┬─► eval  (PRs touching prompts/taxonomy/config, 04 §6)
+#             invariants  ────┘                        └─► image (also needs security; --version must print 0.0.0)
+#
+# Suites that have not landed yet (contract/invariants/integration/e2e) are
+# hard the moment their folder exists: pytest exit 5 ("no tests collected")
+# is only tolerated while the folder is absent entirely, so a deleted or
+# mis-layered suite fails instead of silently passing.
+#
+# Coverage: 04 §7 sets per-package floors (domain ≥95, app ≥90, adapters ≥80,
+# overall ≥85). The hard gate activates in WP-001, when the first package
+# carries real code; in WP-000 coverage is reported (DoD: CI green on an
+# empty codebase).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  # Minimal scopes. gitleaks-action on pull_request events fetches the PR
+  # diff via the API and needs pull-requests: read (403 without it).
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.8.17"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run mypy --strict src tests
+
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: import-linter contracts (01 §2)
+        run: uv run lint-imports
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: unit + property (no network — pytest-socket disabled in addopts)
+        run: uv run pytest -m "unit or property" --cov --cov-report=term-missing
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: contract (04 §4)
+        run: |
+          # Hard from the moment the suite exists: exit 5 ("no tests
+          # collected") is tolerated only while tests/contract is absent.
+          if [ ! -d tests/contract ]; then
+            echo "tests/contract does not exist yet — it lands red-first with its WP (05 §2)"
+            exit 0
+          fi
+          uv run pytest -m contract
+
+  invariants:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      # Postgres engine via testcontainers (04 §3); ubuntu runners ship
+      # Docker. testcontainers needs the Docker Unix socket and the local
+      # Postgres listener, so those two are opted back in on top of the
+      # global --disable-socket (04 §1).
+      - name: invariants --db=${{ matrix.db }} (ARCH §19)
+        run: |
+          if [ ! -d tests/invariants ]; then
+            echo "tests/invariants does not exist yet — it lands red-first with its WP (05 §2)"
+            exit 0
+          fi
+          uv run pytest -m invariant --db=${{ matrix.db }} \
+            --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [unit, invariants]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      # Integration runs the app against a real DB (testcontainers) with
+      # fake externals (04 §1): Docker socket + localhost, no other network.
+      - name: integration
+        run: |
+          if [ ! -d tests/integration ]; then
+            echo "tests/integration does not exist yet — it lands red-first with its WP (05 §2)"
+            exit 0
+          fi
+          uv run pytest -m integration \
+            --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [integration]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      # e2e drives the app in Docker + fake SN + fake OIDC (04 §1): the
+      # same socket opt-in as the other DB-backed suites.
+      - name: e2e
+        run: |
+          if [ ! -d tests/e2e ]; then
+            echo "tests/e2e does not exist yet — it lands red-first with its WP (05 §2)"
+            exit 0
+          fi
+          uv run pytest -m e2e \
+            --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+
+  eval:
+    # Hard when triggered by path (04 §6): prompts/**, taxonomy/**, routing
+    # and llm config. Routing/llm config live in the supportagent*.yaml
+    # config file, not in an llm/ folder, so the filter watches the config
+    # file and the llm adapter implementation (04 §6 L130).
+    #
+    # The `supportagent eval` command and cases land with WP-016, so the job
+    # also stays dormant while src/supportagent/evals/cli.py is absent —
+    # running the suite before the command exists would only fail the PR
+    # (e.g. WP-002, which touches the config file).
+    runs-on: ubuntu-latest
+    needs: [e2e]
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Path trigger (04 §6) + command-exists guard (WP-016)
+        id: filter
+        run: |
+          if [ ! -f src/supportagent/evals/cli.py ]; then
+            echo "supportagent eval CLI not present yet (lands with WP-016) — skipping"
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)
+          if git diff --name-only "$base" HEAD | grep -Eq \
+            '^(prompts|taxonomy|catalog|evals)/|^supportagent.*\.ya?ml$|^src/supportagent/adapters/llm/'; then
+            echo "triggered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: astral-sh/setup-uv@v5
+        if: steps.filter.outputs.triggered == 'true'
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+        if: steps.filter.outputs.triggered == 'true'
+      - name: eval smoke (v0.0)
+        if: steps.filter.outputs.triggered == 'true'
+        run: uv run supportagent eval run --suite smoke
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full clone: on pull_request events gitleaks-action scans
+          # base^..head, which a depth-1 checkout cannot resolve.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: pip-audit
+        run: |
+          # --no-emit-project: uv export otherwise writes `-e .` and
+          # pip-audit would try to install the project itself.
+          # --no-deps + --disable-pip: everything in the export is pinned to
+          # an exact version, so no resolver (and no pip) is needed.
+          uv export --frozen --no-dev --format requirements-txt --no-hashes \
+            --no-emit-project -o reqs.txt
+          uv run pip-audit -r reqs.txt --no-deps --disable-pip
+      - name: bandit
+        run: uv run bandit -r src
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    # Walking-skeleton image (10-wp WP-000 DoD: `supportagent --version` in a
+    # container). Runs on pull_request as well as push, so the DoD is
+    # verified before merge; full image gate grows with the API/worker WPs.
+    runs-on: ubuntu-latest
+    needs: [e2e, security]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the supportagent image
+        run: docker build -f docker/Dockerfile -t supportagent:ci .
+      - name: Entrypoint prints the version (10-wp DoD)
+        run: |
+          out=$(docker run --rm supportagent:ci --version)
+          if [ "$out" != "0.0.0" ]; then
+            echo "::error::supportagent --version printed '$out', expected '0.0.0'"
+            exit 1
+          fi
+          echo "version check passed: $out"

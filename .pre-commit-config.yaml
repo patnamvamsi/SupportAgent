@@ -1,0 +1,39 @@
+# Pre-commit hooks — mirror the CI gates (05 §6) so local commits match CI.
+# Revs are pinned: bump deliberately, with the tool version in uv.lock.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # mypy runs in the project's own venv (the same pinned toolchain CI and
+  # `make check` use, from uv.lock) — a pre-commit-managed environment with
+  # additional_dependencies would drift from it (missing stubs, looser flags).
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict (project venv)
+        entry: uv run mypy --strict src tests
+        language: system
+        pass_filenames: false
+        files: ^(src|tests)/
+        require_serial: true
+
+  # Secret scanning (04 §6 security job). Stages pre-push explicitly: the
+  # default pre-commit stage would not run it on `git push`.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        stages: [pre-push]

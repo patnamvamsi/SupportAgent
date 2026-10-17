@@ -1,0 +1,43 @@
+# Lint and format settings — 05-engineering-standards §6 (frozen).
+line-length = 100
+target-version = "py312"
+
+# The spec docs are frozen: ruff must not touch their code blocks (ruff ≥0.9
+# formats markdown code fences). Lint/format targets are src/ + tests/ + docker/.
+extend-exclude = ["docs", ".uv-cache", ".uv-python", "migrations"]
+
+[lint]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RET", "PTH", "DTZ",
+    "S", "BLE", "TRY", "PL", "RUF", "ANN",
+]
+extend-select = ["TID251"]
+
+# 05 §8: no datetime.now(), time.time(), uuid4(), random outside the
+# clock/id adapters; no os.environ outside config/loader.py.
+# TID251 matches fully-qualified names, so the keys must be
+# "datetime.datetime.now" (not "datetime.now") or the ban never fires.
+[lint.flake8-tidy-imports]
+banned-api = {
+    "os.environ" = { msg = "read env only in config/loader.py (05 §6)" },
+    "datetime.datetime.now" = { msg = "use the clock port; no datetime.now() (04 §3, 05 §8)" },
+    "datetime.datetime.utcnow" = { msg = "use the clock port; no datetime.utcnow() (05 §8)" },
+    "time.time" = { msg = "use the clock port; no time.time() (05 §8)" },
+    "uuid.uuid4" = { msg = "use the id port; no uuid.uuid4() (05 §8)" },
+    "random.random" = { msg = "use a seeded harness; no random (05 §8)" },
+    "random.choice" = { msg = "use a seeded harness; no random (05 §8)" },
+    "random.randint" = { msg = "use a seeded harness; no random (05 §8)" },
+    "random.uniform" = { msg = "use a seeded harness; no random (05 §8)" },
+    "random.shuffle" = { msg = "use a seeded harness; no random (05 §8)" },
+    "random.sample" = { msg = "use a seeded harness; no random (05 §8)" },
+}
+
+[lint.per-file-ignores]
+"src/supportagent/config/loader.py" = ["TID251"]
+"src/supportagent/adapters/system/*.py" = ["TID251"]
+"tests/**" = ["S101", "ANN401"]
+# Local container service: must bind the container interface for compose.
+"docker/fake_sn.py" = ["S104"]
+
+[lint.isort]
+known-first-party = ["supportagent"]

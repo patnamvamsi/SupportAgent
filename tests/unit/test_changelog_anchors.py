@@ -15,6 +15,7 @@ Resolution rules:
   ``round 2 §4.5``, and the CHANGELOG's own ``### §N`` headings) are review
   history, not spec anchors, and are skipped.
 """
+
 from __future__ import annotations
 
 import re
@@ -42,9 +43,9 @@ def _section_numbers(path: Path) -> set[str]:
     """All ``## N.`` and ``### N.M`` heading numbers of a spec document."""
     numbers: set[str] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
-        if match := re.match(r"^## (\d+)\. ", line):
-            numbers.add(match.group(1))
-        elif match := re.match(r"^### (\d+\.\d+)", line):
+        if (match := re.match(r"^## (\d+)\. ", line)) or (
+            match := re.match(r"^### (\d+\.\d+)", line)
+        ):
             numbers.add(match.group(1))
     return numbers
 

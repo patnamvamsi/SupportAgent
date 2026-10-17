@@ -1,0 +1,57 @@
+# docker compose — 10-wp WP-000: app + postgres + fake-sn.
+#
+#   docker compose -f docker/compose.yaml up
+#     → app prints `0.0.0` (walking-skeleton DoD: `supportagent --version`)
+#     → postgres is healthy on 127.0.0.1:5432 (bound to loopback only)
+#     → fake-sn answers /health on 8081
+#
+# Secrets come from env (05 §1: no secrets in the image or compose file);
+# the values below are local-dev defaults, overridable via environment.
+name: supportagent
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: supportagent:local
+    command: ["--version"]
+    environment:
+      # Env var names are the spec contract (02-interfaces §1:
+      # `url_env: SUPPORTAGENT_DB_URL`); the loader lands with WP-002.
+      SUPPORTAGENT_DB_URL: postgresql+psycopg://supportagent:${POSTGRES_PASSWORD:-supportagent}@postgres:5432/supportagent
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: supportagent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supportagent}
+      POSTGRES_DB: supportagent
+    ports:
+      # Loopback only: this is a local dev database, not a service.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportagent -d supportagent"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  fake-sn:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.fake-sn
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8081/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
