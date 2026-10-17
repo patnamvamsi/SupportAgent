@@ -1,0 +1,28 @@
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Local runtime data and secrets
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+
+# Eval caches (artifacts like calibration.json ARE committed)
+evals/.cache/

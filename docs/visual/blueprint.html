@@ -1,0 +1,787 @@
+<title>SupportAgent Blueprint</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: an engineering field manual. Sticky section rail on top, one reading column (max 1080px),
+   each section = short prose + one diagram that carries the mechanism. Tier colours T0–T3 recur everywhere. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --sunken: #e8ecf0;
+  --ink: #14202a;
+  --muted: #566573;
+  --line: #c4ced8;
+  --accent: #0d6a8c;
+  --gate: #a85400;
+  --gate-soft: #fbeedd;
+  --t0: #2b7a4b;
+  --t1: #1d5fa3;
+  --t2: #a85400;
+  --t3: #a03838;
+  --bad: #b3261e;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e151c; --surface: #15202a; --sunken: #1b2834; --ink: #e3eaf0; --muted: #93a3b1;
+    --line: #2d3c4a; --accent: #5db4d6; --gate: #f0a04b; --gate-soft: #3a2a17;
+    --t0: #6cc08e; --t1: #80b3ec; --t2: #f0a04b; --t3: #ec8b8b; --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e151c; --surface: #15202a; --sunken: #1b2834; --ink: #e3eaf0; --muted: #93a3b1;
+  --line: #2d3c4a; --accent: #5db4d6; --gate: #f0a04b; --gate-soft: #3a2a17;
+  --t0: #6cc08e; --t1: #80b3ec; --t2: #f0a04b; --t3: #ec8b8b; --bad: #ff8a80;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 17px; line-height: 1.55;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--sunken); padding: 0.05em 0.35em; border-radius: 3px; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* top rail */
+.rail { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.rail .wrap { display: flex; align-items: center; gap: 20px; padding-block: 10px; overflow-x: auto; }
+.brand { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.01em; white-space: nowrap; }
+.brand span { color: var(--gate); }
+.rail nav { display: flex; gap: 4px; }
+.rail nav a { font-family: var(--font-display); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
+.rail nav a:hover { color: var(--ink); background: var(--sunken); }
+
+/* hero */
+header.hero .wrap { padding-block: 56px 32px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 40px; align-items: end; }
+.eyebrow { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 0 0 10px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(36px, 6vw, 60px); line-height: 1.02; letter-spacing: -0.025em; margin: 0 0 18px; text-wrap: balance; }
+h1 em { font-style: normal; color: var(--gate); }
+.lede { font-size: 19px; max-width: 60ch; margin: 0; color: var(--ink); }
+.status { border: 1px solid var(--line); background: var(--surface); padding: 16px 18px; border-radius: 6px; font-size: 15px; }
+.status dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+.status dt { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding-top: 2px; }
+.status dd { margin: 0; }
+
+/* sections */
+section { border-top: 1px solid var(--line); }
+section .wrap { padding-block: 52px; }
+h2 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 3.6vw, 34px); letter-spacing: -0.015em; line-height: 1.1; margin: 0 0 10px; text-wrap: balance; }
+h3 { font-family: var(--font-display); font-weight: 700; font-size: 19px; margin: 34px 0 10px; letter-spacing: -0.005em; }
+.sec-intro { max-width: 66ch; color: var(--muted); margin: 0 0 26px; font-size: 18px; }
+p { max-width: 68ch; }
+
+/* figures */
+figure { margin: 22px 0 8px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.fig-scroll svg { display: block; width: 100%; height: auto; min-width: 760px; color: var(--ink); font-family: var(--font-body); }
+figcaption { font-size: 15px; color: var(--muted); margin-top: 10px; max-width: 72ch; }
+
+svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+svg .box-sunk { fill: var(--sunken); stroke: var(--line); stroke-width: 1.2; }
+svg .box-gate { fill: var(--gate-soft); stroke: var(--gate); stroke-width: 2; }
+svg .box-bad { fill: var(--surface); stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 5 4; }
+svg .wire { stroke: currentColor; stroke-width: 1.5; fill: none; }
+svg .wire-dash { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+svg .wire-gate { stroke: var(--gate); stroke-width: 1.8; fill: none; }
+svg .wire-bad { stroke: var(--bad); stroke-width: 1.5; fill: none; }
+svg .t-title { font-family: var(--font-display); font-weight: 700; font-size: 14px; fill: var(--ink); }
+svg .t-sub { font-size: 12px; fill: var(--muted); }
+svg .t-lab { font-size: 11.5px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11px; fill: var(--ink); }
+svg .t-gate { fill: var(--gate); }
+svg .t-bad { fill: var(--bad); font-size: 12px; font-weight: 600; }
+svg .ah { fill: currentColor; }
+svg .ah-gate { fill: var(--gate); }
+svg .ah-bad { fill: var(--bad); }
+svg .ah-muted { fill: var(--muted); }
+
+/* grids & cards */
+.grid { display: grid; gap: 16px; }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; min-width: 0; }
+.card h4 { font-family: var(--font-display); font-weight: 700; font-size: 16px; margin: 0 0 6px; }
+.card p { margin: 0; font-size: 15.5px; color: var(--muted); }
+.inv-id { font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: var(--accent); letter-spacing: 0.02em; display: block; margin-bottom: 4px; }
+
+ul.plain { margin: 0; padding-left: 1.1em; }
+ul.plain li { margin: 4px 0; max-width: 66ch; }
+
+/* tables */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); background: var(--sunken); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--font-mono); font-size: 13px; }
+
+.tier { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 12px; padding: 1px 7px; border-radius: 3px; border: 1px solid currentColor; white-space: nowrap; }
+.tier.t0 { color: var(--t0); } .tier.t1 { color: var(--t1); } .tier.t2 { color: var(--t2); } .tier.t3 { color: var(--t3); } .tier.tx { color: var(--muted); }
+.rel { display: inline-block; font-family: var(--font-mono); font-size: 12px; padding: 1px 6px; border-radius: 3px; background: var(--sunken); color: var(--ink); white-space: nowrap; margin: 1px 2px 1px 0; }
+.rel.opt { color: var(--muted); font-style: italic; }
+
+.tierband { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.tierband > div { padding: 14px 16px; border-right: 1px solid var(--line); min-width: 0; }
+.tierband > div:last-child { border-right: 0; }
+.tierband .tier { margin-bottom: 8px; }
+.tierband h4 { font-family: var(--font-display); font-size: 15px; margin: 0 0 4px; }
+.tierband p { margin: 0 0 8px; font-size: 14.5px; color: var(--muted); }
+.tierband .rule { font-size: 14px; font-weight: 600; margin: 0; color: var(--ink); }
+.tierband > div { border-top: 4px solid transparent; }
+.tierband > .k0 { border-top-color: var(--t0); } .tierband > .k1 { border-top-color: var(--t1); } .tierband > .k2 { border-top-color: var(--t2); } .tierband > .k3 { border-top-color: var(--t3); }
+
+/* filter chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.chips button { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.03em; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.count { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
+
+/* data model */
+.schema { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.schema .card { padding: 14px 16px; }
+.schema h4 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
+.tbl { font-family: var(--font-mono); font-size: 12.5px; margin: 0 0 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.tbl b { color: var(--ink); font-weight: 600; }
+.tbl span { color: var(--muted); }
+.tbl .enf { color: var(--gate); }
+
+/* stack */
+.stack { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.stack > div { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.stack > div:nth-child(odd) { border-right: 1px solid var(--line); }
+.stack dt { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); padding-top: 3px; }
+.stack dd { margin: 0; font-size: 15.5px; }
+.stack dd small { display: block; color: var(--muted); font-size: 14px; }
+.notused { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.notused span { font-size: 14px; border: 1px dashed var(--line); padding: 5px 10px; border-radius: 4px; color: var(--muted); }
+.notused span b { color: var(--ink); font-weight: 600; }
+
+.callout { border-left: 3px solid var(--gate); background: var(--gate-soft); padding: 12px 16px; border-radius: 0 6px 6px 0; max-width: 72ch; font-size: 16px; margin: 18px 0; }
+
+footer .wrap { padding-block: 32px 48px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+
+@media (max-width: 860px) {
+  header.hero .wrap { grid-template-columns: minmax(0, 1fr); }
+  .g3, .schema { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tierband { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tierband > div:nth-child(2) { border-right: 0; }
+  .tierband > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .stack { grid-template-columns: minmax(0, 1fr); }
+  .stack > div:nth-child(odd) { border-right: 0; }
+}
+@media (max-width: 560px) {
+  .g3, .g2, .schema, .tierband { grid-template-columns: minmax(0, 1fr); }
+  .tierband > div { border-right: 0; border-bottom: 1px solid var(--line); }
+  .stack > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  body { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+</style>
+
+<div class="rail">
+  <div class="wrap">
+    <div class="brand">Support<span>Agent</span></div>
+    <nav aria-label="Sections">
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#trust">Trust chain</a>
+      <a href="#rca">RCA</a>
+      <a href="#lifecycle">Lifecycle</a>
+      <a href="#data">Data model</a>
+      <a href="#features">Features</a>
+      <a href="#stack">Tech stack</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+  </div>
+</div>
+
+<header class="hero" id="overview">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Design blueprint · spec frozen for v0.0</p>
+      <h1>An application support analyst that <em>proposes</em>, and a database that decides what executes.</h1>
+      <p class="lede">SupportAgent is a deterministic support pipeline with LLM slots. It triages ServiceNow incidents and alerts, runs bounded root-cause checks, drafts communications, and proposes actions. State-changing and customer-facing actions execute only through a database-enforced approval path.</p>
+    </div>
+    <div class="status" aria-label="Project status">
+      <dl>
+        <dt>Shape</dt><dd>One Docker image, <code>supportagent.yaml</code>, env secrets</dd>
+        <dt>First adapter</dt><dd>ServiceNow (poll-based)</dd>
+        <dt>Storage</dt><dd>SQLite default, Postgres via flag</dd>
+        <dt>Team</dt><dd>2–3 engineers (assumption)</dd>
+        <dt>Timeline</dt><dd>v0.0 wk 1–4 → v1.0 wk 24</dd>
+        <dt>Blocking dep.</dt><dd>Design partner with ≥6 months of incident history</dd>
+      </dl>
+    </div>
+  </div>
+</header>
+
+<section aria-labelledby="h-principle">
+  <div class="wrap">
+    <h2 id="h-principle">The LLM decides content. Code decides control.</h2>
+    <p class="sec-intro">The LLM fills typed slots: a classification label, a severity, a summary, a hypothesis ID. Routing, tiers, budgets, approval and idempotency are deterministic code plus reviewed config. These six invariants are the only guarantees the product makes, and each one has CI tests on both database engines.</p>
+    <div class="grid g3">
+      <div class="card"><span class="inv-id">INV-01 · Gate</span><h4>Nothing executes without one valid authorization</h4><p>A single-use, hash-bound approval; an approved literal-scope grant (internal kinds only); or an approved comms plan (customer comms only). Enforced by DB triggers.</p></div>
+      <div class="card"><span class="inv-id">INV-02 · Dedup</span><h4>One unresolved case per fingerprint</h4><p>A partial unique index plus an upsert. Holds under concurrency and while a human owns the case. Human-filed tickets are never merged.</p></div>
+      <div class="card"><span class="inv-id">INV-03 · Trace</span><h4>Every decision is an event</h4><p>Every side effect, LLM call, tool call and routing decision is an append-only <code>events</code> row with a trace ID. Any case is replayable.</p></div>
+      <div class="card"><span class="inv-id">INV-04 · Idempotency</span><h4>Retries are effectively-once</h4><p>At-least-once delivery with unique outbox keys and read-before-write reconciliation against the target. Zero double-sends is measured in a soak test.</p></div>
+      <div class="card"><span class="inv-id">INV-05 · Safe default</span><h4>Failure routes to a human</h4><p>An LLM timeout, garbage output, classifier conflict or tool failure ends in the human queue with zero unapproved side effects. No crash.</p></div>
+      <div class="card"><span class="inv-id">INV-06 · Redaction</span><h4>Flagged secrets never reach a provider</h4><p>Redaction runs inside the LLM client, so no call site can skip it. Canary tests prove the wiring; detector recall is measured separately.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture" aria-labelledby="h-arch">
+  <div class="wrap">
+    <h2 id="h-arch">How a ticket moves through the system</h2>
+    <p class="sec-intro">Loop A (triage) is linear: no LLM branching. Every step either hands off to the next or drops to a safe default. Loop B (RCA) is the only free-running loop, and it is budgeted.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 300" role="img" aria-label="Pipeline: ServiceNow poll, dedup, classify, route, propose, authorize, outbox, back to ServiceNow or email; side paths to storm grouping, safe default, RCA and comms plan; a sync loop returns changes from ServiceNow.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+            <marker id="a1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-gate"/></marker>
+            <marker id="a1m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-muted"/></marker>
+          </defs>
+
+          <!-- sync loop -->
+          <path class="wire-dash" d="M937 60 V26 H62 V58" marker-end="url(#a1m)"/>
+          <text class="t-lab" x="500" y="20" text-anchor="middle">sync loop: per-change sys_audit history → lifecycle, takeover, feedback (our own writes filtered out)</text>
+
+          <!-- main row -->
+          <rect class="box" x="10" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="62" y="88" text-anchor="middle">ServiceNow</text>
+          <text class="t-sub" x="62" y="106" text-anchor="middle">poll every 60s</text>
+
+          <rect class="box" x="135" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="187" y="88" text-anchor="middle">Dedup</text>
+          <text class="t-sub" x="187" y="106" text-anchor="middle">unique index</text>
+
+          <rect class="box" x="260" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="312" y="88" text-anchor="middle">Classify</text>
+          <text class="t-sub" x="312" y="106" text-anchor="middle">rules ∥ LLM</text>
+
+          <rect class="box" x="385" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="437" y="88" text-anchor="middle">Route</text>
+          <text class="t-sub" x="437" y="106" text-anchor="middle">config table</text>
+
+          <rect class="box" x="510" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="562" y="88" text-anchor="middle">Propose</text>
+          <text class="t-sub" x="562" y="106" text-anchor="middle">typed actions</text>
+
+          <rect class="box-gate" x="635" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title t-gate" x="687" y="88" text-anchor="middle">Authorize</text>
+          <text class="t-sub" x="687" y="106" text-anchor="middle">approval · grant · plan</text>
+
+          <rect class="box" x="760" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="812" y="88" text-anchor="middle">Outbox</text>
+          <text class="t-sub" x="812" y="106" text-anchor="middle">DB triggers</text>
+
+          <rect class="box" x="885" y="60" width="105" height="64" rx="5"/>
+          <text class="t-title" x="937" y="88" text-anchor="middle">ServiceNow</text>
+          <text class="t-sub" x="937" y="106" text-anchor="middle">or email</text>
+
+          <path class="wire" d="M115 92 H133" marker-end="url(#a1)"/>
+          <path class="wire" d="M240 92 H258" marker-end="url(#a1)"/>
+          <path class="wire" d="M365 92 H383" marker-end="url(#a1)"/>
+          <path class="wire" d="M490 92 H508" marker-end="url(#a1)"/>
+          <path class="wire-gate" d="M615 92 H633" marker-end="url(#a1g)"/>
+          <path class="wire-gate" d="M740 92 H758" marker-end="url(#a1g)"/>
+          <path class="wire" d="M865 92 H883" marker-end="url(#a1)"/>
+
+          <!-- side paths -->
+          <path class="wire" d="M187 124 V198" marker-end="url(#a1)"/>
+          <text class="t-lab" x="193" y="166">storm</text>
+          <rect class="box-sunk" x="130" y="200" width="115" height="56" rx="5"/>
+          <text class="t-title" x="187" y="224" text-anchor="middle">Storm grouping</text>
+          <text class="t-sub" x="187" y="242" text-anchor="middle">case_groups, no LLM</text>
+
+          <path class="wire" d="M312 124 V198" marker-end="url(#a1)"/>
+          <text class="t-lab" x="318" y="166">unsure</text>
+          <rect class="box-sunk" x="255" y="200" width="115" height="56" rx="5"/>
+          <text class="t-title" x="312" y="224" text-anchor="middle">Safe default</text>
+          <text class="t-sub" x="312" y="242" text-anchor="middle">human queue</text>
+
+          <path class="wire" d="M437 124 V198" marker-end="url(#a1)"/>
+          <text class="t-lab" x="443" y="166">rca: lite</text>
+          <rect class="box-sunk" x="380" y="200" width="115" height="56" rx="5"/>
+          <text class="t-title" x="437" y="224" text-anchor="middle">Loop B: RCA</text>
+          <text class="t-sub" x="437" y="242" text-anchor="middle">budgeted, read-only</text>
+
+          <path class="wire" d="M562 124 V198" marker-end="url(#a1)"/>
+          <text class="t-lab" x="568" y="166">comms</text>
+          <rect class="box-sunk" x="505" y="200" width="115" height="56" rx="5"/>
+          <text class="t-title" x="562" y="224" text-anchor="middle">Comms plan</text>
+          <text class="t-sub" x="562" y="242" text-anchor="middle">cadence, template</text>
+
+          <path class="wire-gate" d="M620 228 H687 V126" marker-end="url(#a1g)"/>
+          <text class="t-lab" x="694" y="200">plan approval</text>
+
+          <text class="t-lab" x="10" y="290">Solid: Loop A hand-off. Amber: the authorization path. Dashed: data coming back from ServiceNow.</text>
+        </svg>
+      </div>
+      <figcaption>Every action leaves through the Authorize → Outbox path, including comms. Classify drops to the safe default on a classifier conflict, a calibrated score below the floor, or an LLM-only P1/P2. Storm grouping links cases across services under one group, so a storm gets one triage and one RCA rather than one per alert.</figcaption>
+    </figure>
+
+    <h3>Where redaction lives</h3>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 780 180" role="img" aria-label="Five LLM call sites all pass through LLMClient.structured, which renders, redacts, then sends to the provider. The placeholder map stays local.">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+          </defs>
+          <rect class="box" x="10" y="12" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="29" text-anchor="middle">classify</text>
+          <rect class="box" x="10" y="44" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="61" text-anchor="middle">propose_hypotheses</text>
+          <rect class="box" x="10" y="76" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="93" text-anchor="middle">entail</text>
+          <rect class="box" x="10" y="108" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="125" text-anchor="middle">rerank</text>
+          <rect class="box" x="10" y="140" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="157" text-anchor="middle">draft_comms</text>
+
+          <path class="wire" d="M150 25 L208 74" marker-end="url(#a2)"/>
+          <path class="wire" d="M150 57 L208 82" marker-end="url(#a2)"/>
+          <path class="wire" d="M150 89 H208" marker-end="url(#a2)"/>
+          <path class="wire" d="M150 121 L208 96" marker-end="url(#a2)"/>
+          <path class="wire" d="M150 153 L208 104" marker-end="url(#a2)"/>
+
+          <rect class="box" x="210" y="40" width="330" height="100" rx="6"/>
+          <text class="t-mono" x="225" y="60">LLMClient.structured()</text>
+          <rect class="box-sunk" x="225" y="74" width="85" height="44" rx="4"/><text class="t-title" x="267" y="101" text-anchor="middle">render</text>
+          <rect class="box-gate" x="330" y="74" width="85" height="44" rx="4"/><text class="t-title t-gate" x="372" y="101" text-anchor="middle">redact</text>
+          <rect class="box-sunk" x="435" y="74" width="90" height="44" rx="4"/><text class="t-title" x="480" y="101" text-anchor="middle">send</text>
+          <path class="wire" d="M310 96 H328" marker-end="url(#a2)"/>
+          <path class="wire" d="M415 96 H433" marker-end="url(#a2)"/>
+
+          <path class="wire" d="M540 90 H598" marker-end="url(#a2)"/>
+          <rect class="box" x="600" y="64" width="160" height="52" rx="5"/>
+          <text class="t-title" x="680" y="86" text-anchor="middle">LLM provider</text>
+          <text class="t-sub" x="680" y="104" text-anchor="middle">pinned snapshot ID</text>
+
+          <text class="t-lab" x="372" y="160" text-anchor="middle">placeholder map stays local, never in the trace</text>
+        </svg>
+      </div>
+      <figcaption>There is one path to a provider. Adding a new LLM slot means calling <code>structured()</code>, which redacts by construction. A CI canary test plants synthetic secrets in tickets and logs and checks that none appear in any captured provider request.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="trust" aria-labelledby="h-trust">
+  <div class="wrap">
+    <h2 id="h-trust">The trust chain</h2>
+    <p class="sec-intro">Every action kind has a tier, assigned at registration and never inferred at runtime. The tier decides which authorization paths exist for that kind.</p>
+
+    <div class="tierband" role="list">
+      <div class="k0" role="listitem"><span class="tier t0">T0</span><h4>Read and analyze</h4><p>Log reads, job status, RCA, drafting, case-memory retrieval.</p><p class="rule">Autonomous, traced, budgeted.</p></div>
+      <div class="k1" role="listitem"><span class="tier t1">T1</span><h4>Internal, low blast radius</h4><p><code>work_note</code>, <code>enrich_page</code>, <code>watch_list_add_internal</code>.</p><p class="rule">Allowed after the customer admin approves the default grants at setup.</p></div>
+      <div class="k2" role="listitem"><span class="tier t2">T2</span><h4>State-changing or customer-facing</h4><p>Job re-runs, ticket updates, <code>customer_comment</code>, customer email.</p><p class="rule">Always gated. Customer-facing kinds are never grant-authorized.</p></div>
+      <div class="k3" role="listitem"><span class="tier t3">T3</span><h4>Self-modification</h4><p>Learned runbooks, KB articles, prompt patches.</p><p class="rule">Gated, eval-gated on a disjoint holdout, versioned, one-command rollback.</p></div>
+    </div>
+
+    <h3>Three ways into the outbox, and what the trigger refuses</h3>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 920 270" role="img" aria-label="Approval, policy grant and comms plan each feed the INSERT trigger, which either writes an immutable outbox row or aborts. The executor re-hashes the payload before sending.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+            <marker id="a3b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-bad"/></marker>
+            <marker id="a3g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-gate"/></marker>
+          </defs>
+          <rect class="box" x="10" y="18" width="220" height="56" rx="5"/>
+          <text class="t-title" x="24" y="41">Approval</text>
+          <text class="t-sub" x="24" y="60">single-use, payload-hash bound</text>
+          <rect class="box" x="10" y="100" width="220" height="56" rx="5"/>
+          <text class="t-title" x="24" y="123">Policy grant</text>
+          <text class="t-sub" x="24" y="142">approved, literal scope, internal kinds</text>
+          <rect class="box" x="10" y="182" width="220" height="56" rx="5"/>
+          <text class="t-title" x="24" y="205">Comms plan</text>
+          <text class="t-sub" x="24" y="224">approved, template-bound, customer comms</text>
+
+          <path class="wire" d="M230 46 L298 104" marker-end="url(#a3)"/>
+          <path class="wire" d="M230 128 H298" marker-end="url(#a3)"/>
+          <path class="wire" d="M230 210 L298 152" marker-end="url(#a3)"/>
+
+          <rect class="box-gate" x="300" y="84" width="190" height="88" rx="6"/>
+          <text class="t-title t-gate" x="395" y="112" text-anchor="middle">INSERT trigger</text>
+          <text class="t-sub" x="395" y="132" text-anchor="middle">exactly one valid</text>
+          <text class="t-sub" x="395" y="149" text-anchor="middle">authorization</text>
+
+          <path class="wire-gate" d="M490 128 H558" marker-end="url(#a3g)"/>
+          <text class="t-lab" x="524" y="120" text-anchor="middle">valid</text>
+          <rect class="box" x="560" y="100" width="160" height="56" rx="5"/>
+          <text class="t-title" x="640" y="123" text-anchor="middle">Outbox row</text>
+          <text class="t-sub" x="640" y="142" text-anchor="middle">immutable after insert</text>
+
+          <path class="wire" d="M720 128 H758" marker-end="url(#a3)"/>
+          <rect class="box" x="760" y="100" width="150" height="56" rx="5"/>
+          <text class="t-title" x="835" y="123" text-anchor="middle">Executor</text>
+          <text class="t-sub" x="835" y="142" text-anchor="middle">re-hash, then send</text>
+
+          <path class="wire-bad" d="M395 172 V206" marker-end="url(#a3b)"/>
+          <rect class="box-bad" x="300" y="208" width="190" height="50" rx="5"/>
+          <text class="t-bad" x="395" y="230" text-anchor="middle">RAISE ABORT</text>
+          <text class="t-sub" x="395" y="248" text-anchor="middle">INV-01 violated</text>
+
+          <text class="t-lab" x="510" y="222">refused: rejected / expired / reused approval,</text>
+          <text class="t-lab" x="510" y="238">hash mismatch, pending or out-of-scope grant,</text>
+          <text class="t-lab" x="510" y="254">customer kind via grant, revoked plan, create_page</text>
+        </svg>
+      </div>
+      <figcaption>The trigger is the enforcement point, not the prompt or middleware. A second trigger blocks any UPDATE to payload or authorization columns, and approving your own proposal or grant is refused by the schema. All of this was run against SQLite during the spec review.</figcaption>
+    </figure>
+
+    <h3>Proposal state</h3>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 900 190" role="img" aria-label="Proposal states: proposed, pending approval, approved, executed; pending can also become rejected or expired after 24 hours.">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+          </defs>
+          <rect class="box" x="10" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="80" y="66" text-anchor="middle">proposed</text>
+          <rect class="box" x="210" y="40" width="170" height="44" rx="22"/><text class="t-mono" x="295" y="66" text-anchor="middle">pending_approval</text>
+          <rect class="box-gate" x="450" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="520" y="66" text-anchor="middle">approved</text>
+          <rect class="box" x="670" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="740" y="66" text-anchor="middle">executed</text>
+          <path class="wire" d="M150 62 H208" marker-end="url(#a4)"/><text class="t-lab" x="179" y="32" text-anchor="middle">submit</text>
+          <path class="wire" d="M380 62 H448" marker-end="url(#a4)"/><text class="t-lab" x="414" y="32" text-anchor="middle">approver ≠ creator</text>
+          <path class="wire" d="M590 62 H668" marker-end="url(#a4)"/><text class="t-lab" x="629" y="32" text-anchor="middle">outbox insert</text>
+
+          <rect class="box-sunk" x="150" y="130" width="130" height="40" rx="20"/><text class="t-mono" x="215" y="155" text-anchor="middle">rejected</text>
+          <rect class="box-sunk" x="320" y="130" width="130" height="40" rx="20"/><text class="t-mono" x="385" y="155" text-anchor="middle">expired</text>
+          <path class="wire" d="M265 84 L230 128" marker-end="url(#a4)"/><text class="t-lab" x="186" y="112">reason required</text>
+          <path class="wire" d="M325 84 L370 128" marker-end="url(#a4)"/><text class="t-lab" x="360" y="112">24h TTL</text>
+          <text class="t-lab" x="740" y="108" text-anchor="middle">an approval authorizes once</text>
+        </svg>
+      </div>
+      <figcaption>Silence is never consent: an unapproved proposal expires. The move to <code>executed</code> happens in the same transaction as the outbox insert, so the same approval cannot authorize a second row.</figcaption>
+    </figure>
+
+    <div class="callout"><strong>Paging is enrich-only in v0.x.</strong> The customer's own monitoring pages people. <code>enrich_page</code> attaches context to an existing page. <code>create_page</code> exists only so the trigger can forbid it, and <code>doctor</code> refuses to triage a service that has no external paging integration.</div>
+  </div>
+</section>
+
+<section id="rca" aria-labelledby="h-rca">
+  <div class="wrap">
+    <h2 id="h-rca">Root cause analysis: a plan of checks, not a chat</h2>
+    <p class="sec-intro">A runbook is the plan when one matches. Otherwise the LLM may only pick hypothesis IDs from a fixed taxonomy, and each needs a registered probe. Evidence checks are CEL expressions compiled in CI, never Python strings.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 920 200" role="img" aria-label="RCA: match a runbook or let the LLM pick taxonomy IDs with registered probes; run each step with a read-only tool and a CEL check under a budget; reduce to one of three categorical outcomes.">
+          <defs>
+            <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+          </defs>
+          <rect class="box" x="10" y="74" width="130" height="52" rx="5"/>
+          <text class="t-mono" x="75" y="98" text-anchor="middle">kb.match(case)</text>
+          <text class="t-sub" x="75" y="116" text-anchor="middle">runbook?</text>
+
+          <path class="wire" d="M140 90 L198 46" marker-end="url(#a5)"/><text class="t-lab" x="160" y="58">yes</text>
+          <path class="wire" d="M140 110 L198 154" marker-end="url(#a5)"/><text class="t-lab" x="160" y="150">no</text>
+
+          <rect class="box" x="200" y="18" width="190" height="52" rx="5"/>
+          <text class="t-title" x="295" y="40" text-anchor="middle">Runbook steps</text>
+          <text class="t-sub" x="295" y="58" text-anchor="middle">YAML, ordered, $service.* args</text>
+          <rect class="box" x="200" y="130" width="190" height="52" rx="5"/>
+          <text class="t-title" x="295" y="152" text-anchor="middle">LLM picks IDs</text>
+          <text class="t-sub" x="295" y="170" text-anchor="middle">taxonomy only → registered probes</text>
+
+          <path class="wire" d="M390 44 L448 88" marker-end="url(#a5)"/>
+          <path class="wire" d="M390 156 L448 112" marker-end="url(#a5)"/>
+
+          <rect class="box" x="450" y="70" width="170" height="60" rx="5"/>
+          <text class="t-title" x="535" y="94" text-anchor="middle">Run step</text>
+          <text class="t-sub" x="535" y="113" text-anchor="middle">read-only tool + CEL check</text>
+          <path class="wire" d="M500 70 C 500 30, 570 30, 570 68" marker-end="url(#a5)"/>
+          <text class="t-lab" x="535" y="26" text-anchor="middle">next step, until budget or stop_if</text>
+
+          <path class="wire" d="M620 100 H668" marker-end="url(#a5)"/>
+          <rect class="box" x="670" y="74" width="90" height="52" rx="5"/>
+          <text class="t-mono" x="715" y="104" text-anchor="middle">reduce()</text>
+
+          <path class="wire" d="M760 92 L788 44" marker-end="url(#a5)"/>
+          <path class="wire" d="M760 100 H788" marker-end="url(#a5)"/>
+          <path class="wire" d="M760 108 L788 156" marker-end="url(#a5)"/>
+          <rect class="box" x="790" y="26" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="46" text-anchor="middle">SUPPORTED</text>
+          <rect class="box" x="790" y="84" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="104" text-anchor="middle" style="font-size:9.5px">CONSISTENT_UNCONF.</text>
+          <rect class="box" x="790" y="142" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="162" text-anchor="middle">INCONCLUSIVE</text>
+        </svg>
+      </div>
+      <figcaption>Outcomes describe evidence, not cause. SUPPORTED means evidence consistent with the hypothesis exists. RCA outcomes never drive customer comms in v0.x; statements about cause are written by a human.</figcaption>
+    </figure>
+
+    <div class="grid g2" style="margin-top:18px">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>reduce() condition, in order</th><th>Outcome</th></tr></thead>
+          <tbody>
+            <tr><td>Two passing steps whose hypotheses exclude each other</td><td><code>INCONCLUSIVE</code></td></tr>
+            <tr><td>At least one passing step, no declared conflict</td><td><code>SUPPORTED</code></td></tr>
+            <tr><td>All steps ran, none passed</td><td><code>CONSISTENT_UNCONFIRMED</code></td></tr>
+            <tr><td>Budget exhausted, a tool failed, plan incomplete</td><td><code>INCONCLUSIVE</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h4>Budgets and guards</h4>
+        <ul class="plain" style="font-size:15.5px">
+          <li>Lite: ≤ 5 tool calls, ≤ 3k tokens, ≤ 3 hypotheses. Deep: ≤ 25 calls (provisional).</li>
+          <li>Each claim gets an entailment check: <code>supports</code>, <code>contradicts</code> or <code>unknown</code>. Anything but <code>supports</code> is tagged speculation.</li>
+          <li>A hypothesis can only be SUPPORTED by a registered tool. No change feed means no "recent change" support.</li>
+          <li>During a change freeze, the recent-change prior is zeroed and logged.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="lifecycle" aria-labelledby="h-life">
+  <div class="wrap">
+    <h2 id="h-life">Case lifecycle and human takeover</h2>
+    <p class="sec-intro">ServiceNow is polled with an overlap window, and changes are read from <code>sys_audit</code> history with their actor. Only a human actor counts as takeover; assignment rules and other automation users are excluded by a list confirmed at onboarding.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 900 190" role="img" aria-label="Case states open, triaged, in progress, human owned, resolved; reopened returns to in progress; the dedup index covers every state except resolved.">
+          <defs>
+            <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+          </defs>
+          <rect class="box" x="10" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="75" y="66" text-anchor="middle">open</text>
+          <rect class="box" x="185" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="250" y="66" text-anchor="middle">triaged</text>
+          <rect class="box" x="360" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="425" y="66" text-anchor="middle">in_progress</text>
+          <rect class="box-gate" x="535" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="605" y="66" text-anchor="middle">human_owned</text>
+          <rect class="box-sunk" x="740" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="805" y="66" text-anchor="middle">resolved</text>
+          <path class="wire" d="M140 62 H183" marker-end="url(#a6)"/><text class="t-lab" x="162" y="32" text-anchor="middle">classified</text>
+          <path class="wire" d="M315 62 H358" marker-end="url(#a6)"/><text class="t-lab" x="337" y="32" text-anchor="middle">work</text>
+          <path class="wire" d="M490 62 H533" marker-end="url(#a6)"/><text class="t-lab" x="512" y="32" text-anchor="middle">human actor</text>
+          <path class="wire" d="M675 62 H738" marker-end="url(#a6)"/><text class="t-lab" x="707" y="32" text-anchor="middle">resolved</text>
+          <path class="wire" d="M805 84 C 805 130, 425 130, 425 86" marker-end="url(#a6)"/>
+          <text class="t-lab" x="615" y="124" text-anchor="middle">reopened</text>
+          <path class="wire-dash" d="M10 160 H675"/>
+          <path class="wire-dash" d="M10 152 V168 M675 152 V168"/>
+          <text class="t-lab" x="342" y="182" text-anchor="middle">covered by the dedup index (status ≠ resolved): duplicates attach here, never a second case</text>
+        </svg>
+      </div>
+      <figcaption>Under <code>human_owned</code> the agent stops proposing and sending, and shows due cadence updates as drafts for the owner. It resumes only on explicit hand-back: the ticket is reassigned to the integration user, or a human clicks "hand back".</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="data" aria-labelledby="h-data">
+  <div class="wrap">
+    <h2 id="h-data">Data model</h2>
+    <p class="sec-intro">Every table carries <code>tenant_id</code> from day one. Amber marks where an invariant is enforced in the schema. Triggers ship in both SQLite and PL/pgSQL dialects.</p>
+    <div class="schema">
+      <div class="card">
+        <h4>Cases and dedup</h4>
+        <p class="tbl"><b>cases</b> <span>fingerprint, classification, severity, status, group_id, service, duplicate_count</span><br><span class="enf">UNIQUE (tenant, fingerprint) WHERE status ≠ resolved</span></p>
+        <p class="tbl"><b>case_groups</b> <span>rule, member_count, opened/closed</span></p>
+        <p class="tbl"><b>alerts</b> <span>case_id, adapter, payload_ref (encrypted)</span></p>
+      </div>
+      <div class="card">
+        <h4>Gate and outbox</h4>
+        <p class="tbl"><b>proposals</b> <span>action_kind, scope, payload_hash, status, created_by</span></p>
+        <p class="tbl"><b>approvals</b> <span>proposal_id, approver_id → users, payload_hash</span><br><span class="enf">trg_no_self_approval</span></p>
+        <p class="tbl"><b>outbox</b> <span>idempotency_key UNIQUE, approval_id UNIQUE | policy_grant_id | comms_plan_id</span><br><span class="enf">exactly one auth · INSERT + UPDATE triggers</span></p>
+      </div>
+      <div class="card">
+        <h4>Identity and grants</h4>
+        <p class="tbl"><b>users</b> <span>id = OIDC sub</span></p>
+        <p class="tbl"><b>role_assignments</b> <span>viewer · analyst · approver · admin</span></p>
+        <p class="tbl"><b>policy_grants</b> <span>literal scope, status requested → approved, requested_by, granted_by, valid_to</span><br><span class="enf">CHECK granted_by ≠ requested_by</span></p>
+      </div>
+      <div class="card">
+        <h4>Comms</h4>
+        <p class="tbl"><b>comms_plans</b> <span>template_id, allowed_fields (with source), cadence, plan_hash, approval_id</span></p>
+        <p class="tbl"><b>comms</b> <span>history only; outbox_id UNIQUE</span></p>
+      </div>
+      <div class="card">
+        <h4>Sync and catalog</h4>
+        <p class="tbl"><b>sync_cursors</b> <span>per table, DB lease</span></p>
+        <p class="tbl"><b>sync_seen</b> <span>PK (sys_id, sys_mod_count)</span></p>
+        <p class="tbl"><b>services</b> <span>repos, log_paths, dags, cmdb_ci, oncall, owners, depends_on</span></p>
+        <p class="tbl"><b>automation_actors</b> <span>confirmed_by → users</span></p>
+      </div>
+      <div class="card">
+        <h4>Trace, knowledge, learning</h4>
+        <p class="tbl"><b>events</b> <span>append-only; trace/span ids, model, tokens, latency</span></p>
+        <p class="tbl"><b>nodes · edges</b> <span>derived graph: cites, resolved_by, similar</span></p>
+        <p class="tbl"><b>feedback</b> <span>approval · diff · outcome</span></p>
+        <p class="tbl"><b>versions</b> <span>eval_report, holdout_disjoint_check</span></p>
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:15px;margin-top:16px">Retention is per-tenant config. Raw payloads are encrypted with a per-tenant key, so deleting a tenant destroys the key and leaves backups unreadable.</p>
+  </div>
+</section>
+
+<section id="features" aria-labelledby="h-feat">
+  <div class="wrap">
+    <h2 id="h-feat">Features</h2>
+    <p class="sec-intro">Twenty-two capabilities, grouped in four layers: cognition, execution, extension and learning. Filter by the release in which each one lands.</p>
+    <div class="chips" role="group" aria-label="Filter by release">
+      <button type="button" id="f-all" data-f="all" aria-pressed="true">All</button>
+      <button type="button" id="f-v00" data-f="v0.0" aria-pressed="false">v0.0</button>
+      <button type="button" id="f-v01" data-f="v0.1" aria-pressed="false">v0.1</button>
+      <button type="button" id="f-v02" data-f="v0.2" aria-pressed="false">v0.2</button>
+      <button type="button" id="f-v03" data-f="v0.3" aria-pressed="false">v0.3</button>
+    </div>
+    <p class="count" id="feat-count" aria-live="polite">Showing 22 of 22</p>
+    <div class="tbl-wrap">
+      <table id="feat-table">
+        <thead><tr><th>ID</th><th>Capability</th><th>Tier</th><th>Release</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr data-r="v0.1"><td class="num">C1</td><td>Incident triage</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Classification, severity and routing, with a rules cross-check and an LLM-only P1/P2 cap</td></tr>
+          <tr data-r="v0.1 v0.2"><td class="num">C2</td><td>Root cause analysis</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 lite</span><span class="rel">v0.2 deep</span></td><td>Budgeted plan of read-only checks reduced to a categorical outcome</td></tr>
+          <tr data-r="v0.2"><td class="num">C3</td><td>Cross-incident correlation</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.2</span></td><td>Links incidents that share a change or resource; one deep RCA for all</td></tr>
+          <tr data-r="v0.1"><td class="num">C4</td><td>Comms engine</td><td><span class="tier t1">T1</span> <span class="tier t2">T2</span></td><td><span class="rel">v0.1</span></td><td>Approved plans with cadence; auto-sent fields only from human-set record state</td></tr>
+          <tr data-r="v0.1 v0.2"><td class="num">C5</td><td>Duty loop</td><td><span class="tier t1">T1</span></td><td><span class="rel">v0.1 basic</span><span class="rel">v0.2 PIR</span></td><td>SLA countdowns, stale-owner pings, post-incident review drafts</td></tr>
+          <tr data-r="v0.2"><td class="num">C6</td><td>Job re-run decisions</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.2</span></td><td>Evidence-mandatory Airflow / GitHub Actions re-run proposals</td></tr>
+          <tr data-r="v0.2"><td class="num">C7</td><td>Service requests</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.2</span></td><td>Catalog mapping and templates; parameter questions are gated customer comments</td></tr>
+          <tr data-r="v0.1"><td class="num">C8</td><td>Ticket operations</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.1</span></td><td>ServiceNow work notes, comments and field updates, always via the outbox</td></tr>
+          <tr data-r="v0.2"><td class="num">C9</td><td>MCP tool integration</td><td><span class="tier tx">per tool</span></td><td><span class="rel">v0.2</span></td><td>Declared tools only, trust-classed at registration</td></tr>
+          <tr data-r="v0.1"><td class="num">C10</td><td>Runbooks and playbooks</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 static</span></td><td>Executable YAML runbooks with CEL checks, plus prose for humans</td></tr>
+          <tr data-r="v0.1"><td class="num">C11</td><td>Feedback capture</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Approval reasons, proposal-vs-reality diffs and outcomes from audit history</td></tr>
+          <tr data-r="v0.1"><td class="num">C12</td><td>Case memory</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>"We've seen this before", always with a case ID citation</td></tr>
+          <tr data-r="v0.2"><td class="num">C13</td><td>Runbook distillation</td><td><span class="tier t3">T3</span></td><td><span class="rel">v0.2</span></td><td>Recurring approved sequences become draft runbooks, gated on a disjoint holdout</td></tr>
+          <tr data-r="v0.3"><td class="num">C14</td><td>Prompt/KB evolution</td><td><span class="tier t3">T3</span></td><td><span class="rel opt">v0.3 optional</span></td><td>Research track: feedback → candidate patch → eval gate → rollback</td></tr>
+          <tr data-r="v0.2"><td class="num">C15</td><td>Knowledge capture</td><td><span class="tier t3">T3</span></td><td><span class="rel">v0.2</span></td><td>Resolved cases become draft KB articles for human review</td></tr>
+          <tr data-r="v0.0 v0.1"><td class="num">C16</td><td>Shadow mode and trust ramp</td><td><span class="tier tx">—</span></td><td><span class="rel">v0.0 run</span><span class="rel">v0.1 gate</span></td><td>Runs without acting; promotion gated on a confidence lower bound</td></tr>
+          <tr data-r="v0.2"><td class="num">C17</td><td>Simulate / dry-run</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.2</span></td><td>Predicted effects and blast radius on the approval screen</td></tr>
+          <tr data-r="v0.0"><td class="num">C18</td><td>PII/secret redaction</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.0</span></td><td>Inside the LLM client; canary-tested, recall measured</td></tr>
+          <tr data-r="v0.1"><td class="num">C19</td><td>Sync and human takeover</td><td><span class="tier t0">T0</span> <span class="tier t1">T1</span></td><td><span class="rel">v0.1</span></td><td>Audit-history sync; human actors take over, the agent goes quiet</td></tr>
+          <tr data-r="v0.1"><td class="num">C20</td><td>Alert-storm handling</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Deterministic case groups and an LLM spend breaker</td></tr>
+          <tr data-r="v0.0 v0.1 v0.2"><td class="num">C21</td><td>Approver RBAC</td><td><span class="tier tx">policy</span></td><td><span class="rel">v0.0 identity</span><span class="rel">v0.1 roles</span><span class="rel">v0.2 two-person</span></td><td>OIDC identities, no self-approval, two-person rule for high risk</td></tr>
+          <tr data-r="v0.1 v0.2"><td class="num">C22</td><td>Value baselines</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 shadow</span><span class="rel">v0.2 assisted</span></td><td>Counterfactual in shadow; treatment-vs-control MTTA/MTTR when assisted</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="stack" aria-labelledby="h-stack">
+  <div class="wrap">
+    <h2 id="h-stack">Tech stack</h2>
+    <p class="sec-intro">Chosen for one container that a stranger can start in under 15 minutes on a ServiceNow developer instance, and for invariants that live in the database.</p>
+    <dl class="stack">
+      <div><dt>Language</dt><dd>Python 3.12<small>uv, ruff, pytest, Typer CLI</small></dd></div>
+      <div><dt>API and UI</dt><dd>FastAPI + HTMX admin<small>approvals, stats, graph view; no SPA build</small></dd></div>
+      <div><dt>Contracts</dt><dd>Pydantic v2<small>AlertEvent, TriageResult, Action; one action-kind enum</small></dd></div>
+      <div><dt>Storage</dt><dd>SQLite default, Postgres via flag<small>SQLAlchemy + Alembic; triggers in both dialects</small></dd></div>
+      <div><dt>Search</dt><dd>SQLite FTS5 (BM25)<small>normalized-signature index; optional sqlite-vec</small></dd></div>
+      <div><dt>LLM</dt><dd>Thin LLMClient<small>OpenAI / Anthropic / Ollama; JSON-schema output; pinned snapshot IDs</small></dd></div>
+      <div><dt>Runbook checks</dt><dd>CEL (cel-python)<small>compiled in CI against tool result schemas</small></dd></div>
+      <div><dt>Tools</dt><dd>First-party in-process<small>logs, Airflow, GitHub Actions, ServiceNow, one change feed; MCP SDK in v0.2</small></dd></div>
+      <div><dt>Scheduling</dt><dd>DB-backed lease<small>cadence, expiry sweeps, sync polls; safe with replicas</small></dd></div>
+      <div><dt>Durability</dt><dd>Litestream<small>WAL replication from v0.1; CI-tested PITR in v0.2</small></dd></div>
+      <div><dt>Tracing</dt><dd>Own append-only store<small>optional OTLP export to Tempo or LangSmith</small></dd></div>
+      <div><dt>Packaging</dt><dd>One Docker image<small><code>doctor</code>, <code>eval</code>, <code>replay</code>, <code>stats</code> CLIs</small></dd></div>
+    </dl>
+    <div class="notused" aria-label="Deliberately not used">
+      <span><b>Not LangGraph/CrewAI:</b> the state machine is the product</span>
+      <span><b>Not Kafka:</b> the outbox suffices</span>
+      <span><b>Not K8s/Helm:</b> single container first; Helm in v0.3</span>
+      <span><b>No managed vector DB:</b> FTS5 + signatures first</span>
+      <span><b>LangSmith:</b> export target, not a dependency</span>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap" aria-labelledby="h-road">
+  <div class="wrap">
+    <h2 id="h-road">Roadmap</h2>
+    <p class="sec-intro">Twenty-four weeks for 2–3 engineers. Every numeric threshold is provisional until the v0.0 shadow run on the partner's real tickets sets it.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 470" role="img" aria-label="Gantt chart of phases 0 to 12 across 24 weeks, grouped into releases v0.0 through v1.0.">
+          <!-- week grid: x = 190 + (w-1)*32, width per week 32 -->
+          <g class="t-lab">
+            <text x="206" y="22" text-anchor="middle">1</text>
+            <text x="334" y="22" text-anchor="middle">5</text>
+            <text x="494" y="22" text-anchor="middle">10</text>
+            <text x="654" y="22" text-anchor="middle">15</text>
+            <text x="814" y="22" text-anchor="middle">20</text>
+            <text x="942" y="22" text-anchor="middle">24</text>
+            <text x="10" y="22">week</text>
+          </g>
+          <path class="wire-dash" d="M318 30 V460 M574 30 V460 M766 30 V460"/>
+          <text class="t-lab" x="254" y="452" text-anchor="middle">v0.0</text>
+          <text class="t-lab" x="446" y="452" text-anchor="middle">v0.1</text>
+          <text class="t-lab" x="670" y="452" text-anchor="middle">v0.2</text>
+          <text class="t-lab" x="862" y="452" text-anchor="middle">v1.0</text>
+
+          <g>
+            <text class="t-sub" x="10" y="52">P0 Foundations</text><rect x="190" y="40" width="32" height="18" rx="3" style="fill:var(--accent)"/>
+            <text class="t-sub" x="10" y="78">P1 Trust chain</text><rect x="222" y="66" width="96" height="18" rx="3" style="fill:var(--accent)"/>
+            <text class="t-sub" x="10" y="104">P2 Takeover + comms</text><rect x="318" y="92" width="96" height="18" rx="3" style="fill:var(--t1)"/>
+            <text class="t-sub" x="10" y="130">P3 Evals + CI gate</text><rect x="350" y="118" width="96" height="18" rx="3" style="fill:var(--t1)"/>
+            <text class="t-sub" x="10" y="156">P4 Resilience</text><rect x="382" y="144" width="96" height="18" rx="3" style="fill:var(--t1)"/>
+            <text class="t-sub" x="10" y="182">P5 Memory, RCA, storm</text><rect x="414" y="170" width="96" height="18" rx="3" style="fill:var(--t1)"/>
+            <text class="t-sub" x="10" y="208">P6 Shadow + product</text><rect x="478" y="196" width="96" height="18" rx="3" style="fill:var(--t1)"/>
+            <text class="t-sub" x="10" y="234">P7 Job re-runs</text><rect x="574" y="222" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="260">P8 Service requests</text><rect x="606" y="248" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="286">P9 Deep RCA + sources</text><rect x="638" y="274" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="312">P9b MCP</text><rect x="638" y="300" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="338">P10 Runbook learning</text><rect x="670" y="326" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="364">P10b Trust + assisted</text><rect x="670" y="352" width="96" height="18" rx="3" style="fill:var(--t2)"/>
+            <text class="t-sub" x="10" y="390">P11 Prompt evolution</text><rect x="766" y="378" width="96" height="18" rx="3" class="box-bad" style="stroke:var(--t3)"/>
+            <text class="t-lab" x="868" y="391">optional</text>
+            <text class="t-sub" x="10" y="416">P12 Hardening</text><rect x="862" y="404" width="96" height="18" rx="3" style="fill:var(--t3)"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Overlapping bars are parallel workstreams. Prompt evolution (dashed) is the first thing to slip, and the v1.0 exit does not depend on it.</figcaption>
+    </figure>
+
+    <div class="tbl-wrap" style="margin-top:20px">
+      <table>
+        <thead><tr><th>Release</th><th>Weeks</th><th>Exit story</th></tr></thead>
+        <tbody>
+          <tr><td><span class="rel">v0.0</span></td><td class="num">1–4</td><td>Full trust chain on ServiceNow with OIDC identity. INV-01..06 green on both engines against the partner's real tickets. A shadow run on their last 50 incidents sets the provisional thresholds.</td></tr>
+          <tr><td><span class="rel">v0.1</span></td><td class="num">5–12</td><td>Triage, gated comms, RCA-lite, case memory, takeover, storm handling. Quality gates pass on a 150–250-case holdout; the shadow promotion gate passes on the lower bound.</td></tr>
+          <tr><td><span class="rel">v0.2</span></td><td class="num">13–18</td><td>An evidenced Airflow re-run executes under a customer-approved grant; a runbook is distilled and holdout-gated; assisted mode runs with a control group.</td></tr>
+          <tr><td><span class="rel">v1.0</span></td><td class="num">19–24</td><td>The value story: treatment-vs-control MTTA, time-to-first-update and MTTR deltas with confidence intervals, plus a full audit report from any trace.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Dependencies outside engineering</h3>
+    <div class="grid g3">
+      <div class="card"><h4>Partner incident history</h4><p>≥6 months of tickets, alerts, logs and resolutions. The request goes out on day 0. Fallback: live shadow traffic, then a second partner.</p></div>
+      <div class="card"><h4>Assisted-mode decision</h4><p>The value number needs the partner to switch on a treatment set. That is a commercial milestone, agreed during v0.1.</p></div>
+      <div class="card"><h4>External paging</h4><p>Every catalog service needs a pager integration before triage starts, because the agent never creates pages.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Generated from ARCHITECTURE.md (normative, frozen), CAPABILITIES.md and ROADMAP.md after three design-review rounds. Where this page and the spec disagree, the spec wins.</div>
+</footer>
+
+<script>
+(function () {
+  var buttons = document.querySelectorAll('.chips button');
+  var rows = document.querySelectorAll('#feat-table tbody tr');
+  var count = document.getElementById('feat-count');
+  function apply(f) {
+    var shown = 0;
+    rows.forEach(function (r) {
+      var rel = (r.getAttribute('data-r') || '').split(' ');
+      var on = f === 'all' || rel.indexOf(f) !== -1;
+      r.hidden = !on;
+      if (on) shown++;
+    });
+    count.textContent = 'Showing ' + shown + ' of ' + rows.length;
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-f') === f)); });
+    try { localStorage.setItem('sa-feature-filter', f); } catch (e) {}
+  }
+  buttons.forEach(function (b) { b.addEventListener('click', function () { apply(b.getAttribute('data-f')); }); });
+  var saved = 'all';
+  try { saved = localStorage.getItem('sa-feature-filter') || 'all'; } catch (e) {}
+  apply(saved);
+})();
+</script>
