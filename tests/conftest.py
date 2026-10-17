@@ -11,10 +11,14 @@ The fixture table in 04 §3 (``clock``, ``ids``, ``db``, ``uow``, ``events``,
 
 from __future__ import annotations
 
+import tempfile
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
+from sqlalchemy.engine import Engine
 
 from supportagent.adapters.fakes.clock import FrozenClock
 from supportagent.adapters.fakes.ids import SequentialIdGenerator
@@ -93,3 +97,95 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="permit live-LLM eval calls (default off; 04 §1)",
     )
+
+
+# ---------------------------------------------------------------------------
+# db / uow / crypto fixtures (04 §3; WP-003)
+# ---------------------------------------------------------------------------
+
+# Children-first order so per-test resets respect FKs on both engines
+# (04 §3: schema reset per test — TRUNCATE on Postgres, DELETE on SQLite).
+_RESET_ORDER: tuple[str, ...] = (
+    "role_assignments",
+    "alerts",
+    "cases",
+    "case_groups",
+    "users",
+    "blobs",
+    "tenant_keys",
+    "leases",
+)
+
+
+def _reset_schema(engine: Engine) -> None:
+    """04 §3: schema reset per test (Postgres TRUNCATE; SQLite has no TRUNCATE)."""
+    if engine.dialect.name == "sqlite":
+        statements = [f"DELETE FROM {table}" for table in _RESET_ORDER]
+    else:
+        statements = [f"TRUNCATE {table} RESTART IDENTITY CASCADE" for table in _RESET_ORDER]
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.exec_driver_sql(statement)
+
+
+@pytest.fixture(scope="session")
+def _db_engine(request: pytest.FixtureRequest) -> Iterator[Any]:
+    """04 §3: one engine per session — sqlite (tmp file, WAL) or
+    testcontainers ``postgres:16`` (one per session) — with migrations applied
+    once per session at head."""
+    from supportagent.adapters.db.engine import make_engine
+    from supportagent.bootstrap import run_migrations
+
+    backend = request.config.getoption("--db")
+    container: Any = None
+    tmpdir: tempfile.TemporaryDirectory | None = None
+    if backend == "postgres":
+        from testcontainers.community.postgres import PostgresContainer
+
+        container = PostgresContainer("postgres:16")
+        container.start()
+        url = container.get_connection_url(driver="psycopg")
+    else:
+        tmpdir = tempfile.TemporaryDirectory()
+        url = f"sqlite:///{tmpdir.name}/invariants.db"
+    engine = make_engine(url)
+    run_migrations(url)  # 04 §3: applied once per session, at head
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        if container is not None:
+            container.stop()
+        if tmpdir is not None:
+            tmpdir.cleanup()
+
+
+@pytest.fixture
+def db(_db_engine: Any) -> Any:
+    """04 §3: ``db`` — engine for the selected backend, schema reset per test."""
+    _reset_schema(_db_engine)
+    return _db_engine
+
+
+@pytest.fixture
+def uow(db: Any) -> Any:
+    """04 §3: ``uow`` — ``SqlUnitOfWork(db)``; commit or roll back, never auto."""
+    from supportagent.adapters.db.uow import SqlUnitOfWork
+
+    return SqlUnitOfWork(db)
+
+
+@pytest.fixture
+def master_key() -> bytes:
+    """32-byte AES-256-GCM master key (03 §3); low-entropy fake for gitleaks."""
+    return b"test" * 8
+
+
+@pytest.fixture
+def aead(master_key: bytes, uow: Any, clock: FrozenClock) -> Any:
+    """03 §3: AES-256-GCM envelope; per-tenant keys wrapped by the master key
+    and stored in ``tenant_keys`` via the key-store seam."""
+    from supportagent.adapters.crypto.aead import Aead
+    from supportagent.adapters.db.repos.blobs import SqlKeyStore
+
+    return Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
