@@ -1,4 +1,5 @@
 """WP-000: the package skeleton is importable and reports the version (10-wp L35)."""
+
 from __future__ import annotations
 
 import importlib

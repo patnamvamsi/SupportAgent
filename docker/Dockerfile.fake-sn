@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+# fake-sn — a ServiceNow stand-in for local compose (10-wp WP-000).
+# The real FakeServiceNow port implementation lands with WP-008; this is the
+# compose service that keeps the walking-skeleton network shape honest.
+FROM python:3.12-slim
+COPY docker/fake_sn.py /app/fake_sn.py
+# Authoring machines may hand us files that are not world-readable (umask 077);
+# the runtime user is non-root, so normalize.
+RUN chmod a+r /app/fake_sn.py
+WORKDIR /app
+USER 10001
+EXPOSE 8081
+CMD ["python", "fake_sn.py"]

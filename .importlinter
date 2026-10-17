@@ -1,0 +1,85 @@
+[importlinter]
+root_packages =
+    supportagent
+include_external_packages = True
+
+# Six contracts from 01-architecture-and-contracts §2 (frozen).
+# Run with: lint-imports
+
+[importlinter:contract:domain-pure]
+name = domain-pure
+type = forbidden
+source_modules =
+    supportagent.domain
+forbidden_modules =
+    sqlalchemy
+    httpx
+    fastapi
+    jinja2
+    openai
+    anthropic
+    celpy
+    structlog
+    cryptography
+
+[importlinter:contract:ports-protocol-only]
+name = ports-protocol-only
+type = forbidden
+source_modules =
+    supportagent.ports
+forbidden_modules =
+    supportagent.adapters
+    supportagent.app
+    supportagent.config
+    supportagent.evals
+    supportagent.entrypoints
+    supportagent.bootstrap
+
+[importlinter:contract:app-no-adapters]
+name = app-no-adapters
+type = forbidden
+source_modules =
+    supportagent.app
+forbidden_modules =
+    supportagent.adapters
+    supportagent.entrypoints
+    supportagent.bootstrap
+
+[importlinter:contract:adapters-independent]
+name = adapters-independent
+type = independence
+modules =
+    supportagent.adapters.db
+    supportagent.adapters.crypto
+    supportagent.adapters.system
+    supportagent.adapters.files
+    supportagent.adapters.llm
+    supportagent.adapters.servicenow
+    supportagent.adapters.identity
+    supportagent.adapters.resilience
+    supportagent.adapters.tools
+    supportagent.adapters.cel
+    supportagent.adapters.paging
+    supportagent.adapters.webhook
+    supportagent.adapters.fakes
+
+[importlinter:contract:only-bootstrap-wires]
+name = only-bootstrap-wires
+type = forbidden
+source_modules =
+    supportagent.domain
+    supportagent.ports
+    supportagent.app
+    supportagent.config
+    supportagent.evals
+forbidden_modules =
+    supportagent.adapters
+
+[importlinter:contract:entrypoints-thin]
+name = entrypoints-thin
+type = forbidden
+source_modules =
+    supportagent.entrypoints
+forbidden_modules =
+    sqlalchemy
+    httpx

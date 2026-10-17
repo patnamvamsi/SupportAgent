@@ -1,0 +1,73 @@
+# Nightly gates — 04-test-strategy §6 (soak, eval_quality full, mutation
+# testing on domain/, re-record check). Soak blocks release.
+#
+# Jobs stay dormant until their WPs land the code + tests they exercise;
+# `hashFiles` guards keep the schedule honest instead of red.
+name: nightly
+
+on:
+  schedule:
+    # 03:17 UTC daily
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.8.17"
+
+jobs:
+  soak:
+    # 1,000-alert burst across many fingerprints → 0 duplicate cases, LLM
+    # calls ≤ groups + headroom, 0 double-sends (ARCH §19 storm soak).
+    runs-on: ubuntu-latest
+    if: hashFiles('tests/soak/**') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: soak (blocks release)
+        run: uv run pytest -m soak
+
+  eval-quality:
+    runs-on: ubuntu-latest
+    if: hashFiles('evals/cases/**') != '' || hashFiles('tests/eval/**') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: eval quality (full)
+        run: uv run supportagent eval run --suite quality
+
+  mutation:
+    # mutmut on domain/ — 04 §7 mutation score ≥ 80% for domain.
+    runs-on: ubuntu-latest
+    if: hashFiles('src/supportagent/domain/**/*.py') != '' && hashFiles('tests/unit/**') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: mutation testing (domain/)
+        run: uv run mutmut run --paths-to-mutate=src/supportagent/domain
+
+  re-record:
+    # Re-record check: replay the recorded ServiceNow fixtures against the
+    # live developer instance (04 §3: re-recorded each release).
+    runs-on: ubuntu-latest
+    if: hashFiles('tests/data/sn/**') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: re-record check
+        run: make record-sn SN_HOST="${{ secrets.SN_DEV_HOST }}"

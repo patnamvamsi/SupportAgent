@@ -1,0 +1,36 @@
+# Pre-commit hooks — mirror the CI gates (05 §6) so local commits match CI.
+# Revs are pinned: bump deliberately, with the tool version in uv.lock.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        files: ^(src|tests)/
+        additional_dependencies:
+          - pydantic
+          - pydantic-settings
+          - typer
+          - sqlalchemy
+          - structlog
+
+  # Secret scanning (04 §6 security job; run pre-push here).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks

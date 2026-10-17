@@ -1,4 +1,4 @@
-"""Global test options (04 §3–§6).
+"""Global test options (04 §3-§6).
 
 Sockets are disabled by default (``--disable-socket`` in the pyproject
 ``addopts``): unit/property/contract suites run with **no network and no
@@ -8,6 +8,7 @@ Docker** (04 §1). Suites that need a live endpoint opt in per run
 The fixture table in 04 §3 (``clock``, ``ids``, ``db``, ``uow``, ``events``,
 ``fake_sn``, ``fake_llm``, ``fake_oidc``) lands with the WPs that own it.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

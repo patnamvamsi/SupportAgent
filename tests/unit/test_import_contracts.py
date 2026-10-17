@@ -1,4 +1,5 @@
 """WP-000: the six import-linter contracts from 01 §2 are configured (10-wp L37)."""
+
 from __future__ import annotations
 
 import re
