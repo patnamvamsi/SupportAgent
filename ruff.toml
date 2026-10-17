@@ -35,7 +35,9 @@ banned-api = {
 [lint.per-file-ignores]
 "src/supportagent/config/loader.py" = ["TID251"]
 "src/supportagent/adapters/system/*.py" = ["TID251"]
-"tests/**" = ["S101", "ANN401"]
+# Tests assert against literal expected values by design (PLR2004 is a
+# production-code rule); ANN401 is banned in prod but fine in test doubles.
+"tests/**" = ["S101", "ANN401", "PLR2004"]
 # Local container service: must bind the container interface for compose.
 "docker/fake_sn.py" = ["S104"]
 

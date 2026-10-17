@@ -11,9 +11,13 @@ The fixture table in 04 §3 (``clock``, ``ids``, ``db``, ``uow``, ``events``,
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
+from supportagent.adapters.fakes.clock import FrozenClock
+from supportagent.adapters.fakes.ids import SequentialIdGenerator
 
 _TESTS_ROOT = Path(__file__).resolve().parent
 # Top-level test directory → 04 §1 marker, so ``pytest -m "unit or property"``
@@ -62,6 +66,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             f"from {sorted(_LAYER_MARKERS)}: {unmarked}"
         )
         raise pytest.UsageError(message)
+
+
+@pytest.fixture
+def clock() -> FrozenClock:
+    """04 §3: ``FrozenClock(start=2026-10-20T09:00:00Z)`` + ``.advance(seconds)``."""
+    return FrozenClock(start=datetime(2026, 10, 20, 9, 0, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def ids() -> SequentialIdGenerator:
+    """04 §3: ``SequentialIdGenerator`` → ``case_0001``, ``case_0002``, ..."""
+    return SequentialIdGenerator()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
