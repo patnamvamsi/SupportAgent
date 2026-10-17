@@ -4,6 +4,11 @@
 #
 # Both stages use python:3.12-slim; uv 0.8.17 is pinned in the builder —
 # matching CI's UV_VERSION and the version that generated uv.lock.
+#
+# Layer caching: dependencies are installed before any source is copied,
+# and the project itself is then installed *non-editable* into the same
+# venv. So a src/ change rebuilds only the cheap project layer, a lock
+# change rebuilds dependencies — and the runtime image is the venv alone.
 
 FROM python:3.12-slim AS builder
 RUN pip install --no-cache-dir uv==0.8.17
@@ -11,14 +16,17 @@ WORKDIR /app
 # Lock-first: the dependency layer re-resolves only when the lock changes.
 COPY pyproject.toml uv.lock README.md ./
 RUN uv venv /venv
-# Install the project itself (src layout) into the same venv.
-# UV_PROJECT_ENVIRONMENT points `uv sync` at /venv (VIRTUAL_ENV is a pip
-# convention that uv ignores).
+# Dependencies only — the project is not installed yet, so this layer is
+# independent of src/. UV_PROJECT_ENVIRONMENT points `uv sync` at /venv
+# (VIRTUAL_ENV is a pip convention that uv ignores).
+RUN UV_PROJECT_ENVIRONMENT=/venv uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 # Authoring machines may hand us source files that are not world-readable
-# (umask 077); the runtime user is non-root, so normalize.
+# (umask 077); normalize before the project wheel is built from them.
 RUN chmod -R a+rX /app
-RUN UV_PROJECT_ENVIRONMENT=/venv uv sync --frozen --no-dev
+# Install the project itself, non-editable: the wheel lands in
+# /venv/site-packages, so the runtime stage needs the venv and nothing else.
+RUN UV_PROJECT_ENVIRONMENT=/venv uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
@@ -29,10 +37,9 @@ ENV PYTHONUNBUFFERED=1 \
 RUN groupadd --gid 10001 supportagent \
     && useradd --uid 10001 --gid supportagent --create-home --home-dir /app supportagent
 WORKDIR /app
-# The editable install resolves supportagent to /app/src — keep the same path.
+# The non-editable install puts supportagent in /venv/site-packages; the
+# runtime image carries no source tree and no project metadata.
 COPY --from=builder /venv /venv
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/pyproject.toml /app/pyproject.toml
 USER supportagent
 EXPOSE 8000
 ENTRYPOINT ["supportagent"]
