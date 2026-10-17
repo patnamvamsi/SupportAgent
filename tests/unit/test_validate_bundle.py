@@ -46,13 +46,14 @@ def test_validate_bundle_reports_all_issues(tmp_path: Path) -> None:
     cfg = load_config(path, SECRET_ENV)
     catalog = Catalog(**a_catalog_file())
     # A taxonomy that defines neither routing label.
-    taxonomy = ClassificationTaxonomy(
-        version="1.0.0",
-        labels=[{"id": "deploy/failure", "description": "A release failed or is stuck."}],
+    taxonomy = ClassificationTaxonomy.model_validate(
+        {
+            "version": "1.0.0",
+            "labels": [{"id": "deploy/failure", "description": "A release failed or is stuck."}],
+        }
     )
-    hypotheses = HypothesisTaxonomy(
-        version="1.0.0",
-        hypotheses=[{"id": "recent_change_push", "excludes": []}],
+    hypotheses = HypothesisTaxonomy.model_validate(
+        {"version": "1.0.0", "hypotheses": [{"id": "recent_change_push", "excludes": []}]}
     )
     issues = validate_bundle(cfg, catalog, taxonomy, hypotheses)
     codes = [issue.code for issue in issues]

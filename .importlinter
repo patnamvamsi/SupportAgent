@@ -37,6 +37,8 @@ forbidden_modules =
     celpy
     anthropic
     openai
+    # ADR-0004: YAML parsing lives at the config/adapters boundary only.
+    yaml
 
 [importlinter:contract:ports-protocol-only]
 name = ports-protocol-only
@@ -71,6 +73,8 @@ forbidden_modules =
     celpy
     anthropic
     openai
+    # ADR-0004: YAML parsing lives at the config/adapters boundary only.
+    yaml
 
 [importlinter:contract:app-no-adapters]
 name = app-no-adapters

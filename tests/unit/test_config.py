@@ -14,6 +14,7 @@ import pytest
 from pydantic import SecretStr
 
 from supportagent.config.loader import load_config
+from supportagent.config.schema import BasicAuth
 from supportagent.config.validation import validate_bundle
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.model import Catalog, ClassificationTaxonomy, HypothesisTaxonomy
@@ -70,13 +71,15 @@ def test_config_routing_label_must_exist(tmp_path: Path) -> None:
     cfg = load_config(path, SECRET_ENV)
     catalog = Catalog(**a_catalog_file())
     # A taxonomy that does NOT define database/saturation (the routing label).
-    taxonomy = ClassificationTaxonomy(
-        version="1.0.0",
-        labels=[{"id": "deploy/failure", "description": "A release failed or is stuck."}],
+    # model_validate: dict input is the raw-YAML entry point the loader uses.
+    taxonomy = ClassificationTaxonomy.model_validate(
+        {
+            "version": "1.0.0",
+            "labels": [{"id": "deploy/failure", "description": "A release failed or is stuck."}],
+        }
     )
-    hypotheses = HypothesisTaxonomy(
-        version="1.0.0",
-        hypotheses=[{"id": "recent_change_push", "excludes": []}],
+    hypotheses = HypothesisTaxonomy.model_validate(
+        {"version": "1.0.0", "hypotheses": [{"id": "recent_change_push", "excludes": []}]}
     )
     issues = validate_bundle(cfg, catalog, taxonomy, hypotheses)
     assert any(issue.code == "routing.label-unknown" for issue in issues)
@@ -134,7 +137,7 @@ def test_config_basic_auth_variant_resolves(tmp_path: Path) -> None:
         path, {**SECRET_ENV, "SN_BASIC_USER": "sn-user", "SN_BASIC_PASSWORD": "sn-pass"}
     )
     auth = cfg.servicenow.auth
-    assert type(auth).__name__ == "BasicAuth"
+    assert isinstance(auth, BasicAuth)
     assert auth.user.get_secret_value() == "sn-user"
     assert auth.password.get_secret_value() == "sn-pass"
 
