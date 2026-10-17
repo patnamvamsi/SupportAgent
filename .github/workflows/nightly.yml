@@ -1,8 +1,11 @@
 # Nightly gates — 04-test-strategy §6 (soak, eval_quality full, mutation
 # testing on domain/, re-record check). Soak blocks release.
 #
-# Jobs stay dormant until their WPs land the code + tests they exercise;
-# `hashFiles` guards keep the schedule honest instead of red.
+# Jobs stay dormant until their WPs land the code + tests they exercise.
+# GitHub forbids hashFiles() in job-level `if:` (only the github/needs/
+# vars/inputs contexts are available there), so each job checks its
+# precondition in a step that writes to GITHUB_OUTPUT, and the remaining
+# steps are guarded with that step's output instead.
 name: nightly
 
 on:
@@ -23,51 +26,105 @@ jobs:
     # 1,000-alert burst across many fingerprints → 0 duplicate cases, LLM
     # calls ≤ groups + headroom, 0 double-sends (ARCH §19 storm soak).
     runs-on: ubuntu-latest
-    if: hashFiles('tests/soak/**') != ''
     steps:
       - uses: actions/checkout@v4
+      - name: Guard — tests/soak must exist with tests
+        id: guard
+        run: |
+          if [ -d tests/soak ] && [ -n "$(find tests/soak -name '*.py' -print -quit)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "tests/soak has no tests yet (lands with its WP) — skipping"
+          fi
       - uses: astral-sh/setup-uv@v5
+        if: steps.guard.outputs.present == 'true'
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
       - run: uv sync --frozen
+        if: steps.guard.outputs.present == 'true'
       - name: soak (blocks release)
+        if: steps.guard.outputs.present == 'true'
         run: uv run pytest -m soak
 
   eval-quality:
     runs-on: ubuntu-latest
-    if: hashFiles('evals/cases/**') != '' || hashFiles('tests/eval/**') != ''
     steps:
       - uses: actions/checkout@v4
+      - name: Guard — eval CLI (WP-016) + quality cases must exist
+        id: guard
+        run: |
+          if [ -f src/supportagent/evals/cli.py ] && \
+             { { [ -d evals/cases ] && [ -n "$(find evals/cases -type f -print -quit)" ]; } || \
+               { [ -d tests/eval ] && [ -n "$(find tests/eval -name '*.py' -print -quit)" ]; }; }; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "eval CLI (WP-016) or quality cases not present yet — skipping"
+          fi
       - uses: astral-sh/setup-uv@v5
+        if: steps.guard.outputs.present == 'true'
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
       - run: uv sync --frozen
+        if: steps.guard.outputs.present == 'true'
       - name: eval quality (full)
+        if: steps.guard.outputs.present == 'true'
         run: uv run supportagent eval run --suite quality
 
   mutation:
-    # mutmut on domain/ — 04 §7 mutation score ≥ 80% for domain.
+    # mutmut on domain/ — 04 §7 mutation score ≥ 80% for domain. The
+    # mutation path comes from [tool.mutmut] source_paths in pyproject.toml
+    # (mutmut 3.8 has no --paths-to-mutate flag; `paths_to_mutate` in the
+    # config is deprecated, so the key is `source_paths`).
     runs-on: ubuntu-latest
-    if: hashFiles('src/supportagent/domain/**/*.py') != '' && hashFiles('tests/unit/**') != ''
     steps:
       - uses: actions/checkout@v4
+      - name: Guard — real domain code + unit tests must exist
+        id: guard
+        run: |
+          if [ -n "$(find src/supportagent/domain -name '*.py' ! -name '__init__.py' -print -quit 2>/dev/null)" ] && \
+             [ -n "$(find tests/unit -name '*.py' -print -quit 2>/dev/null)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "domain code or unit tests not present yet — skipping"
+          fi
       - uses: astral-sh/setup-uv@v5
+        if: steps.guard.outputs.present == 'true'
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
       - run: uv sync --frozen
+        if: steps.guard.outputs.present == 'true'
       - name: mutation testing (domain/)
-        run: uv run mutmut run --paths-to-mutate=src/supportagent/domain
+        if: steps.guard.outputs.present == 'true'
+        run: uv run mutmut run
 
   re-record:
     # Re-record check: replay the recorded ServiceNow fixtures against the
     # live developer instance (04 §3: re-recorded each release).
     runs-on: ubuntu-latest
-    if: hashFiles('tests/data/sn/**') != ''
     steps:
       - uses: actions/checkout@v4
+      - name: Guard — recorded SN fixtures must exist
+        id: guard
+        run: |
+          if [ -d tests/data/sn ] && [ -n "$(find tests/data/sn -type f -print -quit)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "tests/data/sn fixtures not present yet — skipping"
+          fi
       - uses: astral-sh/setup-uv@v5
+        if: steps.guard.outputs.present == 'true'
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
       - run: uv sync --frozen
+        if: steps.guard.outputs.present == 'true'
       - name: re-record check
+        if: steps.guard.outputs.present == 'true'
         run: make record-sn SN_HOST="${{ secrets.SN_DEV_HOST }}"
