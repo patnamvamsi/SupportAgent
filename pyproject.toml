@@ -85,12 +85,13 @@ branch = true
 source = ["src/supportagent"]
 
 [tool.mutmut]
-# mutmut 3.8.0 reads this section; `paths_to_mutate` is deprecated in 3.8 and
-# the 3.8 `run` CLI has no `--paths-to-mutate` flag (verified against the
-# installed 3.8.0 configuration.py), so the nightly mutation job (04 §6)
-# relies on this instead. Targets the domain kernel, whose unit/property
-# tests must kill the mutants.
-source_paths = ["src/supportagent/domain"]
+# The nightly mutation job (04 §6) targets the domain kernel, whose
+# unit/property tests must kill the mutants. mutmut 3.8.0's `run` CLI has
+# no `--paths-to-mutate` flag, so the target comes from this section.
+# NOTE: `paths_to_mutate` is deprecated in 3.8.0 — `_load_config` warns
+# "Please rename it to source_paths" (configuration.py L141-144) and still
+# honors it. Kept per the PR #1 review; revisit on the mutmut upgrade.
+paths_to_mutate = ["src/supportagent/domain"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]
