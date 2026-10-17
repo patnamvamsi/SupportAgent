@@ -175,6 +175,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full clone: on pull_request events gitleaks-action scans
+          # base^..head, which a depth-1 checkout cannot resolve.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           version: ${{ env.UV_VERSION }}
