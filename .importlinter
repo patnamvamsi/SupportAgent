@@ -3,28 +3,45 @@ root_packages =
     supportagent
 include_external_packages = True
 
-# Six contracts from 01-architecture-and-contracts §2 (frozen).
+# Six contracts from 01-architecture-and-contracts §2 (frozen), plus
+# adapters-no-app, which closes the gap the diagram in the same section
+# already shows (adapters point only at ports).
 # Run with: lint-imports
+#
+# import-linter only expresses blocklists, so the spec's allowlist rules
+# ("imports only X and Y") are enforced by forbidding *every* other known
+# third-party package. The third-party set is the 05 §1 runtime dependency
+# list; adding a runtime dependency without an ADR is already a spec
+# violation, so the allowlist stays closed by construction.
 
 [importlinter:contract:domain-pure]
 name = domain-pure
 type = forbidden
+# 01 §2: domain imports only stdlib, pydantic, typing_extensions and itself.
 source_modules =
     supportagent.domain
 forbidden_modules =
-    sqlalchemy
-    httpx
     fastapi
+    uvicorn
     jinja2
-    openai
-    anthropic
-    celpy
+    pydantic_settings
+    sqlalchemy
+    alembic
+    psycopg
+    httpx
+    typer
     structlog
     cryptography
+    python_ulid
+    authlib
+    celpy
+    anthropic
+    openai
 
 [importlinter:contract:ports-protocol-only]
 name = ports-protocol-only
 type = forbidden
+# 01 §2: ports imports only domain and typing — not even pydantic.
 source_modules =
     supportagent.ports
 forbidden_modules =
@@ -34,6 +51,23 @@ forbidden_modules =
     supportagent.evals
     supportagent.entrypoints
     supportagent.bootstrap
+    fastapi
+    uvicorn
+    jinja2
+    pydantic
+    pydantic_settings
+    sqlalchemy
+    alembic
+    psycopg
+    httpx
+    typer
+    structlog
+    cryptography
+    python_ulid
+    authlib
+    celpy
+    anthropic
+    openai
 
 [importlinter:contract:app-no-adapters]
 name = app-no-adapters
@@ -62,6 +96,18 @@ modules =
     supportagent.adapters.paging
     supportagent.adapters.webhook
     supportagent.adapters.fakes
+
+[importlinter:contract:adapters-no-app]
+name = adapters-no-app
+type = forbidden
+# 01 §2 diagram: adapters point only at ports — never back at app,
+# entrypoints or bootstrap (shared code goes to domain or ports).
+source_modules =
+    supportagent.adapters
+forbidden_modules =
+    supportagent.app
+    supportagent.entrypoints
+    supportagent.bootstrap
 
 [importlinter:contract:only-bootstrap-wires]
 name = only-bootstrap-wires

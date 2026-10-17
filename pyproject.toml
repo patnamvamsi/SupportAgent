@@ -3,7 +3,11 @@ name = "supportagent"
 version = "0.0.0"
 description = "SupportAgent — an application support analyst. The docs/ tree is the product; this is the v0.0 walking skeleton."
 readme = "README.md"
-requires-python = ">=3.12"
+# Pinned to the 3.12 toolchain the spec standardizes on (10-wp WP-000,
+# 05 §1), not just floored at it: the CI matrix and the Docker base image
+# both pin 3.12, so a 3.13 interpreter is a deliberate change, not a
+# silent upgrade.
+requires-python = ">=3.12,<3.13"
 authors = [{ name = "SupportAgent team" }]
 # Runtime dependency allowlist per 05 §1 — adding anything else requires an ADR.
 dependencies = [
@@ -56,13 +60,19 @@ packages = ["src/supportagent"]
 testpaths = ["tests"]
 # Sockets are disabled by default: unit/property/contract suites run with no
 # network and no Docker (04 §1). Live-endpoint suites opt in per-run.
-addopts = ["--disable-socket", "-ra"]
+# --strict-markers: a marker that is not defined here is a collection error,
+# so a typo cannot silently re-scope a suite.
+addopts = ["--disable-socket", "--strict-markers", "-ra"]
 markers = [
     "unit: pure/domain and service tests with fakes; <5 ms each (04 §1)",
     "property: Hypothesis property tests (04 §1)",
     "contract: one suite per port, fake and real adapter (04 §4)",
     "invariant: ARCH §2 INV-01..06 against a real DB, sqlite and postgres (04 §6)",
     "integration: use case + real DB + fake externals through bootstrap (04 §1)",
+    # `sn` composes with integration (`-m "integration and sn"`) — the
+    # ServiceNow re-recording selection (04 §3, `make record-sn`). Declared
+    # now because `--strict-markers` makes an undeclared marker an error.
+    "sn: ServiceNow re-recording against a developer instance (04 §3)",
     "e2e: supportagent run in Docker + FakeServiceNow + FakeOIDC (04 §1)",
     "faults: SUPPORTAGENT_FAULT_INJECT scenarios (INV-05)",
     "soak: 1,000-alert storm (ARCH §19)",
@@ -73,6 +83,14 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src/supportagent"]
+
+[tool.mutmut]
+# mutmut 3.8.0 reads this section; `paths_to_mutate` is deprecated in 3.8 and
+# the 3.8 `run` CLI has no `--paths-to-mutate` flag (verified against the
+# installed 3.8.0 configuration.py), so the nightly mutation job (04 §6)
+# relies on this instead. Targets the domain kernel, whose unit/property
+# tests must kill the mutants.
+source_paths = ["src/supportagent/domain"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]

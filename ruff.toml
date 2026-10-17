@@ -13,13 +13,16 @@ select = [
 ]
 extend-select = ["TID251"]
 
-# 05 §8: no datetime.now(), uuid4(), random outside the clock/id adapters;
-# no os.environ outside config/loader.py.
+# 05 §8: no datetime.now(), time.time(), uuid4(), random outside the
+# clock/id adapters; no os.environ outside config/loader.py.
+# TID251 matches fully-qualified names, so the keys must be
+# "datetime.datetime.now" (not "datetime.now") or the ban never fires.
 [lint.flake8-tidy-imports]
 banned-api = {
     "os.environ" = { msg = "read env only in config/loader.py (05 §6)" },
-    "datetime.now" = { msg = "use the clock port; no datetime.now() (04 §3, 05 §8)" },
-    "datetime.utcnow" = { msg = "use the clock port; no datetime.utcnow() (05 §8)" },
+    "datetime.datetime.now" = { msg = "use the clock port; no datetime.now() (04 §3, 05 §8)" },
+    "datetime.datetime.utcnow" = { msg = "use the clock port; no datetime.utcnow() (05 §8)" },
+    "time.time" = { msg = "use the clock port; no time.time() (05 §8)" },
     "uuid.uuid4" = { msg = "use the id port; no uuid.uuid4() (05 §8)" },
     "random.random" = { msg = "use a seeded harness; no random (05 §8)" },
     "random.choice" = { msg = "use a seeded harness; no random (05 §8)" },

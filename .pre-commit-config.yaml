@@ -17,20 +17,23 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.4.0
+  # mypy runs in the project's own venv (the same pinned toolchain CI and
+  # `make check` use, from uv.lock) — a pre-commit-managed environment with
+  # additional_dependencies would drift from it (missing stubs, looser flags).
+  - repo: local
     hooks:
       - id: mypy
+        name: mypy --strict (project venv)
+        entry: uv run mypy --strict src tests
+        language: system
+        pass_filenames: false
         files: ^(src|tests)/
-        additional_dependencies:
-          - pydantic
-          - pydantic-settings
-          - typer
-          - sqlalchemy
-          - structlog
+        require_serial: true
 
-  # Secret scanning (04 §6 security job; run pre-push here).
+  # Secret scanning (04 §6 security job). Stages pre-push explicitly: the
+  # default pre-commit stage would not run it on `git push`.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.24.2
     hooks:
       - id: gitleaks
+        stages: [pre-push]

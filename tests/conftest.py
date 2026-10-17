@@ -28,16 +28,40 @@ _LAYER_BY_DIR: dict[str, str] = {
     "faults": "faults",
     "soak": "soak",
 }
+# Markers that count as "belongs to a suite layer" (04 §1). The directory map
+# covers all of these except the eval layers, whose tests declare the marker
+# explicitly (WP-016).
+_LAYER_MARKERS: frozenset[str] = frozenset(_LAYER_BY_DIR.values()) | {
+    "eval_smoke",
+    "eval_quality",
+}
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    unmarked: list[str] = []
     for item in items:
         try:
             top = item.path.relative_to(_TESTS_ROOT).parts[0]
         except ValueError:
-            continue
-        if marker := _LAYER_BY_DIR.get(top):
+            top = None
+        # NB: `add_marker` is unconditional — `item.keywords` also contains
+        # enclosing Dir/fixture names (e.g. "unit" for tests/unit/), which
+        # are keywords, not markers, and would mask the real test.
+        if top is not None and (marker := _LAYER_BY_DIR.get(top)):
             item.add_marker(marker)
+        if not any(m.name in _LAYER_MARKERS for m in item.iter_markers()):
+            unmarked.append(item.nodeid)
+    # 04 §1: every test belongs to exactly one suite layer, and a CI job runs
+    # each layer by marker. A test outside a mapped directory with no layer
+    # marker of its own (e.g. ``tests/test_x.py``) would be collected but run
+    # by no job — fail loudly at collection instead of silently skipping it.
+    if unmarked:
+        message = (
+            "tests without a layer marker (04 §1) — no CI job would run them; "
+            "move them into a mapped tests/<layer>/ directory or declare a marker "
+            f"from {sorted(_LAYER_MARKERS)}: {unmarked}"
+        )
+        raise pytest.UsageError(message)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
