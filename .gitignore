@@ -4,9 +4,11 @@
 .DS_Store
 
 # Python
+.venv/
+.uv-cache/
+.uv-python/
 __pycache__/
 *.py[cod]
-.venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
