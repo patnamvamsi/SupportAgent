@@ -26,10 +26,26 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.system.clock import SystemClock
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.config.schema import AppConfig
-from supportagent.domain.errors import DomainValidationError, ExternalServiceError
+from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _migrations_root() -> Path:
+    """The directory holding ``alembic.ini`` + ``migrations/`` (03 §4).
+
+    A source checkout resolves relative to this file. An installed wheel (the
+    Docker image) has no source tree, so the image ships both next to its
+    working directory and they resolve from there.
+    """
+    for root in (_REPO_ROOT, Path.cwd()):
+        if (root / "alembic.ini").is_file() and (root / "migrations").is_dir():
+            return root
+    raise ConfigError(  # noqa: TRY003
+        "alembic.ini and migrations/ not found in the source checkout or the "
+        "working directory (03 §4)"
+    )
 
 
 def replay_trace(config: AppConfig, master_key: bytes, trace_id: str) -> ReplayView:
@@ -63,9 +79,10 @@ def _alembic_config(url: str) -> Config:
     script location and URL are overridden with absolute paths so the
     command works from any working directory.
     """
-    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
-    cfg.set_main_option("prepend_sys_path", str(_REPO_ROOT))
+    root = _migrations_root()
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    cfg.set_main_option("prepend_sys_path", str(root))
     cfg.set_main_option("sqlalchemy.url", url)
     return cfg
 

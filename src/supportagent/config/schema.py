@@ -21,6 +21,11 @@ from supportagent.domain.severity import Severity
 # 02 §1: model_id must be a dated snapshot; a floating alias has no date or
 # version component, i.e. no digit at all.
 _VERSION_COMPONENT = re.compile(r"\d")
+# 02 §1 denylist: alias tokens that float even when the id carries digits
+# (e.g. "claude-3-5-sonnet-latest", "gpt-4o-latest").
+_FLOATING_ALIAS = re.compile(r"(^|[-_.:@/])(latest|current|default|stable)$", re.IGNORECASE)
+# 02 §1 / CAP §4.7: v0.0 and v0.1 run shadow only; assisted lands with WP-209 (v0.2).
+_MODES_BEFORE_V02: frozenset[str] = frozenset({"shadow"})
 # 02 §1: identity.session_secret must be >= 32 bytes.
 MIN_SESSION_SECRET_BYTES = 32
 
@@ -88,7 +93,7 @@ class LLMSlot(DomainModel):
     @field_validator("model_id")
     @classmethod
     def _no_floating_aliases(cls, value: str) -> str:
-        if _VERSION_COMPONENT.search(value) is None:
+        if _VERSION_COMPONENT.search(value) is None or _FLOATING_ALIAS.search(value):
             raise ValueError(  # noqa: TRY003
                 f"model_id '{value}' looks like a floating alias (no date or version "
                 "component); pin a dated snapshot (02 §1, ARCH §9)"
@@ -240,9 +245,9 @@ class AppConfig(DomainModel):
 
     @model_validator(mode="after")
     def _mode_gate(self) -> AppConfig:
-        if self.mode == "standard":
+        if self.mode not in _MODES_BEFORE_V02:
             raise ValueError(  # noqa: TRY003
-                "mode 'standard' is not accepted before v0.2 "
-                "(use 'shadow' or 'assisted'); see CAP §4.7"
+                f"mode '{self.mode}' is not accepted before v0.2 "
+                "(v0.0 accepts only 'shadow'; use --demo for demos); see 02 §1, CAP §4.7"
             )
         return self

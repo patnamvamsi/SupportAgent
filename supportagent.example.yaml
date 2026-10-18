@@ -1,7 +1,7 @@
 # supportagent.yaml — full reference for config v1 (02 §1).
 # Secrets are never inline: `*_env` keys name the environment variable that holds
 # the value; load_config(path, env) resolves them into masked SecretStr (02 §1).
-# mode: shadow | assisted | standard (CAP §4.7). v0.0: standard is rejected (before v0.2).
+# mode: shadow | assisted | standard (CAP §4.7). v0.0 accepts only shadow (assisted/standard from v0.2).
 config_version: 1
 tenant:
   id: acme
