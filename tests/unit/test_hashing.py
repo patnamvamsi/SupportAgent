@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -71,3 +72,22 @@ def test_plan_hash_is_payload_hash_over_plan_fields() -> None:
             "cadence_minutes": 15,
         }
     )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"tags": {"a"}},
+        {"blob": b"x"},
+        {"when": datetime(2026, 1, 1, tzinfo=UTC)},
+        {"nested": [{1: "int key"}]},
+    ],
+)
+def test_canonical_json_rejects_non_json_values(payload: dict[str, object]) -> None:
+    """01 §7.1: non-JSON values fail as DomainValidationError, never a raw TypeError."""
+    with pytest.raises(DomainValidationError):
+        canonical_json(payload)
+
+
+def test_canonical_json_accepts_null() -> None:
+    assert canonical_json({"a": None, "b": [True, 1, "s"]}) == '{"a":null,"b":[true,1,"s"]}'
