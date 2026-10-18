@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
+from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
@@ -145,4 +146,34 @@ tenant_keys = sa.Table(
     sa.Column("tenant_id", sa.Text, primary_key=True),
     sa.Column("wrapped_key", sa.LargeBinary, nullable=False),
     sa.Column("created_ts", sa.Integer, nullable=False),
+)
+
+# --- 03 §2.4: the append-only event log --------------------------------------
+
+EVENT_KINDS: tuple[str, ...] = tuple(k.value for k in EventKind)  # 03 §1 lockstep
+EVENT_STATUSES: tuple[str, ...] = ("ok", "error", "skipped")  # 01 §4 Event.status Literal
+
+events = sa.Table(
+    "events",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("trace_id", sa.Text, nullable=False),
+    sa.Column("span_id", sa.Text, nullable=False),
+    sa.Column("parent_span_id", sa.Text),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("actor", sa.Text, nullable=False),
+    sa.Column("model", sa.Text),
+    sa.Column("tokens_in", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("tokens_out", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("latency_ms", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("status", sa.Text, nullable=False),
+    # AES-256-GCM envelope of the canonical JSON payload (03 §2.4, §2.6).
+    sa.Column("payload_enc", sa.LargeBinary, nullable=False),
+    # Epoch milliseconds (03 §1); 64-bit so Postgres INT4 cannot overflow.
+    sa.Column("ts_ms", sa.BigInteger, nullable=False),
+    _check("kind", EVENT_KINDS),
+    _check("status", EVENT_STATUSES),
+    sa.Index("ix_events_trace", "tenant_id", "trace_id", "ts_ms"),
+    sa.Index("ix_events_kind", "tenant_id", "kind", "ts_ms"),
 )

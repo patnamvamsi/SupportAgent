@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import field_validator
-
 from supportagent.domain.hashing import _reject_floats
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.base import DomainModel
@@ -20,16 +18,13 @@ class Proposal(DomainModel):
     case_id: str
     action_kind: ActionKind
     scope: str
-    payload: dict[str, object]  # JsonValue domain; floats rejected by the validator
+    payload: dict[str, object]  # JsonValue domain; floats rejected by domain rules
     payload_hash: str  # payload_hash(payload); compared at execution (INV-04)
     trace_id: str
     status: ProposalStatus = ProposalStatus.PROPOSED
     created_by: str  # "agent" or a user id
     created_at: datetime
 
-    @field_validator("payload")
-    @classmethod
-    def _no_floats_in_payload(cls, value: dict[str, object]) -> dict[str, object]:
+    def _assert_domain_rules(self) -> None:
         # 01 §7.1: floats are forbidden in hashed payloads.
-        _reject_floats(value)
-        return value
+        _reject_floats(self.payload)

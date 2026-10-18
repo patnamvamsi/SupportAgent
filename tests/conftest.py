@@ -105,9 +105,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 # Children-first order so per-test resets respect FKs on both engines
 # (04 §3: schema reset per test — TRUNCATE on Postgres, DELETE on SQLite).
+# ``events`` (0002, WP-004) has no outgoing FKs — it is a leaf.
 _RESET_ORDER: tuple[str, ...] = (
     "role_assignments",
     "alerts",
+    "events",
     "cases",
     "case_groups",
     "users",
@@ -192,3 +194,12 @@ def aead(master_key: bytes, uow: Any, clock: FrozenClock) -> Any:
     from supportagent.adapters.db.repos.blobs import SqlKeyStore  # noqa: PLC0415
 
     return Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
+
+
+@pytest.fixture
+def events() -> Any:
+    """04 §3: ``events`` — ``RecordingEventSink`` capturing ``EventSink.append``
+    into ``.appended`` with a ``.kinds()`` helper (unit level)."""
+    from supportagent.adapters.fakes.events import RecordingEventSink  # noqa: PLC0415
+
+    return RecordingEventSink()

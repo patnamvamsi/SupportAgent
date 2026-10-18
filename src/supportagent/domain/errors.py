@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
+
+from pydantic import ValidationError
 
 
 class SupportAgentError(Exception):
@@ -13,8 +15,35 @@ class ConfigError(SupportAgentError):
     """Configuration is missing, invalid, or fails the startup check."""
 
 
-class DomainValidationError(SupportAgentError):
-    """A domain rule was violated (bad transition, float in a hashed payload)."""
+class DomainValidationError(SupportAgentError, ValidationError):
+    """A domain rule was violated (bad transition, float in a hashed payload).
+
+    Also a pydantic ``ValidationError`` so a domain-rule violation surfaces as
+    the pinned validation API (01 §7.1, 10-wp WP-004) while remaining a typed
+    ``SupportAgentError`` for application-level handling (01 §6). It is raised
+    from user-level code (model ``__init__``, state machines, hashing) — never
+    from inside a pydantic validator — so its identity is not re-wrapped.
+    """
+
+    def __new__(cls, *args: object, **kwargs: object) -> Self:
+        # A bare message becomes a single value_error line (01 §7.1).
+        if len(args) == 1 and isinstance(args[0], str) and not kwargs:
+            msg = str(args[0])
+            return cls.from_exception_data(
+                title=cls.__name__,
+                line_errors=[
+                    {
+                        "type": "value_error",
+                        "loc": (),
+                        "input": None,
+                        "ctx": {"error": ValueError(msg)},
+                    }
+                ],
+            )
+        return ValidationError.__new__(cls, *args, **kwargs)
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args)
 
 
 class ConcurrencyConflict(SupportAgentError):

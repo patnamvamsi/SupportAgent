@@ -13,6 +13,18 @@ class DomainModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
+    def __init__(self, /, **data: object) -> None:
+        # pydantic validates first (types, strict, field constraints, and the
+        # aware-UTC model validator below); domain rules then run from user-level
+        # code so a DomainValidationError keeps its identity — it is also a
+        # pydantic ValidationError (01 §7.1, 10-wp WP-004), and a pydantic
+        # validator would re-wrap it into a plain ValidationError.
+        super().__init__(**data)
+        self._assert_domain_rules()
+
+    def _assert_domain_rules(self) -> None:
+        """Subclass hook: raise ``DomainValidationError`` for a domain-rule violation."""
+
     @model_validator(mode="after")
     def _assert_aware_utc_datetimes(self) -> Self:
         for name, value in self.__dict__.items():

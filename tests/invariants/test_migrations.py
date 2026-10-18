@@ -25,10 +25,11 @@ from supportagent.adapters.db.engine import make_engine
 from supportagent.adapters.db.tables import metadata
 from supportagent.bootstrap import run_migrations
 from supportagent.domain.errors import DomainValidationError
+from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
-# 10-wp / 03 §4: the exact table set at head (0001, plus the alembic
+# 10-wp / 03 §4: the exact table set at head (0001 + 0002, plus the alembic
 # bookkeeping table).
 EXPECTED_TABLES = frozenset(
     {
@@ -40,6 +41,7 @@ EXPECTED_TABLES = frozenset(
         "blobs",
         "tenant_keys",
         "leases",
+        "events",
         "alembic_version",
     }
 )
@@ -82,7 +84,7 @@ def test_migrations_roundtrip(request: pytest.FixtureRequest, db: Engine, tmp_pa
     try:
         run_migrations(url)  # upgrade head
         engine = make_engine(url)
-        assert _table_names(engine) == EXPECTED_TABLES, "head must create the full 0001 schema"
+        assert _table_names(engine) == EXPECTED_TABLES, "head must create the full 0001+0002 schema"
         engine.dispose()
 
         run_migrations(url, "base", allow_downgrade=True)  # downgrade base (CI roundtrip)
@@ -166,8 +168,13 @@ def test_schema_enums_match_domain(db: Engine) -> None:
     assert _check_literals(db, "role_assignments", "role") == frozenset(
         {"viewer", "analyst", "approver", "admin"}
     )
+    # 03 §2.4: events.kind generated from domain.EventKind; status from the
+    # Event.status literal set (01 §4).
+    assert _check_literals(db, "events", "kind") == frozenset(k.value for k in EventKind)
+    assert _check_literals(db, "events", "status") == frozenset({"ok", "error", "skipped"})
+
     # The metadata object is the single DDL source and names exactly the
-    # 0001 tables.
+    # 0001+0002 tables.
     assert frozenset(t.name for t in metadata.tables.values()) == EXPECTED_TABLES - {
         "alembic_version"
     }
