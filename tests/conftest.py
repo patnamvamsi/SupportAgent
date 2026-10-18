@@ -212,3 +212,13 @@ def events() -> Any:
     from supportagent.adapters.fakes.events import RecordingEventSink  # noqa: PLC0415
 
     return RecordingEventSink()
+
+
+@pytest.fixture
+def fake_sn() -> Any:
+    """04 §3: ``fake_sn`` — in-memory ServiceNow (``TicketSink``) with the
+    ``queue_fault`` / ``journal_entries`` / ``fields`` / ``write_count`` seams
+    (WP-006, 04 §1)."""
+    from supportagent.adapters.fakes.servicenow import FakeServiceNow  # noqa: PLC0415
+
+    return FakeServiceNow()
