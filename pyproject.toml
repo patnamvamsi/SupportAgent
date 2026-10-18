@@ -28,6 +28,7 @@ dependencies = [
     "cel-python>=0.1",
     "anthropic>=0.34",
     "openai>=1.30",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
@@ -44,6 +45,7 @@ dev = [
     "mutmut>=3.0",
     "bandit[toml]>=1.7",
     "pip-audit>=2.7",
+    "types-pyyaml>=6.0.12.20240311",
 ]
 
 [project.scripts]
@@ -58,6 +60,9 @@ packages = ["src/supportagent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the repo root on sys.path so test helpers import as ``tests.builders``
+# (a PEP 420 namespace package — no ``__init__.py`` needed in tests/).
+pythonpath = ["."]
 # Sockets are disabled by default: unit/property/contract suites run with no
 # network and no Docker (04 §1). Live-endpoint suites opt in per-run.
 # --strict-markers: a marker that is not defined here is a collection error,

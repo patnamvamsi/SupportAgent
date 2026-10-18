@@ -1,0 +1,47 @@
+# Classification taxonomy v1.0.0 (ARCH §12, 06 §3).
+# Labels are <domain>/<signal>, pattern ^[a-z0-9_]+/[a-z0-9_]+$ (01 §4 TriageResult).
+# Versioning (06 §3): adding a label = MINOR; rename/remove = MAJOR; description fix = PATCH.
+# v0.0 seed: >= 12 labels across the database, deploy, network, batch, auth, request
+# domains (WP-002).
+version: 1.0.0
+labels:
+  - id: database/saturation
+    description: >-
+      Pool, connection, or disk saturation on a database service — the service is
+      alive but degrading under load (slow queries, queueing, rejected connections).
+  - id: database/failure
+    description: >-
+      Database is down or refusing connections; transactions are failing outright.
+  - id: database/latency
+    description: >-
+      Sustained query latency regression without saturation; p95/p99 well above baseline.
+  - id: deploy/failure
+    description: >-
+      A release or rollout failed or is stuck; new code did not come up as expected.
+  - id: deploy/rollback
+    description: >-
+      A recent deployment is the likely cause; rollback or revert is the candidate fix.
+  - id: network/latency
+    description: >-
+      Path-level latency degradation (DNS, load balancer, cross-region, carrier).
+  - id: network/outage
+    description: >-
+      Connectivity loss between components or with an upstream network dependency.
+  - id: batch/failure
+    description: >-
+      A scheduled job, DAG, or batch run failed; downstream consumers are starved or stale.
+  - id: batch/schedule
+    description: >-
+      Jobs are running late, overlapping, or not firing on schedule (scheduler-side issue).
+  - id: auth/failure
+    description: >-
+      Authentication or token issuance is failing (expired certs, bad creds, IdP outage).
+  - id: auth/misuse
+    description: >-
+      Credential or permission anomalies suggesting misuse, leak, or policy drift.
+  - id: request/access
+    description: >-
+      Users or integrations cannot access the service (401/403/5xx at the edge, ACL denials).
+  - id: request/capacity
+    description: >-
+      Throttling, rate limits, or autoscaler limits are shedding or rejecting requests.

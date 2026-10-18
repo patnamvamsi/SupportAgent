@@ -1,0 +1,16 @@
+# Hypothesis seed (ARCH §12.1) — declarative conflict set for reduce() (01 §7.1).
+# ids are snake_case; `excludes` names mutually exclusive hypotheses.
+version: 1.0.0
+hypotheses:
+  - id: recent_change_push
+    excludes: []
+  - id: capacity_decay
+    excludes: [recent_change_push]
+  - id: dependency_failure
+    excludes: []
+  - id: upstream_provider
+    excludes: []
+  - id: traffic_spike
+    excludes: []
+  - id: data_volume
+    excludes: []
