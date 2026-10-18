@@ -40,6 +40,10 @@ WORKDIR /app
 # The non-editable install puts supportagent in /venv/site-packages; the
 # runtime image carries no source tree and no project metadata.
 COPY --from=builder /venv /venv
+# `supportagent migrate` (WP-003) needs the Alembic history; the installed
+# wheel carries no source tree, so it resolves these from WORKDIR.
+COPY alembic.ini ./
+COPY migrations ./migrations
 USER supportagent
 EXPOSE 8000
 ENTRYPOINT ["supportagent"]

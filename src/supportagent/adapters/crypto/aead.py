@@ -80,7 +80,7 @@ class Aead:
         """Return the sealed envelope ``0x01|nonce(12)|ciphertext|tag(16)`` (03 §3)."""
         data_key = self._data_key(tenant_id)
         nonce = token_bytes(_NONCE_BYTES)
-        sealed = AESGCM(data_key).encrypt(nonce, plaintext, None)
+        sealed = AESGCM(data_key).encrypt(nonce, plaintext, _aad(tenant_id))
         return bytes([ENVELOPE_VERSION]) + nonce + sealed
 
     def decrypt(self, tenant_id: str, envelope: bytes) -> bytes:
@@ -95,9 +95,9 @@ class Aead:
             raise InvalidTag(  # noqa: TRY003
                 "unsupported envelope: wrong version or truncated payload"
             )
-        data_key = self._data_key(tenant_id)
+        data_key = self._existing_data_key(tenant_id)
         nonce = envelope[1 : 1 + _NONCE_BYTES]
-        return AESGCM(data_key).decrypt(nonce, envelope[1 + _NONCE_BYTES :], None)
+        return AESGCM(data_key).decrypt(nonce, envelope[1 + _NONCE_BYTES :], _aad(tenant_id))
 
     def shred(self, tenant_id: str) -> None:
         """Crypto-shred: delete the tenant's wrapped data key (03 §3).
@@ -110,16 +110,43 @@ class Aead:
     # -- internals -----------------------------------------------------------
 
     def _data_key(self, tenant_id: str) -> bytes:
-        """The tenant's unwrapped data key, creating + wrapping it on first use."""
+        """The tenant's unwrapped data key, creating + wrapping it on first use.
+
+        Only ``encrypt`` provisions keys: a write is the one place a tenant
+        legitimately gains a key.
+        """
         wrapped = self._keys.get_wrapped_key(tenant_id)
         if wrapped is not None:
-            # Wrapped-key layout: nonce(12) | wrapped_key_ciphertext+tag(16).
-            return self._master.decrypt(wrapped[:_NONCE_BYTES], wrapped[_NONCE_BYTES:], None)
+            return self._unwrap(tenant_id, wrapped)
         data_key = token_bytes(_DATA_KEY_BYTES)
         nonce = token_bytes(_NONCE_BYTES)
         self._keys.put_wrapped_key(
             tenant_id,
-            nonce + self._master.encrypt(nonce, data_key, None),
+            nonce + self._master.encrypt(nonce, data_key, _aad(tenant_id)),
             int(self._clock.now().timestamp()),
         )
         return data_key
+
+    def _existing_data_key(self, tenant_id: str) -> bytes:
+        """The tenant's data key for reading; never provisions one.
+
+        After a crypto-shred, a read must not silently re-create a key for the
+        tenant (03 §3: the shred is permanent), so a missing key is
+        ``InvalidTag``, like every other decrypt failure.
+        """
+        wrapped = self._keys.get_wrapped_key(tenant_id)
+        if wrapped is None:
+            raise InvalidTag(  # noqa: TRY003
+                "no data key for tenant (never provisioned or crypto-shredded)"
+            )
+        return self._unwrap(tenant_id, wrapped)
+
+    def _unwrap(self, tenant_id: str, wrapped: bytes) -> bytes:
+        # Wrapped-key layout: nonce(12) | wrapped_key_ciphertext+tag(16). The
+        # tenant id is the AAD, so a key row copied to another tenant fails.
+        return self._master.decrypt(wrapped[:_NONCE_BYTES], wrapped[_NONCE_BYTES:], _aad(tenant_id))
+
+
+def _aad(tenant_id: str) -> bytes:
+    """Associated data binding envelopes and wrapped keys to their tenant."""
+    return tenant_id.encode("utf-8")
