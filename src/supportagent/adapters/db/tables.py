@@ -177,3 +177,117 @@ events = sa.Table(
     sa.Index("ix_events_trace", "tenant_id", "trace_id", "ts_ms"),
     sa.Index("ix_events_kind", "tenant_id", "kind", "ts_ms"),
 )
+
+# --- 03 §4: the 10-wp human gate (proposals/approvals/grants/comms/outbox) ----
+#
+# The enforcement of INV-01 itself lives in migration 0003's triggers
+# (``trg_outbox_inv01`` etc.); here we declare the tables so the DDL is a
+# single source and the schema/introspection tests see the full head set.
+
+from supportagent.domain.proposal_state import ProposalStatus  # noqa: E402  (import after module body, alembic-style grouping)
+
+PROPOSAL_STATUSES: tuple[str, ...] = tuple(s.value for s in ProposalStatus)  # 03 §1 lockstep
+APPROVAL_STATUSES: tuple[str, ...] = ("approved", "rejected")
+POLICY_GRANT_STATUSES: tuple[str, ...] = ("requested", "approved", "revoked", "expired")
+COMMS_PLAN_STATUSES: tuple[str, ...] = ("proposed", "approved", "revoked", "expired")
+OUTBOX_STATUSES: tuple[str, ...] = ("queued", "claimed", "sent", "failed")
+
+proposals = sa.Table(
+    "proposals",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("action_kind", sa.Text, nullable=False),
+    sa.Column("scope", sa.Text, nullable=False),
+    sa.Column("payload_json", sa.Text, nullable=False),
+    sa.Column("payload_hash", sa.Text, nullable=False),
+    sa.Column("trace_id", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("created_by", sa.Text, nullable=False),
+    # Epoch seconds (03 §1); 64-bit so Postgres INT4 cannot overflow.
+    sa.Column("created_at_ts", sa.BigInteger, nullable=False),
+    sa.Column("expires_ts", sa.BigInteger),
+    _check("status", PROPOSAL_STATUSES),
+    sa.Index("ix_proposals_case", "tenant_id", "case_id"),
+)
+
+approvals = sa.Table(
+    "approvals",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id"), nullable=False),
+    sa.Column("approver_id", sa.Text, sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("payload_hash", sa.Text, nullable=False),
+    sa.Column("reason", sa.Text),
+    sa.Column("approved_at_ts", sa.BigInteger, nullable=False),
+    sa.Column("trace_id", sa.Text),
+    _check("status", APPROVAL_STATUSES),
+    sa.Index("ix_approvals_proposal", "proposal_id"),
+)
+
+policy_grants = sa.Table(
+    "policy_grants",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("action_kind", sa.Text, nullable=False),
+    sa.Column("scope", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("requested_by", sa.Text, sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("requested_at_ts", sa.BigInteger, nullable=False),
+    sa.Column("granted_by", sa.Text, sa.ForeignKey("users.id")),
+    sa.Column("granted_at_ts", sa.BigInteger),
+    sa.Column("valid_to_ts", sa.BigInteger),
+    _check("status", POLICY_GRANT_STATUSES),
+    # INV-01: self-approval — a grant cannot be approved by its own requester
+    # (enforced as a trigger in 0003 as well; the CHECK is the portable floor).
+    sa.CheckConstraint(
+        "status <> 'approved' "
+        "OR (granted_by IS NOT NULL AND granted_at_ts IS NOT NULL "
+        "AND valid_to_ts IS NOT NULL AND granted_by <> requested_by)",
+        name="ck_policy_grants_no_self_approval",
+    ),
+    sa.Index("ix_policy_grants_lookup", "tenant_id", "action_kind", "scope"),
+)
+
+comms_plans = sa.Table(
+    "comms_plans",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("audience", sa.Text, nullable=False),
+    sa.Column("channel", sa.Text, nullable=False),
+    sa.Column("template_id", sa.Text, nullable=False),
+    sa.Column("allowed_fields_json", sa.Text, nullable=False),
+    sa.Column("cadence_minutes", sa.Integer),
+    sa.Column("plan_hash", sa.Text, nullable=False),
+    sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id")),
+    sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id")),
+    sa.Column("status", sa.Text, nullable=False),
+    _check("status", COMMS_PLAN_STATUSES),
+    sa.Index("ix_comms_plans_proposal", "proposal_id"),
+)
+
+outbox = sa.Table(
+    "outbox",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("action_kind", sa.Text, nullable=False),
+    sa.Column("scope", sa.Text, nullable=False),
+    sa.Column("payload_json", sa.Text, nullable=False),
+    sa.Column("payload_hash", sa.Text, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id")),
+    sa.Column("policy_grant_id", sa.Text, sa.ForeignKey("policy_grants.id")),
+    sa.Column("comms_plan_id", sa.Text, sa.ForeignKey("comms_plans.id")),
+    sa.Column("trace_id", sa.Text),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'queued'")),
+    _check("status", OUTBOX_STATUSES),
+    sa.Index("ix_outbox_approval", "approval_id"),
+)

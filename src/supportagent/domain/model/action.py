@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import Field
@@ -25,7 +26,7 @@ class ActionSpec(DomainModel):
     kind: ActionKind
     target: TargetRef
     scope: str = Field(min_length=1)
-    payload: dict[str, object]  # JsonValue domain; floats rejected by domain rules
+    payload: Mapping[str, object]  # JsonValue domain; floats rejected by domain rules
 
     def _assert_domain_rules(self) -> None:
         # 01 §7.1: floats are forbidden in hashed payloads.
