@@ -40,7 +40,7 @@ def validate_bundle(
     if cfg.default is not None:
         _row_issues(cfg.default, "default", known_labels, issues)
     # `catalog` and `hypotheses` are consumed by the doctor (ARCH §12) once it
-    # exists (WP-003); their internal integrity is enforced at construction.
+    # exists (WP-015); their internal integrity is enforced at construction.
     del catalog, hypotheses
     return issues
 

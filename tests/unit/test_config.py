@@ -64,6 +64,25 @@ def test_config_standard_mode_rejected_before_v02(tmp_path: Path) -> None:
         load_config(path, SECRET_ENV)
 
 
+@pytest.mark.parametrize("model_id", ["claude-3-5-sonnet-latest", "gpt-4o-latest"])
+def test_config_latest_suffix_alias_rejected(tmp_path: Path, model_id: str) -> None:
+    # 02 §1 denylist: a "-latest" alias floats even when the id carries digits.
+    data = a_config_file()
+    data["llm"]["slots"]["classify"]["model_id"] = model_id
+    path = write_yaml_file(tmp_path, "config.yaml", data)
+    with pytest.raises(ConfigError, match="floating"):
+        load_config(path, SECRET_ENV)
+
+
+def test_config_assisted_mode_rejected_before_v02(tmp_path: Path) -> None:
+    # 02 §1: "v0.0 accepts only shadow + demo"; assisted lands with WP-209.
+    data = a_config_file()
+    data["mode"] = "assisted"
+    path = write_yaml_file(tmp_path, "config.yaml", data)
+    with pytest.raises(ConfigError, match="assisted"):
+        load_config(path, SECRET_ENV)
+
+
 def test_config_routing_label_must_exist(tmp_path: Path) -> None:
     # 02 §1: every routing row's match.classification must exist in the
     # taxonomy; the violation is reported by validate_bundle (cross-file).
