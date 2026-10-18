@@ -11,6 +11,7 @@ resolved into ``SecretStr`` values before the pydantic models in
 from __future__ import annotations
 
 import copy
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,12 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
 _FIXTURE_ENV_VAR = "SUPPORTAGENT_ENV"
 _FIXTURE_ENV_VALUE = "test"
 
+# 03 §3: the AES-256-GCM master key that wraps the per-tenant data keys.
+# Like the other secret sources, it lives in an environment variable — but it
+# is a fixed name (03 §3), not a `*_env` key in the config file.
+_MASTER_KEY_ENV_VAR = "SA_MASTER_KEY_ENV"
+_MASTER_KEY_LEN = 32
+
 
 def load_config(path: Path, env: Mapping[str, str]) -> AppConfig:
     """Load and validate ``supportagent.yaml`` (02 §1), resolving ``*_env``.
@@ -55,6 +62,44 @@ def load_config(path: Path, env: Mapping[str, str]) -> AppConfig:
             f"{_FIXTURE_ENV_VAR}={_FIXTURE_ENV_VALUE} (or the --demo CLI flag)"
         )
     return cfg
+
+
+def load_config_default(path: Path = Path("supportagent.yaml")) -> AppConfig:
+    """Entry-point convenience: load ``path`` with the process environment.
+
+    05 §6: this module is the single one allowed to touch the environment;
+    entrypoints (01 §2: thin, no direct I/O of secrets) resolve the config
+    through here instead of reading ``os.environ`` themselves.
+    """
+    return load_config(path, os.environ)
+
+
+def load_master_key(env: Mapping[str, str]) -> bytes:
+    """Resolve the AES-256-GCM master key from ``SA_MASTER_KEY_ENV`` (03 §3).
+
+    The value is a hex-encoded 32-byte key (64 hex characters). Every failure
+    is a ``ConfigError`` naming the variable — startup fails, per 01 §6.
+    """
+    raw = env.get(_MASTER_KEY_ENV_VAR)
+    if raw is None or not raw.strip():
+        raise ConfigError(  # noqa: TRY003
+            f"missing master key: set {_MASTER_KEY_ENV_VAR} to a 64-character hex string (03 §3)"
+        )
+    try:
+        key = bytes.fromhex(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{_MASTER_KEY_ENV_VAR} must be hex-encoded: {exc}") from exc  # noqa: TRY003
+    if len(key) != _MASTER_KEY_LEN:
+        raise ConfigError(  # noqa: TRY003
+            f"{_MASTER_KEY_ENV_VAR} must encode exactly {_MASTER_KEY_LEN} bytes "
+            f"(AES-256-GCM), got {len(key)}"
+        )
+    return key
+
+
+def load_master_key_default() -> bytes:
+    """Entry-point convenience: read the master key from the process env (05 §6)."""
+    return load_master_key(os.environ)
 
 
 def _load_yaml_file(path: Path) -> dict[str, Any]:
