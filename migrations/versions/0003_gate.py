@@ -66,10 +66,17 @@ PROPOSAL_STATUSES = (
 )
 
 
-def _gate_condition(prefix: str, now_expr: str) -> str:
+PLAN_SEND_KINDS: list[str] = ["customer_comment", "send_email_customer"]  # ARCH §6.2 path (3)
+
+
+def _gate_condition(prefix: str, now_expr: str, template_expr: str) -> str:
     """The single INV-01 predicate: an outbox row is enforceable iff it is
     backed by a valid approval, a valid (non-customer) grant, or a valid
-    comms plan — and ``create_page`` is never executable."""
+    comms plan — and ``create_page`` is never executable.
+
+    ``template_expr`` reads ``template_id`` from the row's payload JSON in the
+    target dialect (ARCH §6.2 path (3): the send must use the plan's template).
+    """
     kind = f"{prefix}.action_kind"
     tenant = f"{prefix}.tenant_id"
     return (
@@ -99,18 +106,21 @@ def _gate_condition(prefix: str, now_expr: str) -> str:
         f"AND g.valid_to_ts > {now_expr}"
         ")) "
         "OR "
-        # Path 3: an approved comms plan backed by an approved approval.
-        f"({prefix}.comms_plan_id IS NOT NULL AND EXISTS ("
-        "SELECT 1 FROM comms_plans cp "
+        # Path 3 (ARCH §6.2/§6.3): an approved plan whose approval saw exactly
+        # this plan (payload_hash = plan_hash, so an edited plan is void),
+        # customer-comms kinds only, and the plan's own template.
+        f"({prefix}.comms_plan_id IS NOT NULL "
+        f"AND {kind} IN {_lit_list(PLAN_SEND_KINDS)} "
+        "AND EXISTS ("
+        "SELECT 1 FROM comms_plans cp JOIN approvals a ON a.id = cp.approval_id "
         f"WHERE cp.id = {prefix}.comms_plan_id "
         "AND cp.status = 'approved' "
-        f"AND cp.tenant_id = {tenant} "
-        "AND EXISTS ("
-        "SELECT 1 FROM approvals a "
-        "WHERE a.id = cp.approval_id AND a.status = 'approved' "
-        f"AND a.tenant_id = {tenant}"
+        "AND a.status = 'approved' "
+        "AND a.payload_hash = cp.plan_hash "
+        f"AND cp.tenant_id = {tenant} AND a.tenant_id = {tenant} "
+        f"AND {template_expr} = cp.template_id"
         "))"
-        "))"
+        ")"
     )
 
 
@@ -129,7 +139,7 @@ def upgrade() -> None:
         sa.Column("payload_json", sa.Text, nullable=False),
         sa.Column("payload_hash", sa.Text, nullable=False),
         sa.Column("trace_id", sa.Text, nullable=False),
-        sa.Column("status", sa.Text, nullable=False),
+        sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'proposed'")),
         sa.Column("created_by", sa.Text, nullable=False),
         sa.Column("created_at_ts", sa.BigInteger, nullable=False),
         sa.Column("expires_ts", sa.BigInteger, nullable=True),
@@ -139,6 +149,9 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_proposals_case", "proposals", ["tenant_id", "case_id"])
+    op.create_index(
+        "ix_proposals_pending", "proposals", ["tenant_id", "status", "expires_ts"]
+    )  # 03 §2.3
 
     # --- approvals ----------------------------------------------------------
     op.create_table(
@@ -163,14 +176,15 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.Text, nullable=False),
         sa.Column("action_kind", sa.Text, nullable=False),
         sa.Column("scope", sa.Text, nullable=False),
-        sa.Column("status", sa.Text, nullable=False),
-        sa.Column("requested_by", sa.Text, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'requested'")),
+        # ARCH §6.2: users.id | 'config:<sha>' (from `grants request`), so no FK.
+        sa.Column("requested_by", sa.Text, nullable=False),
         sa.Column("requested_at_ts", sa.BigInteger, nullable=False),
         sa.Column("granted_by", sa.Text, sa.ForeignKey("users.id"), nullable=True),
         sa.Column("granted_at_ts", sa.BigInteger, nullable=True),
         sa.Column("valid_to_ts", sa.BigInteger, nullable=True),
         sa.CheckConstraint(
-            "status IN ('requested', 'approved', 'revoked', 'expired')",
+            "status IN ('requested', 'approved', 'rejected', 'revoked')",
             name="ck_policy_grants_status",
         ),
         # INV-01: self-approval — a grant cannot be approved by its own requester.
@@ -197,13 +211,17 @@ def upgrade() -> None:
         sa.Column("allowed_fields_json", sa.Text, nullable=False),
         sa.Column("cadence_minutes", sa.Integer, nullable=True),
         sa.Column("plan_hash", sa.Text, nullable=False),
-        sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id"), nullable=True),
+        # ARCH §6.3: the plan is a proposal (kind 'comms_plan').
+        sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id"), nullable=False),
         sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id"), nullable=True),
-        sa.Column("status", sa.Text, nullable=False),
+        sa.Column(
+            "status", sa.Text, nullable=False, server_default=sa.text("'pending_approval'")
+        ),
         sa.CheckConstraint(
-            "status IN ('proposed', 'approved', 'revoked', 'expired')",
+            "status IN ('pending_approval', 'approved', 'rejected', 'revoked', 'satisfied')",
             name="ck_comms_plans_status",
         ),
+        sa.CheckConstraint("audience IN ('customer', 'internal')", name="ck_comms_plans_audience"),
     )
     op.create_index("ix_comms_plans_proposal", "comms_plans", ["proposal_id"])
 
@@ -217,19 +235,58 @@ def upgrade() -> None:
         sa.Column("scope", sa.Text, nullable=False),
         sa.Column("payload_json", sa.Text, nullable=False),
         sa.Column("payload_hash", sa.Text, nullable=False),
-        sa.Column("idempotency_key", sa.Text, nullable=False),
-        sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id"), nullable=True),
+        # INV-04: one row per idempotency key (ARCH §6.2).
+        sa.Column("idempotency_key", sa.Text, nullable=False, unique=True),
+        # Approval path is single-use (ARCH §6.2: UNIQUE).
+        sa.Column(
+            "approval_id", sa.Text, sa.ForeignKey("approvals.id"), nullable=True, unique=True
+        ),
         sa.Column(
             "policy_grant_id", sa.Text, sa.ForeignKey("policy_grants.id"), nullable=True
         ),
         sa.Column("comms_plan_id", sa.Text, sa.ForeignKey("comms_plans.id"), nullable=True),
-        sa.Column("trace_id", sa.Text, nullable=True),
-        sa.Column("status", sa.Text, nullable=False, server_default="queued"),
+        sa.Column("trace_id", sa.Text, nullable=False),
+        sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
+        # 03 §2.3: executor bookkeeping; trg_outbox_immutable leaves these mutable.
+        sa.Column("attempts", sa.Integer, nullable=False, server_default=sa.text("0")),
+        sa.Column("next_attempt_ts", sa.BigInteger, nullable=True),
+        sa.Column("last_error", sa.Text, nullable=True),
+        sa.Column("external_ref", sa.Text, nullable=True),
+        sa.Column("claimed_at_ts", sa.BigInteger, nullable=True),
+        sa.Column("done_at_ts", sa.BigInteger, nullable=True),
         sa.CheckConstraint(
-            "status IN ('queued', 'claimed', 'sent', 'failed')", name="ck_outbox_status"
+            "status IN ('pending', 'claimed', 'done', 'failed')", name="ck_outbox_status"
+        ),
+        # ARCH §6.2: exactly one authorization path backs a row.
+        sa.CheckConstraint(
+            "(CASE WHEN approval_id IS NOT NULL THEN 1 ELSE 0 END"
+            " + CASE WHEN policy_grant_id IS NOT NULL THEN 1 ELSE 0 END"
+            " + CASE WHEN comms_plan_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name="ck_outbox_one_auth_path",
         ),
     )
-    op.create_index("ix_outbox_approval", "outbox", ["approval_id"])
+    op.create_index("ix_outbox_due", "outbox", ["tenant_id", "status", "next_attempt_ts"])
+
+    # --- comms (ARCH §6.3: history / rendering record; every send IS an outbox row)
+    op.create_table(
+        "comms",
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("tenant_id", sa.Text, nullable=False),
+        sa.Column("case_id", sa.Text, nullable=False),
+        sa.Column("kind", sa.Text, nullable=False),
+        sa.Column("plan_id", sa.Text, sa.ForeignKey("comms_plans.id"), nullable=True),
+        sa.Column(
+            "outbox_id", sa.Text, sa.ForeignKey("outbox.id"), nullable=False, unique=True
+        ),
+        sa.Column("body_json", sa.Text, nullable=False),
+        sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'queued'")),
+        sa.Column("sent_at_ts", sa.BigInteger, nullable=True),
+        sa.CheckConstraint(
+            "kind IN ('work_note', 'customer_comment', 'send_email_customer')",
+            name="ck_comms_kind",
+        ),
+        sa.CheckConstraint("status IN ('queued', 'sent', 'failed')", name="ck_comms_status"),
+    )
 
     # --- triggers -----------------------------------------------------------
     if is_sqlite:
@@ -239,7 +296,11 @@ def upgrade() -> None:
 
 
 def _upgrade_sqlite() -> None:
-    condition = _gate_condition("new", "CAST(strftime('%s','now') AS INTEGER)")
+    condition = _gate_condition(
+        "new",
+        "CAST(strftime('%s','now') AS INTEGER)",
+        "json_extract(new.payload_json, '$.template_id')",
+    )
     op.execute(
         "CREATE TRIGGER trg_outbox_inv01 "
         "BEFORE INSERT ON outbox "
@@ -277,7 +338,11 @@ def _upgrade_sqlite() -> None:
 
 
 def _upgrade_postgres() -> None:
-    condition = _gate_condition("NEW", "extract(epoch FROM now())::bigint")
+    condition = _gate_condition(
+        "NEW",
+        "extract(epoch FROM now())::bigint",
+        "(NEW.payload_json::jsonb ->> 'template_id')",
+    )
     op.execute(
         "CREATE FUNCTION fn_outbox_inv01() RETURNS trigger AS $fn$ "
         "BEGIN "
@@ -380,10 +445,12 @@ def downgrade() -> None:
             op.execute(f"DROP FUNCTION IF EXISTS {fn}()")
 
     # Drop indexes, then tables in FK-safe order (children before parents).
-    op.drop_index("ix_outbox_approval", table_name="outbox")
+    op.drop_table("comms")
+    op.drop_index("ix_outbox_due", table_name="outbox")
     op.drop_index("ix_comms_plans_proposal", table_name="comms_plans")
     op.drop_index("ix_policy_grants_lookup", table_name="policy_grants")
     op.drop_index("ix_approvals_proposal", table_name="approvals")
+    op.drop_index("ix_proposals_pending", table_name="proposals")
     op.drop_index("ix_proposals_case", table_name="proposals")
 
     op.drop_table("outbox")

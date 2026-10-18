@@ -184,13 +184,26 @@ events = sa.Table(
 # (``trg_outbox_inv01`` etc.); here we declare the tables so the DDL is a
 # single source and the schema/introspection tests see the full head set.
 
+from supportagent.domain.model.comms import CommsPlanStatus  # noqa: E402
+from supportagent.domain.model.grant import GrantStatus  # noqa: E402
 from supportagent.domain.proposal_state import ProposalStatus  # noqa: E402  (import after module body, alembic-style grouping)
 
 PROPOSAL_STATUSES: tuple[str, ...] = tuple(s.value for s in ProposalStatus)  # 03 §1 lockstep
 APPROVAL_STATUSES: tuple[str, ...] = ("approved", "rejected")
-POLICY_GRANT_STATUSES: tuple[str, ...] = ("requested", "approved", "revoked", "expired")
-COMMS_PLAN_STATUSES: tuple[str, ...] = ("proposed", "approved", "revoked", "expired")
-OUTBOX_STATUSES: tuple[str, ...] = ("queued", "claimed", "sent", "failed")
+POLICY_GRANT_STATUSES: tuple[str, ...] = tuple(s.value for s in GrantStatus)  # ARCH §6.2
+COMMS_PLAN_STATUSES: tuple[str, ...] = tuple(s.value for s in CommsPlanStatus)  # ARCH §6.3
+OUTBOX_STATUSES: tuple[str, ...] = ("pending", "claimed", "done", "failed")  # ARCH §6.2
+AUDIENCES: tuple[str, ...] = ("customer", "internal")  # ARCH §6.3
+COMMS_KINDS: tuple[str, ...] = ("work_note", "customer_comment", "send_email_customer")
+COMMS_STATUSES: tuple[str, ...] = ("queued", "sent", "failed")  # ARCH §6.3 comms history
+
+# ARCH §6.2: exactly one authorization path backs an outbox row. CASE keeps
+# the sum portable (Postgres has no bool + bool).
+EXACTLY_ONE_AUTH_PATH = (
+    "(CASE WHEN approval_id IS NOT NULL THEN 1 ELSE 0 END"
+    " + CASE WHEN policy_grant_id IS NOT NULL THEN 1 ELSE 0 END"
+    " + CASE WHEN comms_plan_id IS NOT NULL THEN 1 ELSE 0 END) = 1"
+)
 
 proposals = sa.Table(
     "proposals",
@@ -203,13 +216,14 @@ proposals = sa.Table(
     sa.Column("payload_json", sa.Text, nullable=False),
     sa.Column("payload_hash", sa.Text, nullable=False),
     sa.Column("trace_id", sa.Text, nullable=False),
-    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'proposed'")),
     sa.Column("created_by", sa.Text, nullable=False),
     # Epoch seconds (03 §1); 64-bit so Postgres INT4 cannot overflow.
     sa.Column("created_at_ts", sa.BigInteger, nullable=False),
     sa.Column("expires_ts", sa.BigInteger),
     _check("status", PROPOSAL_STATUSES),
     sa.Index("ix_proposals_case", "tenant_id", "case_id"),
+    sa.Index("ix_proposals_pending", "tenant_id", "status", "expires_ts"),  # 03 §2.3
 )
 
 approvals = sa.Table(
@@ -235,8 +249,9 @@ policy_grants = sa.Table(
     sa.Column("tenant_id", sa.Text, nullable=False),
     sa.Column("action_kind", sa.Text, nullable=False),
     sa.Column("scope", sa.Text, nullable=False),
-    sa.Column("status", sa.Text, nullable=False),
-    sa.Column("requested_by", sa.Text, sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'requested'")),
+    # ARCH §6.2: users.id | 'config:<sha>' (from `grants request`), so no FK.
+    sa.Column("requested_by", sa.Text, nullable=False),
     sa.Column("requested_at_ts", sa.BigInteger, nullable=False),
     sa.Column("granted_by", sa.Text, sa.ForeignKey("users.id")),
     sa.Column("granted_at_ts", sa.BigInteger),
@@ -265,10 +280,12 @@ comms_plans = sa.Table(
     sa.Column("allowed_fields_json", sa.Text, nullable=False),
     sa.Column("cadence_minutes", sa.Integer),
     sa.Column("plan_hash", sa.Text, nullable=False),
-    sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id")),
+    # ARCH §6.3: the plan is a proposal (kind 'comms_plan').
+    sa.Column("proposal_id", sa.Text, sa.ForeignKey("proposals.id"), nullable=False),
     sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id")),
-    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending_approval'")),
     _check("status", COMMS_PLAN_STATUSES),
+    _check("audience", AUDIENCES),
     sa.Index("ix_comms_plans_proposal", "proposal_id"),
 )
 
@@ -282,12 +299,39 @@ outbox = sa.Table(
     sa.Column("scope", sa.Text, nullable=False),
     sa.Column("payload_json", sa.Text, nullable=False),
     sa.Column("payload_hash", sa.Text, nullable=False),
-    sa.Column("idempotency_key", sa.Text, nullable=False),
-    sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id")),
+    # INV-04: one row per idempotency key (ARCH §6.2).
+    sa.Column("idempotency_key", sa.Text, nullable=False, unique=True),
+    # Approval path is single-use (ARCH §6.2: UNIQUE).
+    sa.Column("approval_id", sa.Text, sa.ForeignKey("approvals.id"), unique=True),
     sa.Column("policy_grant_id", sa.Text, sa.ForeignKey("policy_grants.id")),
     sa.Column("comms_plan_id", sa.Text, sa.ForeignKey("comms_plans.id")),
-    sa.Column("trace_id", sa.Text),
-    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'queued'")),
+    sa.Column("trace_id", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
+    # 03 §2.3: executor bookkeeping; trg_outbox_immutable leaves these mutable.
+    sa.Column("attempts", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("next_attempt_ts", sa.BigInteger),
+    sa.Column("last_error", sa.Text),
+    sa.Column("external_ref", sa.Text),
+    sa.Column("claimed_at_ts", sa.BigInteger),
+    sa.Column("done_at_ts", sa.BigInteger),
     _check("status", OUTBOX_STATUSES),
-    sa.Index("ix_outbox_approval", "approval_id"),
+    sa.CheckConstraint(EXACTLY_ONE_AUTH_PATH, name="ck_outbox_one_auth_path"),
+    sa.Index("ix_outbox_due", "tenant_id", "status", "next_attempt_ts"),  # 03 §2.3
+)
+
+# ARCH §6.3: the comms history / rendering record. Every send IS an outbox row.
+comms = sa.Table(
+    "comms",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("plan_id", sa.Text, sa.ForeignKey("comms_plans.id")),
+    sa.Column("outbox_id", sa.Text, sa.ForeignKey("outbox.id"), nullable=False, unique=True),
+    sa.Column("body_json", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'queued'")),
+    sa.Column("sent_at_ts", sa.BigInteger),
+    _check("kind", COMMS_KINDS),
+    _check("status", COMMS_STATUSES),
 )

@@ -48,6 +48,7 @@ EXPECTED_TABLES = frozenset(
         "policy_grants",
         "comms_plans",
         "outbox",
+        "comms",
         "alembic_version",
     }
 )

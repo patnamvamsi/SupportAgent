@@ -47,11 +47,11 @@ class OutboxRepo:
         approval_id: str | None = None,
         policy_grant_id: str | None = None,
         comms_plan_id: str | None = None,
-        trace_id: str | None = None,
+        trace_id: str,
     ) -> None:
         """Insert a new outbox row (10-wp).
 
-        ``status`` is omitted so the server default (``'queued'``) applies.
+        ``status`` is omitted so the server default (``'pending'``) applies.
         The INV-01 trigger may reject the insert; that surfaces as
         ``AuthorizationDenied`` (01 §6).
         """

@@ -539,3 +539,99 @@ def test_gate_expire_due_marks_expired(
     assert _scalar(db, "SELECT status FROM proposals WHERE id = 'prop_2'") == ("expired")
     gate_events = [e for e in events.appended if e.kind.value == "gate"]
     assert len(gate_events) == 2
+
+
+# --- ARCH §6.2/§6.3 conformance (PR review: plan path, idempotency, one path) --
+
+_PLAN_SEND_JSON = '{"template_id": "tmpl_1"}'
+
+
+def _seed_approved_plan(db: Any, **plan: Any) -> None:
+    """An approved comms plan whose approval saw ``plan_hash`` (ARCH §6.3)."""
+    _seed_base(db)
+    _seed_proposal(db, kind="comms_plan")
+    _seed_approval(db)
+    _seed_plan(db, **plan)
+
+
+def test_comms_plan_authorizes_matching_customer_send(db: Any, uow: Any) -> None:
+    _seed_approved_plan(db)
+    with uow:
+        _outbox_insert(
+            uow,
+            action_kind="customer_comment",
+            payload_json=_PLAN_SEND_JSON,
+            comms_plan_id="plan_1",
+        )
+        uow.commit()
+    assert _scalar(db, "SELECT COUNT(*) FROM outbox WHERE comms_plan_id = 'plan_1'") == 1
+
+
+@pytest.mark.parametrize("kind", ["job_rerun", "ticket_update", "create_ticket_customer"])
+def test_comms_plan_never_authorizes_other_kinds(db: Any, uow: Any, kind: str) -> None:
+    """ARCH §6.2 path (3): plans authorize customer_comment/send_email_customer only."""
+    _seed_approved_plan(db)
+    with uow, pytest.raises(AuthorizationDenied):
+        _outbox_insert(uow, action_kind=kind, payload_json=_PLAN_SEND_JSON, comms_plan_id="plan_1")
+
+
+def test_comms_plan_template_mismatch_blocked(db: Any, uow: Any) -> None:
+    _seed_approved_plan(db)
+    with uow, pytest.raises(AuthorizationDenied):
+        _outbox_insert(
+            uow,
+            action_kind="customer_comment",
+            payload_json='{"template_id": "tmpl_other"}',
+            comms_plan_id="plan_1",
+        )
+
+
+def test_comms_plan_edited_after_approval_blocked(db: Any, uow: Any) -> None:
+    """ARCH §6.3: the approval's hash must equal plan_hash, so an edited plan is void."""
+    _seed_approved_plan(db, plan_hash=OTHER_HASH)
+    with uow, pytest.raises(AuthorizationDenied):
+        _outbox_insert(
+            uow,
+            action_kind="customer_comment",
+            payload_json=_PLAN_SEND_JSON,
+            comms_plan_id="plan_1",
+        )
+
+
+def test_outbox_idempotency_key_unique(db: Any, uow: Any) -> None:
+    """INV-04: one outbox row per idempotency key (ARCH §6.2 ``UNIQUE``)."""
+    _seed_base(db)
+    _seed_grant(db)
+    with uow:
+        _outbox_insert(uow, id="obx_1", policy_grant_id="grnt_1")
+        uow.commit()
+    with uow, pytest.raises(sa.exc.IntegrityError):
+        _outbox_insert(uow, id="obx_2", policy_grant_id="grnt_1")
+
+
+def test_outbox_exactly_one_authorization_path(db: Any, uow: Any) -> None:
+    """ARCH §6.2: exactly one of approval / grant / plan backs a row."""
+    _seed_base(db)
+    _seed_proposal(db)
+    _seed_approval(db)
+    _seed_grant(db)
+    with uow, pytest.raises(sa.exc.DBAPIError):
+        _outbox_insert(uow, approval_id="appr_1", policy_grant_id="grnt_1")
+
+
+def test_grant_statuses_and_config_requester_storable(db: Any) -> None:
+    """ARCH §6.2/§6.4: 'rejected' is a grant status; requested_by may be 'config:<sha>'."""
+    _seed_base(db)
+    _seed_grant(db, status="rejected", requested_by="config:abc123", granted_by=None)
+    assert _scalar(db, "SELECT status FROM policy_grants WHERE id = 'grnt_1'") == "rejected"
+
+
+def test_gate_status_literals_match_domain() -> None:
+    """03 §1: CHECK literal sets are generated from the domain enums."""
+    from supportagent.adapters.db import tables  # noqa: PLC0415
+    from supportagent.domain.model.comms import CommsPlanStatus  # noqa: PLC0415
+    from supportagent.domain.model.grant import GrantStatus  # noqa: PLC0415
+
+    assert set(tables.POLICY_GRANT_STATUSES) == {s.value for s in GrantStatus}
+    assert set(tables.COMMS_PLAN_STATUSES) == {s.value for s in CommsPlanStatus}
+    assert set(tables.OUTBOX_STATUSES) == {"pending", "claimed", "done", "failed"}

@@ -31,7 +31,7 @@ class NewCommsPlan:
     allowed_fields_json: str
     plan_hash: str
     status: str
-    proposal_id: str | None = None
+    proposal_id: str  # ARCH §6.3: the plan is a proposal (kind 'comms_plan')
     approval_id: str | None = None
     cadence_minutes: int | None = None
 
