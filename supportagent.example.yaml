@@ -1,0 +1,66 @@
+# supportagent.yaml — full reference for config v1 (02 §1).
+# Secrets are never inline: `*_env` keys name the environment variable that holds
+# the value; load_config(path, env) resolves them into masked SecretStr (02 §1).
+# mode: shadow | assisted | standard (CAP §4.7). v0.0 accepts only shadow (assisted/standard from v0.2).
+config_version: 1
+tenant:
+  id: acme
+  display_name: Acme Corp
+mode: shadow
+database:
+  url_env: SUPPORTAGENT_DB_URL        # sqlite:///data/sa.db | postgresql+psycopg://…
+servicenow:
+  instance_url: https://acme.service-now.com
+  auth:
+    kind: oauth_client_credentials    # or basic: {user_env, password_env}
+    client_id_env: SN_CLIENT_ID
+    client_secret_env: SN_CLIENT_SECRET
+  integration_user: svc_supportagent
+  tables: [incident]                 # v0.0: incident only (em_alert, sc_req_item from v0.1)
+  poll_interval_s: 60
+  overlap_s: 120
+  page_size: 200
+  qps_limit: 5
+identity:
+  oidc_issuer: https://login.microsoftonline.com/acme-tenant-id/v2.0
+  client_id_env: OIDC_CLIENT_ID
+  client_secret_env: OIDC_CLIENT_SECRET
+  redirect_url: https://supportagent.acme.internal/auth/callback
+  session_secret_env: SA_SESSION_SECRET  # the secret must be >= 32 bytes
+llm:
+  provider: anthropic                # anthropic | openai | ollama | fixture (test/--demo only)
+  api_key_env: ANTHROPIC_API_KEY     # absent for ollama / fixture
+  base_url: null
+  slots:
+    classify:                        # v0.0 slot; propose_hypotheses/entail/draft_comms from v0.1
+      model_id: claude-sonnet-4-5-20250929   # dated snapshot — floating aliases fail validation
+      timeout_s: 15
+      max_output_tokens: 400
+  daily_budget_tokens: 2000000       # v0.1 enforces; v0.0 logs only
+redaction:
+  custom_patterns: []                # {name, regex}
+  tenant_constants: []               # tenant-specific literals to redact
+calibration:
+  path: evals/artifacts/calibration.json
+  min_grade: smoke                   # smoke (v0.0) | holdout (v0.1+)
+  min_score: 0.80
+paths:
+  taxonomy: taxonomy/classification.yaml
+  hypotheses: taxonomy/hypotheses.yaml
+  catalog: catalog/services.yaml
+  prompts: prompts/
+  runbooks: runbooks/                # v0.1
+routing:                             # rows reference taxonomy labels; doctor validates (ARCH §12)
+  - id: db-saturation
+    match: {classification: database/saturation, severity: [P1, P2, P3]}
+    actions: [work_note]             # ActionKind names only
+    rca: none                        # none | lite | deep (lite from v0.1)
+    comms: null                      # comms plan template id (v0.1)
+default: {id: generic, actions: [work_note], rca: none}
+proposals:
+  ttl_hours: 24
+grants_request: []                   # v0.2: {action, system, target, requested_expiry_days}
+retention:
+  events_days: 395
+  comms_days: 395
+  alerts_days: 90

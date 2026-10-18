@@ -1,0 +1,36 @@
+# Example service catalog (01 §4 ServiceEntry; WP-002).
+# Customer-owned file: `version` is free-form and recorded in decision_json.catalog_version (06 §3).
+# Resolution (ARCH §7): an alert's `resource` maps to ServiceEntry.resources first;
+# then its CMDB CI to ServiceEntry.cmdb_ci; otherwise the case safe-defaults.
+version: v2026-01
+services:
+  - name: nightly-sync
+    repos: [github:acme/nightly-sync]
+    log_paths: [logs/nightly-sync]
+    dags: [nightly-sync]
+    cmdb_ci: [CI1001]
+    resources: [db-pool-01, dag:nightly-sync]
+    oncall_schedule: acme-data-oncall
+    owners: [alice@acme.test]
+    depends_on: [core-db]
+    paging_integration: pagerduty:acme-data
+  - name: core-db
+    repos: []
+    log_paths: [logs/core-db]
+    dags: []
+    cmdb_ci: [CI2002]
+    resources: []
+    oncall_schedule: acme-data-oncall
+    owners: [bob@acme.test]
+    depends_on: []
+    paging_integration: pagerduty:acme-data
+  - name: payroll-api
+    repos: [github:acme/payroll-api]
+    log_paths: [logs/payroll-api]
+    dags: []
+    cmdb_ci: [CI3003]
+    resources: [svc:payroll-api]
+    oncall_schedule: acme-payroll-oncall
+    owners: [carol@acme.test]
+    depends_on: [core-db]
+    paging_integration: pagerduty:acme-payroll
