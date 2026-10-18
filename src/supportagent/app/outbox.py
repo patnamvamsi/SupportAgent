@@ -9,6 +9,13 @@ the payload (INV-01), reconciles the external state (INV-04), executes the actio
 through the ``TicketSink`` port, and records the outcome (done / retry / failed,
 with a safe-default case takeover on final failure).
 
+Transactions: the claim commits *before* the external call, and the outcome is
+a second transaction fenced on the claim (``claimed_at_ts``). No database
+transaction — on SQLite, no ``BEGIN IMMEDIATE`` write lock — is held across a
+ServiceNow round-trip. A worker that dies between claim and outcome leaves the
+row ``claimed``; after ``lease_s`` another worker reclaims it (one attempt
+consumed) and reconciles before re-sending (INV-04).
+
 Deliberately free of concrete persistence types (importlinter ``app-no-adapters``
 / ``only-bootstrap-wires``): the executor drives the unit of work through a
 structural ``_UoW`` protocol and an injected ``_OutboxRepo``; bootstrap (or a
@@ -49,6 +56,10 @@ from supportagent.ports.tickets import SnTable, TicketSink
 #: The retry budget per outbox row (ARCH §6.2): after this many attempts the row
 #: is ``failed`` and the case is safe-defaulted to ``human_owned``.
 MAX_ATTEMPTS = 5
+
+#: A claim older than this is presumed dead and may be reclaimed (01 §3
+#: ``claim_next(now, lease_s)``). It must exceed the sink's worst-case call time.
+DEFAULT_LEASE_S = 60
 
 #: Exponential backoff (01 §7.5): 0.5 * 2**attempts seconds.
 _BACKOFF_BASE_S = 0.5
@@ -100,11 +111,21 @@ class _OutboxRepo(Protocol):
         trace_id: str,
     ) -> None: ...
 
-    def claim_next(self, *, now_ts: int) -> dict[str, Any] | None: ...
+    def claim_next(self, *, now_ts: int, lease_s: int) -> dict[str, Any] | None: ...
 
-    def mark_done(self, outbox_id: str, *, external_ref: str | None, now_ts: int) -> None: ...
+    def mark_done(
+        self, outbox_id: str, *, claimed_at_ts: int, external_ref: str | None, now_ts: int
+    ) -> bool: ...
 
-    def mark_failed(self, outbox_id: str, *, error: str, retry_at_ts: int | None) -> None: ...
+    def mark_failed(
+        self,
+        outbox_id: str,
+        *,
+        claimed_at_ts: int,
+        error: str,
+        retry_at_ts: int | None,
+        consume_attempt: bool = True,
+    ) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,14 +163,37 @@ class Authorization:
 
 
 @dataclass(frozen=True, slots=True)
+class _Claim:
+    """A committed claim, validated and ready for the external call."""
+
+    row: dict[str, Any]
+    kind: ActionKind
+    handler: Handler
+    payload: Mapping[str, Any]
+    table: SnTable
+    sys_id: str
+    token: int  # claimed_at_ts — the fencing token for the outcome write
+
+    @property
+    def outbox_id(self) -> str:
+        return str(self.row["id"])
+
+    @property
+    def attempts(self) -> int:
+        return int(self.row["attempts"])
+
+
+@dataclass(frozen=True, slots=True)
 class ExecResult:
     """The outcome of one ``run_once`` step (10-wp WP-006).
 
-    ``status == "none"`` means no due row was claimed (the worker loop stops).
+    ``status == "none"`` means no due row was claimed (the worker loop stops);
+    ``"lost"`` means this worker's claim expired and was taken over before it
+    could record the outcome (the new claimant reconciles).
     """
 
     outbox_id: str | None = None
-    status: Literal["none", "sent", "reconciled", "retried", "failed"] = "none"
+    status: Literal["none", "sent", "reconciled", "retried", "failed", "lost"] = "none"
     attempts: int = 0
     external_ref: str | None = None
     error: str | None = None
@@ -169,6 +213,7 @@ class OutboxExecutor:
         sink: TicketSink,
         handlers: Mapping[ActionKind, Handler],
         max_attempts: int = MAX_ATTEMPTS,
+        lease_s: int = DEFAULT_LEASE_S,
         crash_hook: Callable[[str], None] | None = None,
     ) -> None:
         self._uow = uow
@@ -179,6 +224,7 @@ class OutboxExecutor:
         self._sink = sink
         self._handlers = handlers
         self._max_attempts = max_attempts
+        self._lease_s = lease_s
         self._crash_hook = crash_hook
 
     # --- enqueue ------------------------------------------------------------
@@ -228,31 +274,76 @@ class OutboxExecutor:
 
     # --- run_once -----------------------------------------------------------
 
-    # PLR0911/PLR0915: a linear crash-recovery state machine — each branch
-    # commits and returns immediately, with crash hooks interleaved (INV-04);
-    # a single-exit restructure would obscure those recovery semantics.
-    def run_once(self, now: datetime) -> ExecResult:  # noqa: PLR0911, PLR0915
-        """Claim and process the next due outbox row (or report none due)."""
+    def run_once(self, now: datetime) -> ExecResult:
+        """Claim and process the next due outbox row (or report none due).
+
+        Three steps, never one transaction across the external call:
+        claim + validate (commit) → reconcile / send (no transaction) →
+        record the outcome (commit, fenced on the claim).
+        """
         now_ts = int(now.timestamp())
+        claim = self._claim(now, now_ts)
+        if isinstance(claim, ExecResult):
+            return claim
+
+        # INV-04: reconcile journal kinds against the external marker.
+        key = str(claim.row["idempotency_key"])
+        if claim.kind in JOURNAL_KINDS:
+            found = self._sink.find_marker(claim.table, claim.sys_id, marker(key))
+            if found is not None:
+                return self._record_done(claim, now, now_ts, found.as_text(), "reconciled")
+        self._crash("after_reconcile")
+
+        # Stale-claim reclaims (a worker died mid-send) spend the same budget.
+        if claim.attempts >= self._max_attempts:
+            return self._finalize_failure(
+                claim, now, claim.attempts, "retry budget exhausted", consume_attempt=False
+            )
+
+        return self._send(claim, now, now_ts, key)
+
+    # --- steps --------------------------------------------------------------
+
+    def _send(self, claim: _Claim, now: datetime, now_ts: int, key: str) -> ExecResult:
+        """Execute the handler (no transaction open) and record the outcome."""
+        try:
+            ref = claim.handler.execute(
+                sink=self._sink,
+                table=claim.table,
+                sys_id=claim.sys_id,
+                payload=claim.payload,
+                idempotency_key=key,
+            )
+        except DomainValidationError as exc:
+            return self._finalize_failure(claim, now, claim.attempts + 1, f"invalid payload: {exc}")
+        except ExternalServiceError as exc:
+            attempts = claim.attempts + 1
+            if exc.retryable and attempts < self._max_attempts:
+                return self._record_retry(claim, now, now_ts, attempts, str(exc))
+            return self._finalize_failure(claim, now, attempts, f"external failure: {exc}")
+
+        # Sent. A crash from here to the commit is INV-04's replay case: the
+        # row stays claimed, is reclaimed after lease_s, and reconciles.
+        self._crash("after_send")
+        return self._record_done(claim, now, now_ts, ref.as_text(), "sent")
+
+    def _claim(self, now: datetime, now_ts: int) -> _Claim | ExecResult:
+        """Claim, emit, re-hash and resolve the target; commit the claim."""
         with self._uow:
-            row = self._repo.claim_next(now_ts=now_ts)
+            row = self._repo.claim_next(now_ts=now_ts, lease_s=self._lease_s)
             if row is None:
                 return ExecResult()
-            outbox_id = row["id"]
-            kind = ActionKind(row["action_kind"])
-            attempts_before = int(row["attempts"])
             self._crash("after_claim")
             self._emit(row, EventKind.SEND, now, {"phase": "claim"})
+            token = int(row["claimed_at_ts"])
 
             # INV-01: the payload must still hash to what was authorized.
+            payload: Mapping[str, Any] | None
             try:
-                payload: Mapping[str, Any] = json.loads(row["payload_json"])
+                payload = json.loads(row["payload_json"])
             except (json.JSONDecodeError, ValueError):
-                payload = None  # type: ignore[assignment]
-            if payload is None or payload_hash(payload) != row["payload_hash"]:
-                self._repo.mark_failed(
-                    outbox_id, error="payload hash mismatch (INV-01)", retry_at_ts=None
-                )
+                payload = None
+            if not isinstance(payload, Mapping) or payload_hash(payload) != row["payload_hash"]:
                 self._emit(
                     row,
                     EventKind.EXECUTOR_HASH_MISMATCH,
@@ -260,172 +351,127 @@ class OutboxExecutor:
                     {"phase": "abort", "error": "payload hash mismatch"},
                     status="error",
                 )
-                self._emit(row, EventKind.SEND, now, {"phase": "abort"}, status="error")
-                self._uow.commit()
-                return ExecResult(
-                    outbox_id=outbox_id,
-                    status="failed",
-                    attempts=attempts_before,
-                    error="payload hash mismatch (INV-01)",
-                )
+                return self._abort(row, token, now, "payload hash mismatch (INV-01)")
             self._crash("after_rehash")
 
-            # Resolve the external target from the case.
+            kind = ActionKind(row["action_kind"])
+            handler = self._handlers.get(kind)
+            if handler is None:
+                return self._abort(row, token, now, f"no handler for kind {kind.value}")
+
             case = self._case(row["case_id"])
             if case is None or not case.get("external_table") or not case.get("external_id"):
-                self._repo.mark_failed(
-                    outbox_id, error="case has no external target", retry_at_ts=None
-                )
-                self._emit(
-                    row,
-                    EventKind.SEND,
-                    now,
-                    {"phase": "abort", "error": "no external target"},
-                    status="error",
-                )
-                self._uow.commit()
-                return ExecResult(
-                    outbox_id=outbox_id,
-                    status="failed",
-                    attempts=attempts_before,
-                    error="case has no external target",
-                )
-
+                return self._abort(row, token, now, "case has no external target")
             try:
                 table = SnTable(case["external_table"])
             except ValueError:
-                self._repo.mark_failed(
-                    outbox_id,
-                    error=f"unknown external table {case['external_table']!r}",
-                    retry_at_ts=None,
+                return self._abort(
+                    row, token, now, f"unknown external table {case['external_table']!r}"
                 )
-                self._emit(
-                    row,
-                    EventKind.SEND,
-                    now,
-                    {"phase": "abort", "error": "unknown external table"},
-                    status="error",
-                )
-                self._uow.commit()
-                return ExecResult(
-                    outbox_id=outbox_id,
-                    status="failed",
-                    attempts=attempts_before,
-                    error="unknown external table",
-                )
-            sys_id = str(case["external_id"])
-            key = row["idempotency_key"]
+            self._uow.commit()
+        return _Claim(
+            row=row,
+            kind=kind,
+            handler=handler,
+            payload=payload,
+            table=table,
+            sys_id=str(case["external_id"]),
+            token=token,
+        )
 
-            # INV-04: reconcile journal kinds against the external marker.
-            if kind in JOURNAL_KINDS:
-                found = self._sink.find_marker(table, sys_id, marker(key))
-                if found is not None:
-                    self._repo.mark_done(outbox_id, external_ref=found.as_text(), now_ts=now_ts)
-                    self._emit(
-                        row,
-                        EventKind.SEND,
-                        now,
-                        {"phase": "reconciled", "external_ref": found.as_text()},
-                    )
-                    self._uow.commit()
-                    return ExecResult(
-                        outbox_id=outbox_id,
-                        status="reconciled",
-                        attempts=attempts_before,
-                        external_ref=found.as_text(),
-                    )
-            self._crash("after_reconcile")
+    def _abort(self, row: dict[str, Any], token: int, now: datetime, error: str) -> ExecResult:
+        """Fail a claimed row before any external call (inside the claim UoW)."""
+        self._repo.mark_failed(row["id"], claimed_at_ts=token, error=error, retry_at_ts=None)
+        self._emit(row, EventKind.SEND, now, {"phase": "abort", "error": error}, status="error")
+        self._uow.commit()
+        return ExecResult(
+            outbox_id=row["id"],
+            status="failed",
+            attempts=int(row["attempts"]) + 1,
+            error=error,
+        )
 
-            handler = self._handlers.get(kind)
-            if handler is None:
-                self._repo.mark_failed(
-                    outbox_id, error=f"no handler for kind {kind.value}", retry_at_ts=None
-                )
-                self._emit(
-                    row,
-                    EventKind.SEND,
-                    now,
-                    {"phase": "abort", "error": "no handler"},
-                    status="error",
-                )
-                self._uow.commit()
-                return ExecResult(
-                    outbox_id=outbox_id,
-                    status="failed",
-                    attempts=attempts_before,
-                    error="no handler for kind",
-                )
-
-            try:
-                ref = handler.execute(
-                    sink=self._sink,
-                    table=table,
-                    sys_id=sys_id,
-                    payload=payload,
-                    idempotency_key=key,
-                )
-            except DomainValidationError as exc:
-                return self._finalize_failure(
-                    row, now, now_ts, attempts_before, f"invalid payload: {exc}"
-                )
-            except ExternalServiceError as exc:
-                attempts = attempts_before + 1
-                if exc.retryable and attempts < self._max_attempts:
-                    retry_at = now_ts + backoff_s(attempts)
-                    self._repo.mark_failed(outbox_id, error=str(exc), retry_at_ts=retry_at)
-                    self._emit(
-                        row,
-                        EventKind.SEND,
-                        now,
-                        {"phase": "retry", "attempts": attempts, "retry_at_ts": retry_at},
-                        status="error",
-                    )
-                    self._uow.commit()
-                    return ExecResult(
-                        outbox_id=outbox_id,
-                        status="retried",
-                        attempts=attempts,
-                        error=str(exc),
-                    )
-                return self._finalize_failure(
-                    row, now, now_ts, attempts, f"external failure: {exc}"
-                )
-
-            # Sent: record it, then commit (a crash here is INV-04's replay case).
-            self._crash("after_send")
-            self._repo.mark_done(outbox_id, external_ref=ref.as_text(), now_ts=now_ts)
+    def _record_done(
+        self,
+        claim: _Claim,
+        now: datetime,
+        now_ts: int,
+        external_ref: str,
+        status: Literal["sent", "reconciled"],
+    ) -> ExecResult:
+        with self._uow:
+            if not self._repo.mark_done(
+                claim.outbox_id, claimed_at_ts=claim.token, external_ref=external_ref, now_ts=now_ts
+            ):
+                return self._lost(claim, now)
             self._crash("after_mark_done")
             self._emit(
-                row,
-                EventKind.SEND,
-                now,
-                {"phase": "sent", "external_ref": ref.as_text()},
+                claim.row, EventKind.SEND, now, {"phase": status, "external_ref": external_ref}
             )
             self._uow.commit()
-            return ExecResult(
-                outbox_id=outbox_id,
-                status="sent",
-                attempts=attempts_before,
-                external_ref=ref.as_text(),
-            )
+        return ExecResult(
+            outbox_id=claim.outbox_id,
+            status=status,
+            attempts=claim.attempts,
+            external_ref=external_ref,
+        )
 
-    # --- internals ----------------------------------------------------------
+    def _record_retry(
+        self, claim: _Claim, now: datetime, now_ts: int, attempts: int, error: str
+    ) -> ExecResult:
+        retry_at = now_ts + backoff_s(attempts)
+        with self._uow:
+            if not self._repo.mark_failed(
+                claim.outbox_id, claimed_at_ts=claim.token, error=error, retry_at_ts=retry_at
+            ):
+                return self._lost(claim, now)
+            self._emit(
+                claim.row,
+                EventKind.SEND,
+                now,
+                {"phase": "retry", "attempts": attempts, "retry_at_ts": retry_at},
+                status="error",
+            )
+            self._uow.commit()
+        return ExecResult(
+            outbox_id=claim.outbox_id, status="retried", attempts=attempts, error=error
+        )
 
     def _finalize_failure(
         self,
-        row: dict[str, Any],
+        claim: _Claim,
         now: datetime,
-        now_ts: int,
         attempts: int,
         error: str,
+        *,
+        consume_attempt: bool = True,
     ) -> ExecResult:
         """Mark failed (no retry), safe-default the case, emit, commit."""
-        outbox_id = row["id"]
-        self._repo.mark_failed(outbox_id, error=error, retry_at_ts=None)
-        self._safe_default(row["case_id"])
-        self._emit(row, EventKind.SEND, now, {"phase": "failed", "error": error}, status="error")
+        with self._uow:
+            if not self._repo.mark_failed(
+                claim.outbox_id,
+                claimed_at_ts=claim.token,
+                error=error,
+                retry_at_ts=None,
+                consume_attempt=consume_attempt,
+            ):
+                return self._lost(claim, now)
+            self._safe_default(claim.row["case_id"])
+            self._emit(
+                claim.row, EventKind.SEND, now, {"phase": "failed", "error": error}, status="error"
+            )
+            self._uow.commit()
+        return ExecResult(
+            outbox_id=claim.outbox_id, status="failed", attempts=attempts, error=error
+        )
+
+    def _lost(self, claim: _Claim, now: datetime) -> ExecResult:
+        """Our claim expired and was taken over; the new claimant owns the outcome."""
+        self._emit(claim.row, EventKind.SEND, now, {"phase": "claim_lost"}, status="skipped")
         self._uow.commit()
-        return ExecResult(outbox_id=outbox_id, status="failed", attempts=attempts, error=error)
+        return ExecResult(outbox_id=claim.outbox_id, status="lost", attempts=claim.attempts)
+
+    # --- internals ----------------------------------------------------------
 
     def _safe_default(self, case_id: str) -> None:
         """On final failure, move an active case to ``human_owned`` (ARCH §6.2)."""
@@ -522,6 +568,7 @@ class OutboxExecutor:
 
 
 __all__ = [
+    "DEFAULT_LEASE_S",
     "MAX_ATTEMPTS",
     "Authorization",
     "ExecResult",

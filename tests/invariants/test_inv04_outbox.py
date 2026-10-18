@@ -15,8 +15,10 @@ triggers are live):
 * retryable faults back off and are re-tried; non-retryable faults fail fast;
 * the retry budget (5) is exhausted into a terminal ``failed`` + safe-default;
 * two workers racing on one row: exactly one claims (rowcount CAS).
+* no DB transaction is held across the external call; a dead worker's claim
+  is reclaimed after the lease, and a late outcome from it is fenced off.
 
-The 8 test ids below are frozen (WP-006 DoD) — do not rename.
+The 8 WP-006 test ids below are frozen (WP-006 DoD) — do not rename.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.app.handlers import HANDLERS, marker
 from supportagent.app.outbox import (
+    DEFAULT_LEASE_S,
     MAX_ATTEMPTS,
     Authorization,
     OutboxExecutor,
@@ -231,12 +234,15 @@ def test_idempotent_replay(  # noqa: PLR0913, PLR0917
     row = _enqueue_work_note(ex_crash)
     with pytest.raises(RuntimeError, match="after_send"):
         ex_crash.run_once(clock.now())
-    # Claim rolled back → still pending; the sink kept its one entry.
-    assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "pending"
+    # The claim was committed before the send, so the row is held by the dead
+    # worker until its lease expires; the sink kept its one entry.
+    assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "claimed"
     assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
 
-    # A clean worker must reconcile, not re-send.
+    # A clean worker must not steal a live claim, then reconciles once it is stale.
     ex_clean = _executor(db, uow, clock, ids, events, fake_sn)
+    assert ex_clean.run_once(clock.now()).status == "none"
+    clock.advance(DEFAULT_LEASE_S)
     res = ex_clean.run_once(clock.now())
     assert res.status == "reconciled"
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
@@ -378,3 +384,110 @@ def test_executor_concurrent_claims_exclusive(  # noqa: PLR0913, PLR0917
     assert sorted(results) == ["none", "sent"]
     assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
+
+
+# --- claim lifecycle (review fixes) ----------------------------------------
+
+
+class _ProbingSink:
+    """Wraps the fake: inside the external call, another connection writes.
+
+    If the executor held its claim transaction open across the call, SQLite's
+    ``BEGIN IMMEDIATE`` write lock (or a Postgres row lock on the outbox row)
+    would block this write.
+    """
+
+    def __init__(self, inner: Any, db: Any, outbox_id: str) -> None:
+        self._inner = inner
+        self._db = db
+        self._outbox_id = outbox_id
+        self.probed = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def append_journal(self, *args: Any) -> Any:
+        with self._db.begin() as conn:
+            if self._db.dialect.name == "sqlite":
+                conn.execute(sa.text("PRAGMA busy_timeout = 200"))
+            else:
+                conn.execute(sa.text("SET LOCAL lock_timeout = '1s'"))
+            conn.execute(
+                sa.text("UPDATE outbox SET last_error = 'probe' WHERE id = :i"),
+                {"i": self._outbox_id},
+            )
+        self.probed = True
+        return self._inner.append_journal(*args)
+
+
+def test_executor_holds_no_db_lock_during_send(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, events: Any, fake_sn: Any
+) -> None:
+    """The claim commits before the external call; other writers are not blocked."""
+    _seed_base(db)
+    _seed_auth(db, kind="work_note", payload=WORK_NOTE)
+    row = _enqueue_work_note(_executor(db, uow, clock, ids, events, fake_sn))
+    sink = _ProbingSink(fake_sn, db, row.id)
+    ex = _executor(db, uow, clock, ids, events, sink)
+
+    assert ex.run_once(clock.now()).status == "sent"
+    assert sink.probed
+    assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
+
+
+def test_executor_late_outcome_after_reclaim_is_fenced(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, events: Any, fake_sn: Any
+) -> None:
+    """A worker whose claim expired cannot overwrite the new claimant's outcome."""
+    _seed_base(db)
+    _seed_auth(db, kind="work_note", payload=WORK_NOTE)
+    row = _enqueue_work_note(_executor(db, uow, clock, ids, events, fake_sn))
+    late_results: list[str] = []
+
+    class _SlowSink:
+        """The first worker's send stalls past the lease; a second worker reclaims."""
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(fake_sn, name)
+
+        def append_journal(self, *args: Any) -> Any:
+            ref = fake_sn.append_journal(*args)
+            clock.advance(DEFAULT_LEASE_S)
+            ex2 = _executor(db, SqlUnitOfWork(db), clock, ids, events, fake_sn)
+            late_results.append(ex2.run_once(clock.now()).status)
+            return ref
+
+    ex1 = _executor(db, uow, clock, ids, events, _SlowSink())
+    assert ex1.run_once(clock.now()).status == "lost"
+    assert late_results == ["reconciled"]
+    assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+
+
+def test_executor_stale_reclaims_exhaust_budget(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, events: Any, fake_sn: Any
+) -> None:
+    """A row that kills its worker every time fails after MAX_ATTEMPTS reclaims."""
+    _seed_base(db)
+    _seed_auth(db, kind="work_note", payload=WORK_NOTE)
+    row = _enqueue_work_note(_executor(db, uow, clock, ids, events, fake_sn))
+    crashes = [0]
+
+    def crash_until_budget(step: str) -> None:
+        if step == "after_reconcile" and crashes[0] < MAX_ATTEMPTS:
+            crashes[0] += 1
+            raise RuntimeError(f"simulated crash at {step}")  # noqa: TRY003
+
+    ex = _executor(db, uow, clock, ids, events, fake_sn, crash_hook=crash_until_budget)
+
+    for _ in range(MAX_ATTEMPTS):
+        with pytest.raises(RuntimeError, match="after_reconcile"):
+            ex.run_once(clock.now())
+        clock.advance(DEFAULT_LEASE_S)
+    res = ex.run_once(clock.now())
+
+    assert res.status == "failed"
+    assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "failed"
+    assert _scalar(db, "SELECT attempts FROM outbox WHERE id = :i", i=row.id) == MAX_ATTEMPTS
+    assert _scalar(db, "SELECT status FROM cases WHERE id = :i", i=CASE_ID) == "human_owned"
+    assert fake_sn.write_count == 0

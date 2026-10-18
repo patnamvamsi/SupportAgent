@@ -9,9 +9,10 @@ property test pins the WP-006 DoD (10-wp):
     between the executor's steps).
 
 For each of 100 randomized (crash point, journal kind) scenarios, the worker
-runs ``run_once`` once and dies at the crash point. The crash rolls back the
-unit of work, so the row returns to ``pending``, while any external sink write
-persists (the INV-04 replay case). A clean worker then drains the queue. INV-04
+runs ``run_once`` once and dies at the crash point. A crash before the claim
+commits rolls it back (the row returns to ``pending``); a later crash leaves
+the row ``claimed`` until the lease expires. Any external sink write persists
+(the INV-04 replay case). A clean worker then drains the queue. INV-04
 requires that the sink ends with **exactly one** journal entry for the approved
 action — its last line the idempotency marker — and the outbox row ``done``:
 either the replay reconciled the pre-crash write (no double-send) or, for
@@ -36,7 +37,7 @@ import sqlalchemy as sa
 from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.fakes.servicenow import FakeServiceNow
 from supportagent.app.handlers import HANDLERS, JOURNAL_KINDS, marker
-from supportagent.app.outbox import Authorization, OutboxExecutor
+from supportagent.app.outbox import DEFAULT_LEASE_S, Authorization, OutboxExecutor
 from supportagent.domain.hashing import payload_hash
 from supportagent.domain.idempotency import approval_key
 from supportagent.domain.kinds import ActionKind
@@ -203,9 +204,9 @@ def test_dod_exactly_one_journal_entry_per_approved_action(
     """DoD: exactly one journal entry per approved action across 100 crashes.
 
     For 100 randomized (crash point, journal kind) scenarios, the worker runs
-    ``run_once`` once and dies at the crash point (the unit of work rolls back,
-    the row returns to ``pending``, any external sink write persists). A clean
-    worker then drains the queue. INV-04 requires the sink to end with exactly
+    ``run_once`` once and dies at the crash point (any open unit of work rolls
+    back, any external sink write persists). Once the lease has expired, a
+    clean worker drains the queue. INV-04 requires the sink to end with exactly
     one journal entry for the approved action (last line the marker) and the
     outbox row ``done``.
     """
@@ -232,7 +233,9 @@ def test_dod_exactly_one_journal_entry_per_approved_action(
         with pytest.raises(RuntimeError, match=point):
             ex_crash.run_once(clock.now())
 
-        # A clean worker drains the queue to empty.
+        # A clean worker drains the queue to empty, after the dead worker's
+        # claim (committed for post-claim crash points) has gone stale.
+        clock.advance(DEFAULT_LEASE_S)
         ex_clean = _executor(db, uow, clock, ids, events, fake_sn)
         while True:
             res = ex_clean.run_once(clock.now())
