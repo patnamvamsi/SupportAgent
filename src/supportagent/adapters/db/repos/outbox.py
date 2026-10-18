@@ -86,5 +86,83 @@ class OutboxRepo:
         )
         return dict(row) if row is not None else None
 
+    def get_by_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        """Load the row with a UNIQUE idempotency key, or ``None`` (INV-04)."""
+        row = (
+            self._uow.connection.execute(
+                sa.select(outbox).where(outbox.c.idempotency_key == idempotency_key)
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row is not None else None
+
+    def claim_next(self, *, now_ts: int) -> dict[str, Any] | None:
+        """Claim the next due row (ARCH L498): exclusive, rowcount-checked CAS.
+
+        A row is *due* when ``status='pending'`` and
+        ``next_attempt_ts IS NULL OR <= now_ts`` (01 §7.5). The SELECT picks the
+        oldest due row; the UPDATE re-checks ``status='pending'`` and is guarded
+        by a rowcount of exactly 1, so two workers racing on the same row cannot
+        both claim it (the loser sees ``rowcount == 0`` and claims nothing).
+        Both statements run inside the caller's transaction.
+        """
+        due = outbox.c.status == "pending"
+        conn = self._uow.connection
+        row_id = conn.execute(
+            sa.select(outbox.c.id)
+            .where(
+                due,
+                sa.or_(
+                    outbox.c.next_attempt_ts.is_(None),
+                    outbox.c.next_attempt_ts <= now_ts,
+                ),
+            )
+            .order_by(outbox.c.id)
+            .limit(1)
+        ).scalar_one_or_none()
+        if row_id is None:
+            return None
+        result = conn.execute(
+            sa.update(outbox)
+            .where(outbox.c.id == row_id, outbox.c.status == "pending")
+            .values(status="claimed", claimed_at_ts=now_ts)
+            .execution_options(preserve_rowcount=True)
+        )
+        if int(result.rowcount) != 1:
+            return None
+        return self.get(row_id)
+
+    def mark_done(self, outbox_id: str, *, external_ref: str | None, now_ts: int) -> None:
+        """Record a completed send (03 §2.3: trigger-safe bookkeeping only)."""
+        self._uow.connection.execute(
+            sa.update(outbox)
+            .where(outbox.c.id == outbox_id)
+            .values(status="done", done_at_ts=now_ts, external_ref=external_ref)
+        )
+
+    def mark_failed(self, outbox_id: str, *, error: str, retry_at_ts: int | None) -> None:
+        """Record a failed attempt: one attempt consumed, then failed or re-queued.
+
+        ``retry_at_ts is None`` → terminal ``failed``; otherwise the row returns
+        to ``pending`` with the retry deadline (01 §7.5 backoff, set by caller).
+        """
+        if retry_at_ts is None:
+            values: dict[str, Any] = {
+                "status": "failed",
+                "attempts": outbox.c.attempts + 1,
+                "last_error": error,
+            }
+        else:
+            values = {
+                "status": "pending",
+                "attempts": outbox.c.attempts + 1,
+                "last_error": error,
+                "next_attempt_ts": retry_at_ts,
+            }
+        self._uow.connection.execute(
+            sa.update(outbox).where(outbox.c.id == outbox_id).values(**values)
+        )
+
 
 __all__ = ["OutboxRepo"]
