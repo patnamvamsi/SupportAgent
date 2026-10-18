@@ -98,6 +98,17 @@ def test_action_spec_rejects_float_payload() -> None:
         ActionSpec(kind=ActionKind.WORK_NOTE, target=TargetRef(**_target()), scope="", payload={})
 
 
+def test_action_spec_rejects_non_json_payload() -> None:
+    # 01 §4: payload is dict[str, JsonValue]; a set would only fail later, at hashing.
+    with pytest.raises(DomainValidationError, match="not a JSON value"):
+        ActionSpec(
+            kind=ActionKind.WORK_NOTE,
+            target=TargetRef(**_target()),
+            scope="ticket:INC0000001",
+            payload={"tags": {"a", "b"}},
+        )
+
+
 def test_event_payload_requires_version() -> None:
     # 01 §4: Event.payload "must contain 'v': <int> payload schema version".
     def event_kwargs(**overrides: object) -> dict[str, Any]:

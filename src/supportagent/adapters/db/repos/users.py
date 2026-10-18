@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from supportagent.adapters.db.tables import users
 from supportagent.adapters.db.uow import SqlUnitOfWork
+from supportagent.adapters.db.upsert import upsert_stmt
 from supportagent.domain.model.user import User
 
 
@@ -27,13 +26,16 @@ class UserRepo:
             "is_active": int(user.is_active),
             "created_ts": created_ts,
         }
-        # on_conflict_do_nothing is dialect-specific (SQLite/Postgres); both
-        # are supported here (04 §6).
-        insert = (pg_insert if self._uow.engine.dialect.name == "postgresql" else sqlite_insert)(
-            users
-        )
+        # 03 §2.1: the id (OIDC sub) is stable and created_ts is set once;
+        # profile fields refresh from the identity provider on every save.
         self._uow.connection.execute(
-            insert.values(**values).on_conflict_do_nothing(index_elements=["id"])
+            upsert_stmt(
+                self._uow.engine,
+                users,
+                values,
+                [users.c.id],
+                {"email": user.email, "name": user.name, "is_active": int(user.is_active)},
+            )
         )
 
     def get(self, user_id: str) -> User | None:

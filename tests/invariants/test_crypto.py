@@ -74,6 +74,43 @@ def test_crypto_shred_makes_payload_unreadable(db: Engine, uow: SqlUnitOfWork, a
         aead.decrypt("t_1", envelope)
 
 
+def test_decrypt_after_shred_does_not_reprovision_key(
+    db: Engine, uow: SqlUnitOfWork, aead: Aead
+) -> None:
+    """A read after crypto-shred fails and leaves the tenant keyless (03 §3)."""
+    with uow:
+        envelope = aead.encrypt("t_1", b"secret")
+        aead.shred("t_1")
+        uow.commit()
+
+    with uow:
+        with pytest.raises(InvalidTag):
+            aead.decrypt("t_1", envelope)
+        uow.commit()
+
+    assert _tenant_key_count(db, "t_1") == 0, "decrypt must never provision a data key"
+
+
+def test_wrapped_key_bound_to_tenant(db: Engine, uow: SqlUnitOfWork, aead: Aead) -> None:
+    """A wrapped key copied onto another tenant's row does not unwrap (AAD = tenant)."""
+    with uow:
+        envelope = aead.encrypt("t_1", b"secret")
+        aead.encrypt("t_2", b"other")
+        uow.commit()
+
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE tenant_keys SET wrapped_key = "
+                "(SELECT wrapped_key FROM tenant_keys WHERE tenant_id = 't_1') "
+                "WHERE tenant_id = 't_2'"
+            )
+        )
+
+    with uow, pytest.raises(InvalidTag):
+        aead.decrypt("t_2", envelope)
+
+
 def test_blob_roundtrip(db: Engine, uow: SqlUnitOfWork) -> None:
     """Raw payloads land in ``blobs`` keyed by (tenant, key) and read back intact."""
     repo = BlobRepo(uow)
