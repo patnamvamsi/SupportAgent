@@ -5,7 +5,9 @@
 ``supportagent migrate`` (02 §4): it points Alembic at the checked-in
 migration history and the resolved database URL, then upgrades — or, with
 ``allow_downgrade``, downgrades (03 §4: downgrades are refused without the
-flag; the CLI maps that to exit 2).
+flag; the CLI maps that to exit 2). ``replay_trace()`` is the home of
+``supportagent replay`` (02 §4): it wires the event read path (DB + crypto +
+app service) and returns the ``ReplayView``.
 """
 
 from __future__ import annotations
@@ -16,10 +18,36 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy.exc import SQLAlchemyError
 
+from supportagent.adapters.crypto.aead import Aead
+from supportagent.adapters.db.engine import make_engine
+from supportagent.adapters.db.repos.blobs import SqlKeyStore
+from supportagent.adapters.db.repos.events import SqlEventSink
+from supportagent.adapters.db.uow import SqlUnitOfWork
+from supportagent.adapters.system.clock import SystemClock
+from supportagent.app.replay import ReplayService, ReplayView
+from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import DomainValidationError, ExternalServiceError
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def replay_trace(config: AppConfig, master_key: bytes, trace_id: str) -> ReplayView:
+    """Wire the event read path and replay one trace (02 §4, 10-wp WP-004).
+
+    Read-only: the UoW never commits, and the engine is disposed before
+    returning. Raises ``NotFound`` (CLI: exit 4, 02 §4) when the log has no
+    events for ``trace_id``.
+    """
+    engine = make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(engine)
+        with uow:
+            cipher = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=SystemClock())
+            repo = SqlEventSink(uow=uow, cipher=cipher)
+            return ReplayService(repo=repo).replay(trace_id)
+    finally:
+        engine.dispose()
 
 
 def build_container() -> object:

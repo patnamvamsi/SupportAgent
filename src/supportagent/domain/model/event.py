@@ -5,8 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import field_validator
-
+from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import _reject_floats
 from supportagent.domain.model.base import DomainModel
@@ -30,13 +29,12 @@ class Event(DomainModel):
     payload: dict[str, object]  # JsonValue domain; must contain "v": <int>
     ts: datetime
 
-    @field_validator("payload")
-    @classmethod
-    def _payload_has_version(cls, value: dict[str, object]) -> dict[str, object]:
+    def _assert_domain_rules(self) -> None:
         # 01 §7.1: floats are forbidden in hashed payloads.
-        _reject_floats(value)
-        if "v" not in value or not isinstance(value["v"], int) or isinstance(value["v"], bool):
-            raise ValueError(  # noqa: TRY003 — message is the pinned validation API (01 §4)
+        _reject_floats(self.payload)
+        version = self.payload.get("v")
+        if not isinstance(version, int) or isinstance(version, bool):
+            # 10-wp WP-004: a missing 'v' is a DomainValidationError.
+            raise DomainValidationError(  # noqa: TRY003 — pinned validation API
                 "payload must contain 'v': <int> payload schema version"
             )
-        return value
