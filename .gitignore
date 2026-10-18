@@ -18,8 +18,8 @@ dist/
 build/
 *.egg-info/
 
-# Local runtime data and secrets
-data/
+# Local runtime data and secrets (top-level only; tests/data/ fixtures are tracked)
+/data/
 *.db
 *.db-wal
 *.db-shm
