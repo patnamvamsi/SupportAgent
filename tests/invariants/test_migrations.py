@@ -28,8 +28,8 @@ from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
-# 10-wp / 03 §4: the exact table set that migration 0001 must create (plus the
-# alembic bookkeeping table).
+# 10-wp / 03 §4: the exact table set at head (0001, plus the alembic
+# bookkeeping table).
 EXPECTED_TABLES = frozenset(
     {
         "users",
@@ -54,16 +54,24 @@ def _scratch_url(backend: str, db: Engine, tmp_path: Path) -> str:
     in the session container (postgres)."""
     if backend == "sqlite":
         return f"sqlite:///{tmp_path}/scratch.db"
-    with db.begin() as conn:
+    # CREATE/DROP DATABASE cannot run inside a transaction block on Postgres,
+    # so these admin statements run on an AUTOCOMMIT engine.
+    admin = db.execution_options(isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
         conn.exec_driver_sql("DROP DATABASE IF EXISTS sa_scratch")
         conn.exec_driver_sql("CREATE DATABASE sa_scratch")
-    return str(db.url.set(database="sa_scratch"))
+    # NB: ``str(URL)`` (i.e. ``URL.__repr__``) masks the password as ``***``,
+    # which would be handed to the engine as a *literal* password. Render
+    # with ``hide_password=False`` to keep the real credentials.
+    return db.url.set(database="sa_scratch").render_as_string(hide_password=False)
 
 
 def _drop_scratch(backend: str, db: Engine) -> None:
     if backend != "postgres":
         return
-    with db.begin() as conn:
+    # Same AUTOCOMMIT constraint as _scratch_url (see there).
+    admin = db.execution_options(isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
         conn.exec_driver_sql("DROP DATABASE IF EXISTS sa_scratch")
 
 
@@ -79,7 +87,9 @@ def test_migrations_roundtrip(request: pytest.FixtureRequest, db: Engine, tmp_pa
 
         run_migrations(url, "base", allow_downgrade=True)  # downgrade base (CI roundtrip)
         engine = make_engine(url)
-        assert _table_names(engine) == frozenset({"alembic_version"}), "base must leave only alembic_version"
+        assert _table_names(engine) == frozenset({"alembic_version"}), (
+            "base must leave only alembic_version"
+        )
         engine.dispose()
 
         run_migrations(url)  # upgrade head again
@@ -90,7 +100,9 @@ def test_migrations_roundtrip(request: pytest.FixtureRequest, db: Engine, tmp_pa
         _drop_scratch(backend, db)
 
 
-def test_migrate_refuses_downgrade_without_flag(request, db, tmp_path):
+def test_migrate_refuses_downgrade_without_flag(
+    request: pytest.FixtureRequest, db: Engine, tmp_path: Path
+) -> None:
     """02 §4: ``migrate`` refuses a downgrade without ``--allow-downgrade``.
 
     At the bootstrap level the refusal surfaces as a DomainValidationError;
@@ -121,15 +133,19 @@ def _check_literals(engine: Engine, table: str, column: str) -> frozenset[str]:
             ).scalar_one()
     else:
         with engine.connect() as conn:
-            defs = conn.execute(
-                text(
-                    "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c "
-                    "JOIN pg_class r ON r.oid = c.conrelid "
-                    "JOIN pg_namespace n ON n.oid = r.relnamespace "
-                    "WHERE r.relname = :t AND n.nspname = current_schema() AND c.contype = 'c'"
-                ),
-                {"t": table},
-            ).scalars().all()
+            defs = (
+                conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c "
+                        "JOIN pg_class r ON r.oid = c.conrelid "
+                        "JOIN pg_namespace n ON n.oid = r.relnamespace "
+                        "WHERE r.relname = :t AND n.nspname = current_schema() AND c.contype = 'c'"
+                    ),
+                    {"t": table},
+                )
+                .scalars()
+                .all()
+            )
         ddl = " ".join(defs)
     # Postgres stores ``IN`` as ``= ANY (ARRAY[...])``; SQLite keeps ``IN``.
     m = re.search(re.escape(column) + r"[^=]*=\s*ANY\s*\(\s*ARRAY\[(.*?)\]", ddl) or re.search(
@@ -140,14 +156,18 @@ def _check_literals(engine: Engine, table: str, column: str) -> frozenset[str]:
     return frozenset(re.findall(r"'([^']*)'", m.group(1)))
 
 
-def test_schema_enums_match_domain(db):
+def test_schema_enums_match_domain(db: Engine) -> None:
     """03 §1: CHECK literal sets must equal the domain enums — drift fails here."""
     assert _check_literals(db, "cases", "status") == frozenset(s.value for s in CaseStatus)
     assert _check_literals(db, "cases", "severity") == frozenset(s.value for s in Severity)
     # 03 §2.2: CHECK (origin IN ('alert','ticket')); cf. domain.model.alert.AlertEvent.origin.
     assert _check_literals(db, "cases", "origin") == frozenset({"alert", "ticket"})
     # 03 §2.1: role literals (a domain Role enum lands in v0.1, WP-103).
-    assert _check_literals(db, "role_assignments", "role") == frozenset({"viewer", "analyst", "approver", "admin"})
-
-    # The metadata object is the single DDL source and names exactly the 0001 tables.
-    assert frozenset(t.name for t in metadata.tables.values()) == EXPECTED_TABLES - {"alembic_version"}
+    assert _check_literals(db, "role_assignments", "role") == frozenset(
+        {"viewer", "analyst", "approver", "admin"}
+    )
+    # The metadata object is the single DDL source and names exactly the
+    # 0001 tables.
+    assert frozenset(t.name for t in metadata.tables.values()) == EXPECTED_TABLES - {
+        "alembic_version"
+    }

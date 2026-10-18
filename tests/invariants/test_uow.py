@@ -26,15 +26,14 @@ def _insert_user(uow: SqlUnitOfWork, uid: str, ts: int) -> None:
 
 def _user_count(db: Engine) -> int:
     with db.connect() as conn:
-        return conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
+        return int(conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one())
 
 
 def test_uow_rolls_back_on_exception(db: Engine, clock: FrozenClock) -> None:
     """A raised exception rolls the whole UoW back (10-wp)."""
-    with pytest.raises(RuntimeError, match="boom"):
-        with SqlUnitOfWork(db) as uow:
-            _insert_user(uow, "u_1", int(clock.now().timestamp()))
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"), SqlUnitOfWork(db) as uow:
+        _insert_user(uow, "u_1", int(clock.now().timestamp()))
+        raise RuntimeError("boom")
     assert _user_count(db) == 0, "a failed UoW must not persist any writes"
 
 

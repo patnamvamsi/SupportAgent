@@ -8,9 +8,8 @@ payload permanently unreadable — surfaced as a stable ``InvalidTag``.
 
 from __future__ import annotations
 
-from cryptography.exceptions import InvalidTag
-
 import pytest
+from cryptography.exceptions import InvalidTag
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -21,13 +20,16 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 
 def _tenant_key_count(db: Engine, tenant_id: str) -> int:
     with db.connect() as conn:
-        return conn.execute(
-            text("SELECT COUNT(*) FROM tenant_keys WHERE tenant_id = :t"), {"t": tenant_id}
-        ).scalar_one()
+        return int(
+            conn.execute(
+                text("SELECT COUNT(*) FROM tenant_keys WHERE tenant_id = :t"),
+                {"t": tenant_id},
+            ).scalar_one()
+        )
 
 
 def test_aead_roundtrip(db: Engine, uow: SqlUnitOfWork, aead: Aead) -> None:
-    """encrypt() then decrypt() returns the original bytes; key is wrapped once per tenant (03 §3)."""
+    """encrypt() then decrypt() returns the original bytes; one wrapped key per tenant (03 §3)."""
     with uow:
         envelope = aead.encrypt("t_1", b"raw alert payload")
         uow.commit()
@@ -52,9 +54,8 @@ def test_aead_tamper_detected(db: Engine, uow: SqlUnitOfWork, aead: Aead) -> Non
 
     tampered = bytearray(envelope)
     tampered[-1] ^= 0x01  # corrupt the GCM tag
-    with uow:
-        with pytest.raises(InvalidTag):
-            aead.decrypt("t_1", bytes(tampered))
+    with uow, pytest.raises(InvalidTag):
+        aead.decrypt("t_1", bytes(tampered))
 
 
 def test_crypto_shred_makes_payload_unreadable(db: Engine, uow: SqlUnitOfWork, aead: Aead) -> None:
@@ -69,9 +70,8 @@ def test_crypto_shred_makes_payload_unreadable(db: Engine, uow: SqlUnitOfWork, a
 
     assert _tenant_key_count(db, "t_1") == 0, "shred must delete the wrapped data key"
 
-    with uow:
-        with pytest.raises(InvalidTag):
-            aead.decrypt("t_1", envelope)
+    with uow, pytest.raises(InvalidTag):
+        aead.decrypt("t_1", envelope)
 
 
 def test_blob_roundtrip(db: Engine, uow: SqlUnitOfWork) -> None:

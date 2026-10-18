@@ -45,7 +45,9 @@ def test_lease_acquire_exclusive(db: Engine, uow: SqlUnitOfWork, clock: FrozenCl
         uow.commit()
 
 
-def test_lease_expires_and_is_taken_over(db: Engine, uow: SqlUnitOfWork, clock: FrozenClock) -> None:
+def test_lease_expires_and_is_taken_over(
+    db: Engine, uow: SqlUnitOfWork, clock: FrozenClock
+) -> None:
     """Once ``until_ts`` passes, another owner may take the lease over (03 §2.5)."""
     with uow:
         assert LeaseRepo(uow, clock).acquire(name="worker", owner="a", ttl_s=60) is True

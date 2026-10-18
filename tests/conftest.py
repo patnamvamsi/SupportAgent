@@ -120,7 +120,8 @@ _RESET_ORDER: tuple[str, ...] = (
 def _reset_schema(engine: Engine) -> None:
     """04 §3: schema reset per test (Postgres TRUNCATE; SQLite has no TRUNCATE)."""
     if engine.dialect.name == "sqlite":
-        statements = [f"DELETE FROM {table}" for table in _RESET_ORDER]
+        # table is drawn from the fixed internal _RESET_ORDER tuple, not input
+        statements = [f"DELETE FROM {table}" for table in _RESET_ORDER]  # noqa: S608
     else:
         statements = [f"TRUNCATE {table} RESTART IDENTITY CASCADE" for table in _RESET_ORDER]
     with engine.begin() as conn:
@@ -133,14 +134,16 @@ def _db_engine(request: pytest.FixtureRequest) -> Iterator[Any]:
     """04 §3: one engine per session — sqlite (tmp file, WAL) or
     testcontainers ``postgres:16`` (one per session) — with migrations applied
     once per session at head."""
-    from supportagent.adapters.db.engine import make_engine
-    from supportagent.bootstrap import run_migrations
+    # Deferred (fixture-level) imports keep the sqlite path free of the
+    # Postgres-only dependencies (testcontainers) and avoid import-order coupling.
+    from supportagent.adapters.db.engine import make_engine  # noqa: PLC0415
+    from supportagent.bootstrap import run_migrations  # noqa: PLC0415
 
     backend = request.config.getoption("--db")
     container: Any = None
-    tmpdir: tempfile.TemporaryDirectory | None = None
+    tmpdir: tempfile.TemporaryDirectory[str] | None = None
     if backend == "postgres":
-        from testcontainers.community.postgres import PostgresContainer
+        from testcontainers.community.postgres import PostgresContainer  # noqa: PLC0415
 
         container = PostgresContainer("postgres:16")
         container.start()
@@ -170,7 +173,7 @@ def db(_db_engine: Any) -> Any:
 @pytest.fixture
 def uow(db: Any) -> Any:
     """04 §3: ``uow`` — ``SqlUnitOfWork(db)``; commit or roll back, never auto."""
-    from supportagent.adapters.db.uow import SqlUnitOfWork
+    from supportagent.adapters.db.uow import SqlUnitOfWork  # noqa: PLC0415
 
     return SqlUnitOfWork(db)
 
@@ -185,7 +188,7 @@ def master_key() -> bytes:
 def aead(master_key: bytes, uow: Any, clock: FrozenClock) -> Any:
     """03 §3: AES-256-GCM envelope; per-tenant keys wrapped by the master key
     and stored in ``tenant_keys`` via the key-store seam."""
-    from supportagent.adapters.crypto.aead import Aead
-    from supportagent.adapters.db.repos.blobs import SqlKeyStore
+    from supportagent.adapters.crypto.aead import Aead  # noqa: PLC0415
+    from supportagent.adapters.db.repos.blobs import SqlKeyStore  # noqa: PLC0415
 
     return Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
