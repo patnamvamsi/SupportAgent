@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 
 from supportagent.domain.hashing import _reject_floats
@@ -18,7 +19,7 @@ class Proposal(DomainModel):
     case_id: str
     action_kind: ActionKind
     scope: str
-    payload: dict[str, object]  # JsonValue domain; floats rejected by domain rules
+    payload: Mapping[str, object]  # JsonValue domain; floats rejected by domain rules
     payload_hash: str  # payload_hash(payload); compared at execution (INV-04)
     trace_id: str
     status: ProposalStatus = ProposalStatus.PROPOSED

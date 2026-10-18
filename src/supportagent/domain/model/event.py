@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Literal
 
@@ -26,7 +27,7 @@ class Event(DomainModel):
     tokens_out: int = 0
     latency_ms: int = 0
     status: Literal["ok", "error", "skipped"] = "ok"
-    payload: dict[str, object]  # JsonValue domain; must contain "v": <int>
+    payload: Mapping[str, object]  # JsonValue domain; must contain "v": <int>
     ts: datetime
 
     def _assert_domain_rules(self) -> None:
