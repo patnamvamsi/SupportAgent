@@ -29,8 +29,8 @@ from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
-# 10-wp / 03 §4: the exact table set at head (0001 + 0002, plus the alembic
-# bookkeeping table).
+# 10-wp / 03 §4: the exact table set at head (0001 + 0002 + 0003, plus the
+# alembic bookkeeping table).
 EXPECTED_TABLES = frozenset(
     {
         "users",
@@ -42,6 +42,12 @@ EXPECTED_TABLES = frozenset(
         "tenant_keys",
         "leases",
         "events",
+        # 10-wp human gate (0003).
+        "proposals",
+        "approvals",
+        "policy_grants",
+        "comms_plans",
+        "outbox",
         "alembic_version",
     }
 )
@@ -84,7 +90,9 @@ def test_migrations_roundtrip(request: pytest.FixtureRequest, db: Engine, tmp_pa
     try:
         run_migrations(url)  # upgrade head
         engine = make_engine(url)
-        assert _table_names(engine) == EXPECTED_TABLES, "head must create the full 0001+0002 schema"
+        assert _table_names(engine) == EXPECTED_TABLES, (
+            "head must create the full 0001+0002+0003 schema"
+        )
         engine.dispose()
 
         run_migrations(url, "base", allow_downgrade=True)  # downgrade base (CI roundtrip)
@@ -174,7 +182,7 @@ def test_schema_enums_match_domain(db: Engine) -> None:
     assert _check_literals(db, "events", "status") == frozenset({"ok", "error", "skipped"})
 
     # The metadata object is the single DDL source and names exactly the
-    # 0001+0002 tables.
+    # 0001+0002+0003 tables.
     assert frozenset(t.name for t in metadata.tables.values()) == EXPECTED_TABLES - {
         "alembic_version"
     }

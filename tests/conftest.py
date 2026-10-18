@@ -106,7 +106,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # Children-first order so per-test resets respect FKs on both engines
 # (04 §3: schema reset per test — TRUNCATE on Postgres, DELETE on SQLite).
 # ``events`` (0002, WP-004) has no outgoing FKs — it is a leaf.
+# The 10-wp gate tables (0003) reference ``cases``/``users``, so they are
+# deleted first, in their own children-first order (outbox → comms_plans →
+# approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    "outbox",
+    "comms_plans",
+    "approvals",
+    "policy_grants",
+    "proposals",
     "role_assignments",
     "alerts",
     "events",
