@@ -1,0 +1,117 @@
+"""WP-006: the ``outbox.execute`` worker job (02 §7, 10-wp).
+
+Pins the thin entrypoint contract: the job takes a DB lease (03 §2.5) so at
+most one replica drains the outbox at a time, drains ``run_once`` until the
+queue is empty (``"none"``) or the per-run row cap is reached, and always
+releases the lease (even on error). The job itself runs no SQL or HTTP — the
+executor and repositories own the database (entrypoints-thin).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+import pytest
+
+from supportagent.app.outbox import ExecResult
+from supportagent.entrypoints.worker.jobs import (
+    OUTBOX_EXECUTE_LEASE,
+    JobResult,
+    outbox_execute,
+)
+
+
+class _FakeLease:
+    """A ``Lease`` double that scripts the acquire outcome and records calls."""
+
+    def __init__(self, *, acquire_result: bool = True) -> None:
+        self._acquire_result = acquire_result
+        self.acquired: list[tuple[str, str, int]] = []
+        self.released: list[tuple[str, str]] = []
+
+    def acquire(self, *, name: str, owner: str, ttl_s: int) -> bool:
+        self.acquired.append((name, owner, ttl_s))
+        return self._acquire_result
+
+    def release(self, *, name: str, owner: str) -> None:
+        self.released.append((name, owner))
+
+
+class _FakeExecutor:
+    """An ``OutboxExecutor`` double that scripts ``run_once`` results."""
+
+    def __init__(
+        self,
+        results: list[ExecResult] | None = None,
+        *,
+        infinite: bool = False,
+        raise_error: Exception | None = None,
+    ) -> None:
+        self._results = list(results) if results is not None else []
+        self._infinite = infinite
+        self._raise_error = raise_error
+        self.calls: list[datetime] = []
+
+    def run_once(self, now: datetime) -> ExecResult:
+        self.calls.append(now)
+        if self._raise_error is not None:
+            raise self._raise_error
+        if self._infinite:
+            return ExecResult(status="sent")
+        if self._results:
+            return self._results.pop(0)
+        return ExecResult(status="none")
+
+
+def test_outbox_execute_skips_when_lease_held(clock: Any) -> None:
+    """Another replica holds the lease → this run is a no-op (03 §2.5)."""
+    lease = _FakeLease(acquire_result=False)
+    executor = _FakeExecutor()
+    res = outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1")
+    assert res == JobResult(name=OUTBOX_EXECUTE_LEASE, ran=False, rows=0)
+    # Never held the lease → never release it, and never drive the executor.
+    assert lease.acquired == [(OUTBOX_EXECUTE_LEASE, "owner-1", 10)]
+    assert lease.released == []
+    assert executor.calls == []
+
+
+def test_outbox_execute_drains_until_none(clock: Any) -> None:
+    """Holds the lease → drains the queue to empty, then releases (02 §7)."""
+    lease = _FakeLease(acquire_result=True)
+    executor = _FakeExecutor([ExecResult(status="sent"), ExecResult(status="reconciled")])
+    res = outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1")
+    assert res.ran is True
+    assert res.rows == 2
+    # Two "processed" rows + the terminal "none" that ends the loop.
+    assert len(executor.calls) == 3
+    assert lease.released == [(OUTBOX_EXECUTE_LEASE, "owner-1")]
+
+
+def test_outbox_execute_caps_at_max_rows(clock: Any) -> None:
+    """A non-empty queue is capped at ``max_rows`` per run (02 §7: "or 50 rows")."""
+    lease = _FakeLease(acquire_result=True)
+    executor = _FakeExecutor(infinite=True)
+    res = outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1", max_rows=5)
+    assert res.ran is True
+    assert res.rows == 5
+    assert len(executor.calls) == 5
+    assert lease.released == [(OUTBOX_EXECUTE_LEASE, "owner-1")]
+
+
+def test_outbox_execute_uses_default_row_cap(clock: Any) -> None:
+    """Without an explicit cap, the job honours the 02 §7 default (50 rows)."""
+    lease = _FakeLease(acquire_result=True)
+    executor = _FakeExecutor(infinite=True)
+    res = outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1")
+    assert res.rows == 50
+    assert len(executor.calls) == 50
+
+
+def test_outbox_execute_releases_lease_on_error(clock: Any) -> None:
+    """A crash mid-drain still releases the lease (so a replica can retry)."""
+    lease = _FakeLease(acquire_result=True)
+    executor = _FakeExecutor(raise_error=RuntimeError("simulated crash"))
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1")
+    assert lease.released == [(OUTBOX_EXECUTE_LEASE, "owner-1")]
