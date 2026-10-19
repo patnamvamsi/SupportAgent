@@ -16,11 +16,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from supportagent.adapters.llm.faults import FaultInjectingLLMProvider
 from supportagent.adapters.llm.prompts import PromptRegistry
+from supportagent.adapters.llm.providers import make_llm_provider
 from supportagent.adapters.llm.redact import RedactionResult, Redactor
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
@@ -85,8 +87,23 @@ class LLMClient:
         except Exception:  # noqa: BLE001 — a missing prompt is a load error, not a caller concern
             return None
 
-        system_result = self._redactor.redact(rendered.system)
-        user_result = self._redactor.redact(rendered.user)
+        try:
+            system_result = self._redactor.redact(rendered.system)
+            user_result = self._redactor.redact(rendered.user)
+        except Exception as exc:  # noqa: BLE001 — fail closed: no redaction, no call (INV-06)
+            self._events.append(
+                self._build_event(
+                    kind=EventKind.REDACT,
+                    trace=trace,
+                    status="error",
+                    model=None,
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=0,
+                    payload={"v": 1, "slot": slot.value, "error": type(exc).__name__},
+                )
+            )
+            return None
 
         self._emit_redact(slot, self._aggregate(system_result, user_result), trace)
 
@@ -236,3 +253,36 @@ class LLMClient:
             payload=payload,
             ts=self._clock.now(),
         )
+
+
+def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus the provider choice
+    *,
+    provider_name: str,
+    sdk_client: Any,  # noqa: ANN401 — provider-specific SDK client
+    redactor: Redactor,
+    prompts: PromptRegistry,
+    events: EventSink,
+    ids: IdGenerator,
+    clock: Clock,
+    slots: Mapping[SlotName, SlotSpec],
+    fault_injection: bool = False,
+) -> LLMClient:
+    """The one factory that builds a real provider (INV-06, 10-wp WP-007).
+
+    Provider classes are importable only inside ``adapters.llm``
+    (importlinter ``llm-providers-private``), so a provider reaches the rest of
+    the system only wrapped in an ``LLMClient`` that redacts every request.
+    ``fault_injection`` wraps it in ``FaultInjectingLLMProvider`` (04 §1).
+    """
+    provider: LLMProvider = make_llm_provider(provider_name, sdk_client)
+    if fault_injection:
+        provider = FaultInjectingLLMProvider(provider)
+    return LLMClient(
+        provider=provider,
+        redactor=redactor,
+        prompts=prompts,
+        events=events,
+        ids=ids,
+        clock=clock,
+        slots=slots,
+    )

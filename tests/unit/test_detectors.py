@@ -94,3 +94,48 @@ def test_detectors_golden_positive_and_negative(cls: DetectorClass) -> None:
         assert 0 <= span.start < span.end <= len(positive)
 
     assert detector.find(negative) == [], f"{cls.value}: negative was detected: {negative!r}"
+
+
+# --- review fixes: recall on the secret itself, precision on ordinary text --
+
+
+def _redacted(text: str) -> str:
+    from supportagent.adapters.llm.detectors import built_in_detectors  # noqa: PLC0415
+    from supportagent.adapters.llm.redact import Redactor  # noqa: PLC0415
+
+    return Redactor(built_in_detectors()).redact(text).text
+
+
+def test_private_key_block_redacts_key_material() -> None:
+    """The whole PEM block is the secret, including a truncated paste."""
+    full = (
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIEkeyLINE1\nkeyLINE2\n"
+        "-----END RSA PRIVATE KEY-----\nafter"
+    )
+    out = _redacted(full)
+    assert "keyLINE" not in out
+    assert out.endswith("\nafter")
+    assert "keyLINE" not in _redacted("-----BEGIN PRIVATE KEY-----\nMIIEkeyLINE1 (truncated")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "db01.prod.example resolves to 10.0.0.1",
+        "upgraded from 1.2.3 to 1.2.4",
+        "see config.yaml.bak",
+    ],
+)
+def test_jwt_detector_ignores_dotted_names(text: str) -> None:
+    assert _detector_for(DetectorClass.JWT).find(text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ("db_password=Zx81kQpL0vN3mR7tY2wB", "Zx81kQpL0vN3mR7tY2wB"),
+        ("Authorization: Bearer abc.def-ghi_jkl~mno+pq/rs==", "abc.def-ghi_jkl~mno+pq/rs=="),
+    ],
+)
+def test_detectors_cover_passwords_and_b64_bearer(text: str, secret: str) -> None:
+    assert secret not in _redacted(text)

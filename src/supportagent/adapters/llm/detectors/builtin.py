@@ -8,9 +8,9 @@ LLM call, and the placeholder map never leaves the process).
 
 Thresholds are locked by the golden set (``tests/unit/test_detectors.py``):
 entropy >= 3.5 (generic key), bearer length >= 16, card 13-19 Luhn-valid,
-JWT >= 3 segments, phone leading ``+``, conn-string ``user:pass@``,
-AWS ``(AKIA|ASIA|A3T[A-Z0-9])[A-Z0-9]{16}``, email standard, PEM
-``BEGIN ... PRIVATE KEY``.
+JWT ``eyJ`` header + 3 segments, phone leading ``+``, conn-string
+``user:pass@``, AWS ``(AKIA|ASIA|A3T[A-Z0-9])[A-Z0-9]{16}``, email standard,
+PEM ``BEGIN ... PRIVATE KEY`` through its ``END`` line (the whole block).
 """
 
 from __future__ import annotations
@@ -51,15 +51,16 @@ class AwsAccessKeyDetector:
 class GenericApiKeyDetector:
     """``key=value`` pairs whose value is a high-entropy secret (>= 3.5 bits/char).
 
-    The name must contain one of ``key``/``token``/``secret``/``api`` (case-
-    insensitive) to avoid flagging arbitrary ``a=b`` pairs; the value must be
+    The name must contain one of ``key``/``token``/``secret``/``api``/
+    ``pass``/``pwd`` (case-insensitive) to avoid flagging arbitrary ``a=b`` pairs; the value must be
     >= 20 chars and >= 3.5 bits/char of entropy so low-entropy literals
     (``aaaa...``) are not flagged (golden negative).
     """
 
     detector_class = DetectorClass.GENERIC_API_KEY
     _RE = re.compile(
-        r"(?i)\b[A-Za-z0-9_]*(?:key|token|secret|api)[A-Za-z0-9_]*\s*[=:]\s*([A-Za-z0-9_-]{20,})"
+        r"(?i)\b[A-Za-z0-9_]*(?:key|token|secret|api|pass|pwd)[A-Za-z0-9_]*\s*[=:]\s*"
+        r"([A-Za-z0-9_\-+/]{20,}=*)"
     )
     _MIN_ENTROPY = 3.5
 
@@ -75,10 +76,14 @@ class GenericApiKeyDetector:
 
 
 class BearerTokenDetector:
-    """Bearer tokens (``Authorization: Bearer <token>``), token >= 16 chars."""
+    """Bearer tokens (``Authorization: Bearer <token>``), token >= 16 chars.
+
+    The charset is RFC 6750 ``b64token`` (``-._~+/`` plus trailing ``=``), so
+    dotted or base64 tokens are redacted whole.
+    """
 
     detector_class = DetectorClass.BEARER_TOKEN
-    _RE = re.compile(r"Bearer\s+([A-Za-z0-9_-]{16,})", re.IGNORECASE)
+    _RE = re.compile(r"Bearer\s+([A-Za-z0-9\-._~+/]{16,}=*)", re.IGNORECASE)
 
     def find(self, text: str) -> list[SecretSpan]:
         return [
@@ -88,10 +93,14 @@ class BearerTokenDetector:
 
 
 class JwtDetector:
-    """JSON Web Tokens (>= 3 dot-separated base64url segments)."""
+    """JSON Web Tokens: a base64url JSON header (``eyJ``) + 2 more segments.
+
+    Requiring the ``eyJ`` header keeps hostnames (``db01.prod.example``) and
+    versions (``1.2.3``) out; unsigned JWTs (empty third segment) still match.
+    """
 
     detector_class = DetectorClass.JWT
-    _RE = re.compile(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+    _RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
 
     def find(self, text: str) -> list[SecretSpan]:
         return [
@@ -101,10 +110,18 @@ class JwtDetector:
 
 
 class PrivateKeyBlockDetector:
-    """PEM private-key headers (``-----BEGIN ... PRIVATE KEY-----``)."""
+    """PEM private-key blocks, header through ``END`` line.
+
+    The key material is the secret, not the header: the span runs to the
+    matching ``-----END ... PRIVATE KEY-----``, or to the end of the text when
+    the block is truncated (a pasted partial key is still redacted).
+    """
 
     detector_class = DetectorClass.PRIVATE_KEY_BLOCK
-    _RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+    _RE = re.compile(
+        r"-----BEGIN ([A-Z ]*)PRIVATE KEY-----.*?(?:-----END \1PRIVATE KEY-----|\Z)",
+        re.DOTALL,
+    )
 
     def find(self, text: str) -> list[SecretSpan]:
         return [

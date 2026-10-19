@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from supportagent.domain.detectors import DetectorClass
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.triage import TriageResult
@@ -35,19 +37,31 @@ def _plant(cls: DetectorClass, token: str) -> str:
     return token
 
 
-def _build_ticket(canaries: dict[DetectorClass, str]) -> tuple[str, str]:
-    """A ticket whose subject and body carry every canary exactly once each."""
-    email = canaries[DetectorClass.EMAIL]
-    subject = f"Urgent: {_plant(DetectorClass.EMAIL, email)} outage"
-    body = "\n".join(f"- {_plant(cls, token)}" for cls, token in canaries.items())
-    return subject, body
+def _build_ticket(canaries: dict[DetectorClass, str], placement: str = "body") -> tuple[str, str]:
+    """A ticket carrying every canary once, in the ``placement`` field (10-wp:
+    canaries go in the ticket body **and** the subject)."""
+    planted = "\n".join(f"- {_plant(cls, token)}" for cls, token in canaries.items())
+    if placement == "subject":
+        return f"Urgent outage {planted}", "Users report errors."
+    return "Urgent outage", planted
 
 
+def _key_material(token: str) -> list[str]:
+    """The parts of a canary that must not leak: for a PEM block, every line
+    (the key material is the secret, not just the header)."""
+    return [line for line in token.splitlines() if line.strip()] or [token]
+
+
+@pytest.mark.parametrize("placement", ["body", "subject"])
 def test_llm_bound_canaries_absent(
-    structured_llm: Any, fake_llm: Any, events: Any, canaries: dict[DetectorClass, str]
+    structured_llm: Any,
+    fake_llm: Any,
+    events: Any,
+    canaries: dict[DetectorClass, str],
+    placement: str,
 ) -> None:
     """INV-06: a canary token never reaches the provider or an event payload."""
-    subject, body = _build_ticket(canaries)
+    subject, body = _build_ticket(canaries, placement)
     structured_llm.structured(
         SlotName.CLASSIFY,
         {"ticket_subject": subject, "ticket_body": body},
@@ -64,7 +78,8 @@ def test_llm_bound_canaries_absent(
     # (1) No secret survives into the provider request (system + user).
     captured = "\n".join(req.system + "\n" + req.user for req in fake_llm.captured)
     for cls, token in canaries.items():
-        assert token not in captured, f"{cls.value} canary leaked into provider request"
+        for part in _key_material(token):
+            assert part not in captured, f"{cls.value} canary leaked into provider request"
 
     # (2) No secret survives into any event payload.
     for event in events.appended:

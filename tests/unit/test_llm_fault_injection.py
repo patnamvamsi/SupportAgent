@@ -53,3 +53,25 @@ def test_fault_injection_llm_timeout_yields_none(
     assert llm_events and llm_events[0].status == "error"
     # Redaction always precedes the call.
     assert EventKind.REDACT in {event.kind for event in events.appended}
+
+
+@pytest.mark.faults
+@pytest.mark.parametrize("fault", ["llm_garbage", "llm_429"])
+def test_fault_injection_spec_faults_yield_none(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_llm: Any,
+    events: Any,
+    _build_llm_client: Any,
+    fault: str,
+) -> None:
+    """10-wp WP-007 fault names: garbage payload and 429 both collapse to ``None``."""
+    monkeypatch.setenv("SUPPORTAGENT_FAULT_INJECT", fault)
+    from supportagent.adapters.llm.faults import FaultInjectingLLMProvider  # noqa: PLC0415
+
+    client = _build_llm_client(FaultInjectingLLMProvider(fake_llm))
+    result = client.structured(SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE)
+
+    assert result is None
+    assert fake_llm.captured == []
+    llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
+    assert llm_events and llm_events[0].status == "error"

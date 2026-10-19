@@ -67,3 +67,22 @@ def test_structured_records_rendered_prompt_hash(structured_llm: Any, events: An
     digest = next(iter(hashes))
     assert isinstance(digest, str) and len(digest) == 64
     assert all(char in "0123456789abcdef" for char in digest)
+
+
+def test_structured_fails_closed_when_redaction_raises(
+    fake_llm: Any, events: Any, _build_llm_client: Any
+) -> None:
+    """INV-06: a detector crash means no provider call — ``None``, never raise."""
+    client = _build_llm_client(fake_llm)
+
+    class _Broken:
+        def redact(self, text: str) -> Any:
+            raise RuntimeError("detector bug")  # noqa: TRY003
+
+    client._redactor = _Broken()
+    result = client.structured(SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE)
+
+    assert result is None
+    assert fake_llm.captured == []
+    redact_events = [event for event in events.appended if event.kind == EventKind.REDACT]
+    assert redact_events and redact_events[0].status == "error"

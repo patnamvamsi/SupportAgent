@@ -9,6 +9,7 @@ before ``APIStatusError`` (rate limit is a status error).
 
 from __future__ import annotations
 
+import time
 from typing import Any, Protocol
 
 import anthropic
@@ -32,6 +33,7 @@ class AnthropicProvider:
         self._client = client
 
     def complete_json(self, request: ProviderRequest) -> ProviderResponse:
+        started = time.perf_counter()
         try:
             response = self._client.messages.create(
                 model=request.model_id,
@@ -56,5 +58,5 @@ class AnthropicProvider:
             resolved_model=response.model,
             tokens_in=usage.input_tokens,
             tokens_out=usage.output_tokens,
-            latency_ms=0,
+            latency_ms=int((time.perf_counter() - started) * 1000),
         )

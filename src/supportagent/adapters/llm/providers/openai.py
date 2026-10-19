@@ -9,6 +9,7 @@ before ``APIStatusError`` (rate limit is a status error).
 
 from __future__ import annotations
 
+import time
 from typing import Any, Protocol
 
 import openai
@@ -40,6 +41,7 @@ class OpenAIProvider:
             {"role": "system", "content": request.system},
             {"role": "user", "content": request.user},
         ]
+        started = time.perf_counter()
         try:
             response = self._client.chat.completions.create(
                 model=request.model_id,
@@ -59,9 +61,9 @@ class OpenAIProvider:
         choice = response.choices[0]
         usage = response.usage
         return ProviderResponse(
-            raw_text=choice.message.content,
+            raw_text=choice.message.content or "",
             resolved_model=response.model,
             tokens_in=usage.prompt_tokens,
             tokens_out=usage.completion_tokens,
-            latency_ms=0,
+            latency_ms=int((time.perf_counter() - started) * 1000),
         )

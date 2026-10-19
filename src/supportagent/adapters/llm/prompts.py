@@ -23,14 +23,16 @@ import jinja2
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.slots import SlotName
 
-_UNTRUSTED_CLOSING = "</untrusted_ticket>"
+# Any spelling a model might read as the closing tag: case and inner
+# whitespace vary (``</UNTRUSTED_TICKET>``, ``< /untrusted_ticket >``).
+_UNTRUSTED_CLOSING_RE = re.compile(r"<\s*/\s*untrusted_ticket\s*>", re.IGNORECASE)
 _UNTRUSTED_CLOSING_ESCAPED = "&lt;/untrusted_ticket&gt;"
 _VERSION_RE = re.compile(r"v(\d+)\.md")
 
 
 def _escape_untrusted(value: str) -> str:
     """Escape a closing ``</untrusted_ticket>`` so it cannot close the block."""
-    return value.replace(_UNTRUSTED_CLOSING, _UNTRUSTED_CLOSING_ESCAPED)
+    return _UNTRUSTED_CLOSING_RE.sub(_UNTRUSTED_CLOSING_ESCAPED, value)
 
 
 @dataclass(frozen=True, slots=True)
