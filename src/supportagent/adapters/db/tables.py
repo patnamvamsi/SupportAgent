@@ -319,6 +319,30 @@ outbox = sa.Table(
     sa.Index("ix_outbox_due", "tenant_id", "status", "next_attempt_ts"),  # 03 §2.3
 )
 
+# --- ARCH §8.1: ServiceNow sync state ---------------------------------------
+# The sync service (app.sync) polls a table, dedups on (sys_id, sys_mod_count),
+# and remembers the per-(tenant, table) cursor so a crash mid-batch resumes from
+# the last committed page. ``table_name`` is the ServiceNow table (``"table"``
+# is a SQL reserved word, so the column is renamed).
+
+sync_seen = sa.Table(
+    "sync_seen",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("table_name", sa.Text, nullable=False, primary_key=True),
+    sa.Column("sys_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("sys_mod_count", sa.Integer, nullable=False, primary_key=True),
+    sa.Column("seen_ts", sa.Integer, nullable=False),
+)
+
+sync_cursor = sa.Table(
+    "sync_cursor",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("table_name", sa.Text, nullable=False, primary_key=True),
+    sa.Column("cursor_iso", sa.Text, nullable=False),  # aware-UTC ISO-8601
+)
+
 # ARCH §6.3: the comms history / rendering record. Every send IS an outbox row.
 comms = sa.Table(
     "comms",
