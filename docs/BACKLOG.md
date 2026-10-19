@@ -37,4 +37,5 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
 | BL-014 | P1 | `bootstrap.py` doesn't yet wire `OutboxExecutor`, `build_llm_client`, `SyncService` or the worker jobs. | WP-006 – 008 | WP-011 |
+| BL-018 | P2 | **Calibration rejection at startup.** `load_calibration` raises `ConfigError` on a grade/model mismatch, while 01 §7.7 says "rejected at load, and every label then scores 0". Bootstrap must choose: fail startup, or load an empty table (everything safe-defaults) and surface it in `doctor`. Also decide whether `severity_escalated` treating a severity-less case as escalated is intended for case skeletons (WP-009). | WP-010 | WP-011 |
 | BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |

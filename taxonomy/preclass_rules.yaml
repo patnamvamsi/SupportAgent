@@ -7,6 +7,7 @@
 #
 # Labels must be valid taxonomy labels (^[a-z0-9_]+/[a-z0-9_]+$), e.g. the
 # database, deploy, network, batch, auth, request domains in classification.yaml.
+version: 1.0.0
 rules:
   - when:
       alert_type: "(?i)(saturation|pool|connections|disk)"

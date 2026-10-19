@@ -40,6 +40,8 @@ class CalibrationTable(DomainModel):
     load (see ``adapters.files.calibration_loader``).
     """
 
+    #: Artifact format version written by the producer (01 §7.7 example).
+    version: int | None = Field(default=None, ge=1)
     grade: Literal["smoke", "holdout"]
     snapshot_id: str = Field(min_length=1)
     model_id: str = Field(min_length=1)

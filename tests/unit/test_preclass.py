@@ -5,6 +5,13 @@ Canonical test ID from 10-wp §WP-010: ``test_preclass_rules_ordered``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+from supportagent.adapters.files.preclass_loader import load_preclass_rules
+from supportagent.adapters.files.taxonomy_loader import load_classification
+from supportagent.domain.errors import ConfigError, DomainValidationError
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.preclass import PreclassRule, RuleSet
 from tests.builders import an_alert
@@ -39,3 +46,32 @@ def test_preclass_rules_ordered() -> None:
     # A rule whose field is absent (None) never matches.
     none_rule = RuleSet(rules=[PreclassRule(when={"cmdb_ci": "CI1001"}, label="network/dns")])
     assert none_rule.classify(_evt(cmdb_ci=None)) is None
+
+
+def test_shipped_preclass_rules_load_with_taxonomy_labels() -> None:
+    # 10-wp WP-010: rules are loaded from taxonomy/preclass_rules.yaml; every
+    # label is from the same taxonomy as the LLM (ARCH §4.2).
+    rule_set = load_preclass_rules(Path("taxonomy/preclass_rules.yaml"))
+    taxonomy = load_classification(Path("taxonomy/classification.yaml"))
+    assert rule_set.version is not None
+    assert rule_set.rules
+    known = {label.id for label in taxonomy.labels}
+    assert {rule.label for rule in rule_set.rules} <= known
+
+
+@pytest.mark.parametrize(
+    "when",
+    [{"subject": "(unclosed"}, {"subjcet": "down"}, {"__class__": "x"}],
+    ids=["bad-regex", "typo-field", "dunder-field"],
+)
+def test_preclass_rule_invalid_rejected_at_load(when: dict[str, str]) -> None:
+    # A broken rule must fail at load, not raise mid-triage or never match.
+    with pytest.raises(DomainValidationError):
+        PreclassRule(when=when, label="network/latency")
+
+
+def test_preclass_loader_wraps_errors(tmp_path: Path) -> None:
+    path = tmp_path / "rules.yaml"
+    path.write_text("rules:\n  - when: {subject: '(unclosed'}\n    label: a/b\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="preclass"):
+        load_preclass_rules(path)

@@ -42,3 +42,36 @@ def test_calibration_model_mismatch_rejected(tmp_path: Path) -> None:
     path = _write(tmp_path / "calibration.json", grade="holdout", model_id="claude-old-model")
     with pytest.raises(ConfigError, match="model"):
         load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")
+
+
+def test_calibration_loads_spec_example_with_version(tmp_path: Path) -> None:
+    # 01 §7.7: the artifact the quality suite writes carries a ``version``.
+    path = tmp_path / "calibration.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "grade": "holdout",
+                "snapshot_id": "snap-2026-11-02",
+                "model_id": _MODEL,
+                "labels": {
+                    "database/saturation": {
+                        "agree": {"n": 41, "correct": 39},
+                        "abstain": {"n": 18, "correct": 15},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    table = load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")
+    assert table.version == 3
+
+
+@pytest.mark.parametrize("content", [None, "{not json", "[]"], ids=["missing", "garbage", "list"])
+def test_calibration_unreadable_is_config_error(tmp_path: Path, content: str | None) -> None:
+    path = tmp_path / "calibration.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    with pytest.raises(ConfigError, match="calibration"):
+        load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")

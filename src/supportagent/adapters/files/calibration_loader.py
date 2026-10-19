@@ -28,6 +28,9 @@ def load_calibration(
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # unreadable, or not JSON (JSONDecodeError)
+        raise ConfigError(f"calibration {path}: {exc}") from exc  # noqa: TRY003
+    try:
         table = CalibrationTable.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(f"calibration {path}: {exc}") from exc  # noqa: TRY003
