@@ -7,6 +7,7 @@ from supportagent.domain.model.base import DomainModel
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.comms import CommsPlan, CommsPlanStatus
 from supportagent.domain.model.event import Event
+from supportagent.domain.model.external import ExternalCaseRef, ExternalRef
 from supportagent.domain.model.grant import Grant, GrantStatus
 from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.model.taxonomy import (
@@ -15,6 +16,7 @@ from supportagent.domain.model.taxonomy import (
     Hypothesis,
     HypothesisTaxonomy,
 )
+from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
 from supportagent.domain.model.triage import TriageDecision, TriageResult
 from supportagent.domain.model.user import User
 
@@ -24,12 +26,15 @@ __all__ = [
     "Approval",
     "ApprovalStatus",
     "Catalog",
+    "ChangeRecord",
     "ClassificationLabel",
     "ClassificationTaxonomy",
     "CommsPlan",
     "CommsPlanStatus",
     "DomainModel",
     "Event",
+    "ExternalCaseRef",
+    "ExternalRef",
     "Grant",
     "GrantStatus",
     "Hypothesis",
@@ -37,6 +42,7 @@ __all__ = [
     "Proposal",
     "ServiceEntry",
     "TargetRef",
+    "TicketRecord",
     "TriageDecision",
     "TriageResult",
     "User",

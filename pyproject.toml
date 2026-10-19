@@ -65,9 +65,13 @@ testpaths = ["tests"]
 pythonpath = ["."]
 # Sockets are disabled by default: unit/property/contract suites run with no
 # network and no Docker (04 §1). Live-endpoint suites opt in per-run.
+# --allow-unix-socket: the in-memory ServiceNow ASGI fake (adapters/fakes) runs
+# its async handlers on a selector event loop whose waker is a Unix
+# socketpair — an in-memory construct, not a network call, so it is permitted
+# while real sockets stay blocked (04 §1 "no network").
 # --strict-markers: a marker that is not defined here is a collection error,
 # so a typo cannot silently re-scope a suite.
-addopts = ["--disable-socket", "--strict-markers", "-ra"]
+addopts = ["--disable-socket", "--allow-unix-socket", "--strict-markers", "-ra"]
 markers = [
     "unit: pure/domain and service tests with fakes; <5 ms each (04 §1)",
     "property: Hypothesis property tests (04 §1)",
