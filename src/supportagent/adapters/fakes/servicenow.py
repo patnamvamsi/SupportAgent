@@ -199,26 +199,36 @@ class FakeServiceNow:
 
     # --- TicketSource (02 §6) ----------------------------------------------
 
-    def poll(self, table: SnTable, since: datetime, limit: int) -> PollBatch:
+    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
         """Records on ``table`` with ``sys_updated_on >= since``, one page."""
         with self._lock:
             rows = list(self._rows.get(table.value, {}).values())
             selected = [r for r in rows if r["sys_updated_on"] >= since]
             selected.sort(key=lambda r: (r["sys_updated_on"], r["sys_id"]))
-            page = selected[:limit]
+            page = selected[offset : offset + limit]
             next_cursor = max((r["sys_updated_on"] for r in page), default=since)
             records = [self._row_to_record(table, r) for r in page]
         return PollBatch(records=records, next_cursor=next_cursor)
 
-    def history(self, table: SnTable, sys_id: str, after_mod_count: int) -> Sequence[ChangeRecord]:
-        """Audit (checkpoint > ``after_mod_count``) + journal, ordered by ``ts``."""
+    def history(
+        self,
+        table: SnTable,
+        sys_id: str,
+        after_mod_count: int,
+        since: datetime | None = None,
+    ) -> Sequence[ChangeRecord]:
+        """Audit (checkpoint > ``after_mod_count``) + journal (``ts >= since``), by ``ts``."""
         with self._lock:
             audit = [
                 c
                 for c in self._audit.get((table.value, sys_id), [])
                 if c.checkpoint is not None and c.checkpoint > after_mod_count
             ]
-            journal = list(self._journal_hist.get((table.value, sys_id), []))
+            journal = [
+                c
+                for c in self._journal_hist.get((table.value, sys_id), [])
+                if since is None or c.ts >= since
+            ]
         return sorted(audit + journal, key=lambda c: (c.ts, c.source == "audit"))
 
     # --- TicketSink (01 §7.5) ----------------------------------------------
@@ -429,9 +439,10 @@ class FakeServiceNowHTTP:
         table = request.path_params["table"]
         query = request.query_params.get("sysparm_query", "")
         limit = int(request.query_params.get("sysparm_limit", "1000"))
+        offset = int(request.query_params.get("sysparm_offset", "0"))
         with self._lock:
             rows = list(self._rows.get(table, {}).values())
-        rows = self._filter(rows, query)[:limit]
+        rows = self._filter(rows, query)[offset : offset + limit]
         return JSONResponse({"result": rows, "count": len(rows)})
 
     async def _record(self, request: Request) -> JSONResponse:
@@ -447,6 +458,9 @@ class FakeServiceNowHTTP:
         if request.method == "GET":
             return JSONResponse({"result": row})
         body = await request.json()
+        if not isinstance(body, dict) or not all(isinstance(v, str) for v in body.values()):
+            # A real instance rejects non-string field values (e.g. a journal array).
+            return JSONResponse({"error": "field values must be strings"}, status_code=400)
         with self._lock:
             self._apply_patch(table, sys_id, body)
             self._patch_count += 1
@@ -488,44 +502,33 @@ class FakeServiceNowHTTP:
         return value
 
     def _apply_patch(self, table: str, sys_id: str, body: Mapping[str, Any]) -> None:
+        """Table API PATCH semantics: setting a journal field (``work_notes`` /
+        ``comments``) to a string *appends* one journal entry; any other key
+        sets the field (the handler has already rejected non-string values)."""
         row = self._rows.setdefault(table, {})[sys_id]
+        journal_fields = {f.value for f in _JOURNAL_FIELDS}
         for key, value in body.items():
-            if isinstance(value, list):
-                self._store_journal(table, sys_id, key, value)
+            if key in journal_fields:
+                self._journal.append(
+                    {
+                        "name": table,
+                        "element_id": sys_id,
+                        "element": key,
+                        "value": value,
+                        "sys_created_by": "svc",
+                        "sys_created_on": _FIXED_TS,
+                    }
+                )
             else:
                 row[key] = value
 
-    def _store_journal(
-        self, table: str, sys_id: str, element: str, entries: Sequence[Mapping[str, Any]]
-    ) -> None:
-        self._journal = [
-            j
-            for j in self._journal
-            if not (
-                j.get("name") == table
-                and j.get("element_id") == sys_id
-                and j.get("element") == element
-            )
-        ]
-        for entry in entries:
-            self._journal.append(
-                {
-                    "name": table,
-                    "element_id": sys_id,
-                    "element": entry.get("element", element),
-                    "value": entry.get("value"),
-                    "sys_created_by": "svc",
-                    "sys_created_on": _FIXED_TS,
-                }
-            )
-
     @staticmethod
-    def _parse_query(query: str) -> tuple[list[tuple[str, str, str]], str | None]:
+    def _parse_query(query: str) -> tuple[list[tuple[str, str, str]], list[str]]:
         conditions: list[tuple[str, str, str]] = []
-        orderby: str | None = None
+        orderby: list[str] = []
         for clause in filter(None, (c.strip() for c in query.split("^"))):
             if clause.startswith("ORDERBY"):
-                orderby = clause[len("ORDERBY") :].strip()
+                orderby.append(clause[len("ORDERBY") :].strip())
                 continue
             for op in (">=", ">", "LIKE", "="):
                 idx = clause.find(op)
@@ -537,6 +540,10 @@ class FakeServiceNowHTTP:
     @staticmethod
     def _match(actual: Any, op: str, expected: str) -> bool:  # noqa: ANN401
         a = "" if actual is None else str(actual)
+        if op in {">=", ">"} and a.lstrip("-").isdigit() and expected.lstrip("-").isdigit():
+            # Integer columns (record_checkpoint, sys_mod_count) compare numerically.
+            ai, ei = int(a), int(expected)
+            return ai >= ei if op == ">=" else ai > ei
         if op == ">=":
             return a >= expected
         if op == ">":
@@ -550,7 +557,7 @@ class FakeServiceNowHTTP:
         for op, field, value in conditions:
             rows = [r for r in rows if self._match(r.get(field), op, value)]
         if orderby:
-            rows = sorted(rows, key=lambda r: str(r.get(orderby, "")))
+            rows = sorted(rows, key=lambda r: tuple(str(r.get(f, "")) for f in orderby))
         return rows
 
 

@@ -42,11 +42,17 @@ class ServiceNow:
 
     # -- TicketSource (02 §6) --------------------------------------------
 
-    def poll(self, table: SnTable, since: datetime, limit: int) -> PollBatch:
-        return self._source.poll(table, since, limit)
+    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
+        return self._source.poll(table, since, limit, offset)
 
-    def history(self, table: SnTable, sys_id: str, after_mod_count: int) -> Sequence[ChangeRecord]:
-        return self._source.history(table, sys_id, after_mod_count)
+    def history(
+        self,
+        table: SnTable,
+        sys_id: str,
+        after_mod_count: int,
+        since: datetime | None = None,
+    ) -> Sequence[ChangeRecord]:
+        return self._source.history(table, sys_id, after_mod_count, since)
 
     # -- TicketSink (01 §7.5) --------------------------------------------
 

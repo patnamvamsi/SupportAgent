@@ -202,3 +202,45 @@ def test_5xx_retried_then_error(sn_real: Any) -> None:
     assert excinfo.value.retryable is True
     # 0.5s x 2^n for the four non-final attempts; the final one fails fast
     assert stack["sleeps"] == [0.5, 1.0, 2.0, 4.0]
+
+
+def test_poll_offset_pages_same_second_ties(sn_env: Any) -> None:
+    """02 §6 ``sysparm_offset``: paging by offset from a fixed ``since`` reaches
+    every record even when more than ``limit`` share one second."""
+    for i in range(5):
+        sn_env["seed"](
+            SnTable.INCIDENT,
+            f"tie{i}",
+            number=f"INC{300 + i}",
+            short_description=f"tie {i}",
+            sys_updated_on=T0,  # all in the same second
+            sys_updated_by="u1",
+            sys_mod_count=1,
+        )
+    ids: list[str] = []
+    offset = 0
+    while True:
+        batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=2, offset=offset)
+        ids.extend(r.sys_id for r in batch.records)
+        if len(batch.records) < 2:
+            break
+        offset += 2
+    assert ids == [f"tie{i}" for i in range(5)]
+
+
+def test_history_since_filters_journal(sn_env: Any) -> None:
+    """02 §6: journal history is limited to ``sys_created_on >= since``."""
+    table, sid = SnTable.INCIDENT, "rec_hist_since"
+    for offset_s, value in ((0, "old note"), (60, "new note")):
+        sn_env["seed_journal"](
+            table,
+            sid,
+            user="u1",
+            ts=T0 + timedelta(seconds=offset_s),
+            element="work_notes",
+            value=value,
+        )
+    changes = sn_env["source"].history(
+        table, sid, after_mod_count=0, since=T0 + timedelta(seconds=30)
+    )
+    assert [c.newvalue for c in changes if c.source == "journal"] == ["new note"]

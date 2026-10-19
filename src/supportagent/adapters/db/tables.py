@@ -319,28 +319,38 @@ outbox = sa.Table(
     sa.Index("ix_outbox_due", "tenant_id", "status", "next_attempt_ts"),  # 03 §2.3
 )
 
-# --- ARCH §8.1: ServiceNow sync state ---------------------------------------
-# The sync service (app.sync) polls a table, dedups on (sys_id, sys_mod_count),
-# and remembers the per-(tenant, table) cursor so a crash mid-batch resumes from
-# the last committed page. ``table_name`` is the ServiceNow table (``"table"``
-# is a SQL reserved word, so the column is renamed).
+# --- ARCH §8.1 / 03 §2.5: ServiceNow sync state ----------------------------
+# The sync service (app.sync) polls a table, dedups on (sys_id, sys_mod_count)
+# (sys_id is globally unique across ServiceNow tables), and keeps a
+# per-(tenant, table) cursor — the max sys_updated_on processed, epoch seconds
+# (ServiceNow timestamps have one-second granularity).
+
+sync_cursors = sa.Table(
+    "sync_cursors",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("table_name", sa.Text, nullable=False, primary_key=True),
+    sa.Column("cursor_ts", sa.Integer, nullable=False),
+)
 
 sync_seen = sa.Table(
     "sync_seen",
     metadata,
     sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
-    sa.Column("table_name", sa.Text, nullable=False, primary_key=True),
     sa.Column("sys_id", sa.Text, nullable=False, primary_key=True),
     sa.Column("sys_mod_count", sa.Integer, nullable=False, primary_key=True),
-    sa.Column("seen_ts", sa.Integer, nullable=False),
+    sa.Column("processed_ts", sa.Integer, nullable=False),
 )
 
-sync_cursor = sa.Table(
-    "sync_cursor",
+# 03 §2.5: v0.0 table, used from v0.1 (confirmed automation accounts).
+automation_actors = sa.Table(
+    "automation_actors",
     metadata,
     sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
-    sa.Column("table_name", sa.Text, nullable=False, primary_key=True),
-    sa.Column("cursor_iso", sa.Text, nullable=False),  # aware-UTC ISO-8601
+    sa.Column("sys_user", sa.Text, nullable=False, primary_key=True),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("confirmed_by", sa.Text, sa.ForeignKey("users.id")),
+    sa.Column("confirmed_ts", sa.Integer),
 )
 
 # ARCH §6.3: the comms history / rendering record. Every send IS an outbox row.

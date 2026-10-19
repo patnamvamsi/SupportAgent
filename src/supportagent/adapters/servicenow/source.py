@@ -10,7 +10,7 @@ raw JSON into domain types (``mapping``) so no vendor type crosses the port
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 
@@ -33,8 +33,8 @@ JOURNAL_FIELDS = "element,value,sys_created_by,sys_created_on"
 
 
 def _format_since(since: datetime) -> str:
-    """A cursor datetime → the ServiceNow query value (``YYYY-MM-DD HH:MM:SS``)."""
-    return since.strftime("%Y-%m-%d %H:%M:%S")
+    """A cursor datetime → the ServiceNow query value (UTC ``YYYY-MM-DD HH:MM:SS``)."""
+    return since.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class ServiceNowSource:
@@ -43,14 +43,15 @@ class ServiceNowSource:
     def __init__(self, *, http: ServiceNowHTTP) -> None:
         self._http = http
 
-    def poll(self, table: SnTable, since: datetime, limit: int) -> PollBatch:
-        query = f"sys_updated_on>={_format_since(since)}^ORDERBYsys_updated_on"
+    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
+        query = f"sys_updated_on>={_format_since(since)}^ORDERBYsys_updated_on^ORDERBYsys_id"
         resp = self._http.request(
             "GET",
             f"/api/now/table/{table.value}",
             params={
                 "sysparm_query": query,
                 "sysparm_limit": limit,
+                "sysparm_offset": offset,
                 "sysparm_fields": POLL_FIELDS,
                 "sysparm_display_value": "false",
             },
@@ -60,9 +61,15 @@ class ServiceNowSource:
         next_cursor = max((r.sys_updated_on for r in records), default=since)
         return PollBatch(records=records, next_cursor=next_cursor)
 
-    def history(self, table: SnTable, sys_id: str, after_mod_count: int) -> Sequence[ChangeRecord]:
+    def history(
+        self,
+        table: SnTable,
+        sys_id: str,
+        after_mod_count: int,
+        since: datetime | None = None,
+    ) -> Sequence[ChangeRecord]:
         audit = self._audit(table, sys_id, after_mod_count)
-        journal = self._journal(table, sys_id)
+        journal = self._journal(table, sys_id, since)
         return sorted(audit + journal, key=lambda c: (c.ts, c.source == "audit"))
 
     # -- internals ---------------------------------------------------------
@@ -83,10 +90,11 @@ class ServiceNowSource:
         )
         return [audit_row_to_change(row) for row in self._results(resp)]
 
-    def _journal(self, table: SnTable, sys_id: str) -> list[ChangeRecord]:
-        # 02 §6: journal entries for the record (no time filter — the sync
-        # service dedups; see 10-wp WP-008 known v0.0 limitation).
+    def _journal(self, table: SnTable, sys_id: str, since: datetime | None) -> list[ChangeRecord]:
+        # 02 §6: journal entries for the record created at or after ``since``.
         query = f"name={table.value}^element_id={sys_id}"
+        if since is not None:
+            query += f"^sys_created_on>={_format_since(since)}"
         resp = self._http.request(
             "GET",
             "/api/now/table/sys_journal_field",

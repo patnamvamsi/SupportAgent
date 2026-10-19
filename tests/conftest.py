@@ -110,9 +110,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
-    # 0004 (WP-008): the sync-state tables are leaves (no outgoing FKs) — delete first.
+    # 0004 (WP-008): sync state; automation_actors references users.
     "sync_seen",
-    "sync_cursor",
+    "sync_cursors",
+    "automation_actors",
     "comms",
     "outbox",
     "comms_plans",

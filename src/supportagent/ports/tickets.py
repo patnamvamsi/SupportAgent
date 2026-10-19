@@ -52,9 +52,8 @@ class PollBatch:
     ``records`` are the current state of each changed record in the window,
     ordered by ``(sys_updated_on, sys_id)``. ``next_cursor`` is the maximum
     ``sys_updated_on`` seen in the batch — the caller advances its per-table
-    cursor to it (ARCH §8.1) and, if the batch is a full page, re-polls from
-    it to fetch the next page (boundary records are re-fetched and deduped by
-    the sync service).
+    cursor to it (ARCH §8.1). A full page means more may follow: the caller
+    fetches the next page with ``offset += limit``.
     """
 
     records: Sequence[TicketRecord]
@@ -64,21 +63,29 @@ class PollBatch:
 class TicketSource(Protocol):
     """One external ticketing system's read surface (02 §6)."""
 
-    def poll(self, table: SnTable, since: datetime, limit: int) -> PollBatch:
+    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
         """Records on ``table`` updated at or after ``since`` (one page).
 
-        ``limit`` is the page size. The result is ordered by
-        ``(sys_updated_on, sys_id)`` and carries at most ``limit`` records;
-        ``next_cursor`` lets the caller page forward.
+        ``limit`` is the page size and ``offset`` the number of matching
+        records to skip (02 §6 ``sysparm_offset``). The result is ordered by
+        ``(sys_updated_on, sys_id)``, so paging by offset from a fixed
+        ``since`` reaches every record even when more than ``limit`` share
+        one second. ``next_cursor`` is the page's max ``sys_updated_on``.
         """
         ...
 
-    def history(self, table: SnTable, sys_id: str, after_mod_count: int) -> Sequence[ChangeRecord]:
+    def history(
+        self,
+        table: SnTable,
+        sys_id: str,
+        after_mod_count: int,
+        since: datetime | None = None,
+    ) -> Sequence[ChangeRecord]:
         """Audit + journal changes for ``sys_id`` (02 §6 ``history``).
 
         Audit entries newer than ``after_mod_count`` (by
-        ``record_checkpoint``) plus the journal entries for the record, ordered
-        by ``ts``. ``after_mod_count=0`` returns everything.
+        ``record_checkpoint``) plus the journal entries created at or after
+        ``since`` (all of them when ``None``), ordered by ``ts``.
         """
         ...
 
