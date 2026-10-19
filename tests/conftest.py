@@ -226,3 +226,73 @@ def fake_sn() -> Any:
     from supportagent.adapters.fakes.servicenow import FakeServiceNow  # noqa: PLC0415
 
     return FakeServiceNow()
+
+
+_TEST_DATA = _TESTS_ROOT / "data"
+_REPO_ROOT = _TESTS_ROOT.parent
+
+
+@pytest.fixture
+def fake_llm() -> Any:
+    """04 §3: ``fake_llm`` — in-memory ``LLMProvider`` with ``.captured`` (list
+    of ``ProviderRequest``) plus ``.respond(json)`` / ``.fail_with(exc)`` seams
+    (WP-007, 04 §1)."""
+    from supportagent.adapters.fakes.llm import FakeLLMProvider  # noqa: PLC0415
+
+    return FakeLLMProvider()
+
+
+@pytest.fixture
+def canaries() -> dict[Any, str]:
+    """One planted secret per detector class, from ``tests/data/canaries/*.txt``
+    (INV-06, 01 §7.13)."""
+    from supportagent.domain.detectors import DetectorClass  # noqa: PLC0415
+
+    result: dict[Any, str] = {}
+    for path in sorted((_TEST_DATA / "canaries").glob("*.txt")):
+        result[DetectorClass(path.stem)] = path.read_text(encoding="utf-8").strip()
+    return result
+
+
+@pytest.fixture
+def prompt_registry() -> Any:
+    """The classify prompt registry rooted at the repo ``prompts/`` dir (02 §5)."""
+    from supportagent.adapters.llm.prompts import PromptRegistry  # noqa: PLC0415
+
+    return PromptRegistry(root=_REPO_ROOT / "prompts")
+
+
+@pytest.fixture
+def _build_llm_client(events: Any, clock: Any, ids: Any) -> Any:
+    """Wire an ``LLMClient`` over an injected ``provider`` (test seam, 04 §3)."""
+
+    def _build(provider: Any) -> Any:
+        from supportagent.adapters.llm.client import LLMClient, SlotSpec  # noqa: PLC0415
+        from supportagent.adapters.llm.detectors import built_in_detectors  # noqa: PLC0415
+        from supportagent.adapters.llm.prompts import PromptRegistry  # noqa: PLC0415
+        from supportagent.adapters.llm.redact import Redactor  # noqa: PLC0415
+        from supportagent.domain.slots import SlotName  # noqa: PLC0415
+
+        return LLMClient(
+            provider=provider,
+            redactor=Redactor(detectors=built_in_detectors()),
+            prompts=PromptRegistry(root=_REPO_ROOT / "prompts"),
+            events=events,
+            ids=ids,
+            clock=clock,
+            slots={
+                SlotName.CLASSIFY: SlotSpec(
+                    model_id="claude-sonnet-4-5-20250929",
+                    timeout_s=15.0,
+                    max_output_tokens=400,
+                )
+            },
+        )
+
+    return _build
+
+
+@pytest.fixture
+def structured_llm(fake_llm: Any, _build_llm_client: Any) -> Any:
+    """A fully-wired ``LLMClient`` over ``fake_llm`` (WP-007, 04 §3)."""
+    return _build_llm_client(fake_llm)

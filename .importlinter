@@ -5,7 +5,8 @@ include_external_packages = True
 
 # Six contracts from 01-architecture-and-contracts §2 (frozen), plus
 # adapters-no-app, which closes the gap the diagram in the same section
-# already shows (adapters point only at ports).
+# already shows (adapters point only at ports), and llm-providers-private
+# (10-wp WP-007 DoD).
 # Run with: lint-imports
 #
 # import-linter only expresses blocklists, so the spec's allowlist rules
@@ -140,3 +141,21 @@ source_modules =
 forbidden_modules =
     sqlalchemy
     httpx
+
+[importlinter:contract:llm-providers-private]
+name = llm-providers-private
+type = forbidden
+# 10-wp WP-007 DoD / INV-06: no module outside adapters/llm imports provider
+# classes, so the only path to a provider is LLMClient (render -> redact ->
+# call). Bootstrap wires through adapters.llm.client.build_llm_client.
+# Other adapters are already covered by adapters-independent.
+source_modules =
+    supportagent.domain
+    supportagent.ports
+    supportagent.app
+    supportagent.config
+    supportagent.evals
+    supportagent.entrypoints
+    supportagent.bootstrap
+forbidden_modules =
+    supportagent.adapters.llm.providers
