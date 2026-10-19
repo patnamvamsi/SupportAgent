@@ -1,0 +1,28 @@
+# Pre-classifier rules v1.0.0 (ARCH §4, WP-010).
+#
+# Ordered rules: the FIRST rule whose `when` all match wins; no match abstains
+# (returns None). `when` maps an AlertEvent field name to a regular expression
+# matched with re.search (so (?i) makes it case-insensitive). A field whose
+# value is absent (None) never matches.
+#
+# Labels must be valid taxonomy labels (^[a-z0-9_]+/[a-z0-9_]+$), e.g. the
+# database, deploy, network, batch, auth, request domains in classification.yaml.
+rules:
+  - when:
+      alert_type: "(?i)(saturation|pool|connections|disk)"
+    label: database/saturation
+  - when:
+      subject: "(?i)(down|refus|unreachable)"
+    label: database/failure
+  - when:
+      subject: "(?i)(deploy|release|rollout)"
+    label: deploy/failure
+  - when:
+      subject: "(?i)(dns|latency|timeout)"
+    label: network/latency
+  - when:
+      subject: "(?i)(dag|batch|scheduled)"
+    label: batch/failure
+  - when:
+      subject: "(?i)(auth|token|credential|401|403)"
+    label: auth/failure

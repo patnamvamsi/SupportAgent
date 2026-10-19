@@ -30,7 +30,8 @@ def test_preclass_rules_ordered() -> None:
     assert rule_set.classify(evt) == "payments/api"
 
     # A subject matching only the second rule takes the second rule.
-    assert RuleSet(rules=[rule_set.rules[1]]).classify(_evt(subject="dns 5xx spike")) == "payments/5xx"
+    only_second = RuleSet(rules=[rule_set.rules[1]]).classify(_evt(subject="dns 5xx spike"))
+    assert only_second == "payments/5xx"
 
     # No rule matches -> None (abstain).
     assert rule_set.classify(_evt(subject="disk full")) is None

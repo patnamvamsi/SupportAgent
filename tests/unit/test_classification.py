@@ -1,4 +1,4 @@
-"""WP-010: prefix match and calibrated score (ARCH §4.2, ADR-0002, 01 §7.6–7.7).
+"""WP-010: prefix match and calibrated score (ARCH §4.2, ADR-0002, 01 §7.6 and §7.7).
 
 Canonical test IDs from 10-wp §WP-010:
 ``test_prefix_match_table``, ``test_calibrated_score_missing_label_zero``,
@@ -19,9 +19,7 @@ _MODEL = "claude-sonnet-4-5-20250929"
 
 
 def _table(labels: dict[str, CalibrationLabelRow]) -> CalibrationTable:
-    return CalibrationTable(
-        grade="smoke", snapshot_id="snap-1", model_id=_MODEL, labels=labels
-    )
+    return CalibrationTable(grade="smoke", snapshot_id="snap-1", model_id=_MODEL, labels=labels)
 
 
 def test_prefix_match_table() -> None:
@@ -45,9 +43,7 @@ def test_calibrated_score_missing_label_zero() -> None:
 
 def test_calibrated_score_n_below_10_zero() -> None:
     # ADR-0002: a row with n < 10 scores 0.0 (insufficient evidence).
-    table = _table(
-        {"network/dns": CalibrationLabelRow(agree=CalibrationCountRow(n=9, correct=9))}
-    )
+    table = _table({"network/dns": CalibrationLabelRow(agree=CalibrationCountRow(n=9, correct=9))})
     assert calibrated_score(table, "network/dns", True) == 0.0
     assert calibrated_score(table, "network/dns", False) == 0.0
 

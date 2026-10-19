@@ -15,19 +15,18 @@ from typing import Any
 from supportagent.app.classify import Classifier
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.alert import AlertEvent
-from supportagent.domain.model.case import Case
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
     CalibrationLabelRow,
     CalibrationTable,
 )
+from supportagent.domain.model.case import Case
 from supportagent.domain.model.triage import TriageResult
 from supportagent.domain.preclass import PreclassRule, RuleSet
 from supportagent.domain.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.severity import Severity
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
-from supportagent.ports.llm import StructuredLLM
 from tests.builders import an_alert
 
 _MODEL = "claude-sonnet-4-5-20250929"
@@ -76,7 +75,9 @@ def _evt(**overrides: object) -> AlertEvent:
     return AlertEvent.model_validate(base)
 
 
-def _table(label: str, agree: CalibrationCountRow | None, abstain: CalibrationCountRow | None) -> CalibrationTable:
+def _table(
+    label: str, agree: CalibrationCountRow | None, abstain: CalibrationCountRow | None
+) -> CalibrationTable:
     return CalibrationTable(
         grade="smoke",
         snapshot_id="snap-1",
