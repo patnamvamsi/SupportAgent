@@ -230,3 +230,43 @@ def test_user_shape() -> None:
     # 01 §3/ARCH §6.4: users.id is the stable OIDC sub.
     assert user.id == "user_ada"
     assert user.is_active is True
+
+
+# --- BL-016: JSON input parses enums and datetimes; rules still run ---------
+
+
+@pytest.mark.parametrize(
+    ("cls", "build"),
+    [
+        (Proposal, a_proposal),
+        (AlertEvent, an_alert),
+        (AlertEvent, a_ticket),
+        (Grant, a_grant),
+        (Approval, an_approval),
+    ],
+)
+def test_domain_models_round_trip_through_json(cls: Any, build: Any) -> None:
+    """Enum values ("P2") and ISO datetimes in JSON parse in strict mode.
+
+    A custom ``__init__`` used to make pydantic re-validate parsed JSON in
+    python mode, where strict rejects both (BL-016).
+    """
+    model = cls(**build())
+    assert cls.model_validate_json(model.model_dump_json()) == model
+
+
+def test_domain_rules_run_on_json_path_with_identity() -> None:
+    """``model_validate_json`` / ``model_validate`` still apply domain rules and
+    raise ``DomainValidationError`` itself, not a re-wrapped error."""
+    body = (
+        '{"kind": "work_note", "target": {"service": "payments", "system": "servicenow",'
+        ' "ref": "r"}, "scope": "scope:A", "payload": {"x": 1.5}}'
+    )
+    with pytest.raises(DomainValidationError):
+        ActionSpec.model_validate_json(body)
+
+
+def test_python_construction_stays_strict_for_enums() -> None:
+    """Only JSON input accepts enum values; python callers must pass the enum."""
+    with pytest.raises(ValidationError):
+        TriageResult(classification="network/dns", severity="P2", summary="x", confidence=0.5)  # type: ignore[arg-type]

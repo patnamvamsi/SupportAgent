@@ -19,6 +19,7 @@ from typing import Any
 from supportagent.domain.errors import LLMTimeout
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.triage import TriageResult
+from supportagent.domain.severity import Severity
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
 
@@ -86,3 +87,12 @@ def test_structured_fails_closed_when_redaction_raises(
     assert fake_llm.captured == []
     redact_events = [event for event in events.appended if event.kind == EventKind.REDACT]
     assert redact_events and redact_events[0].status == "error"
+
+
+def test_structured_returns_model_on_valid_payload(structured_llm: Any, events: Any) -> None:
+    """The success path: a schema-valid payload parses into the model (BL-016)."""
+    result = structured_llm.structured(SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE)
+    assert isinstance(result, TriageResult)
+    assert result.severity is Severity.P2
+    llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
+    assert llm_events and llm_events[0].status == "ok"
