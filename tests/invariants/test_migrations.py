@@ -29,7 +29,7 @@ from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
-# 10-wp / 03 §4: the exact table set at head (0001 + 0002 + 0003, plus the
+# 10-wp / 03 §4: the exact table set at head (0001 .. 0004, plus the
 # alembic bookkeeping table).
 EXPECTED_TABLES = frozenset(
     {
@@ -49,6 +49,10 @@ EXPECTED_TABLES = frozenset(
         "comms_plans",
         "outbox",
         "comms",
+        # 03 §2.5 sync state (0004).
+        "sync_cursors",
+        "sync_seen",
+        "automation_actors",
         "alembic_version",
     }
 )

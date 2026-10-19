@@ -26,4 +26,17 @@ class ExternalRef(DomainModel):
         return f"{self.system}:{self.ref}"
 
 
-__all__ = ["ExternalRef"]
+class ExternalCaseRef(DomainModel):
+    """A reference to one case (record) in an external system (01 §7.5).
+
+    Identifies the record a set of ``ChangeRecord``s apply to: the vendor
+    table, the record's ``sys_id``, and (when present) its human number.
+    ``InboundHandler.on_changes`` receives it alongside the changes (02 §6).
+    """
+
+    table: str
+    sys_id: str
+    number: str | None = None
+
+
+__all__ = ["ExternalCaseRef", "ExternalRef"]
