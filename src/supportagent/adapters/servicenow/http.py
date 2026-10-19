@@ -2,9 +2,11 @@
 
 Wraps a *synchronous* ``httpx.Client`` (injected, so tests use
 ``adapters.fakes.servicenow.SyncASGITransport`` to drive the ASGI fake while
-production uses the real transport + ``base_url``) and applies the retry
-policy from 02 §5:
+production uses the real transport + ``base_url``) and applies the 02 §6 HTTP
+behaviour:
 
+* timeouts — 10 s connect / 30 s read; ``build_client`` is the production
+  factory that applies them;
 * ``429`` — retry, honouring ``Retry-After`` when present;
 * ``5xx`` — retry with exponential backoff ``0.5s x 2ⁿ``;
 * any other ``4xx`` — fail fast, ``ServiceNowError(retryable=False)``.
@@ -27,6 +29,21 @@ from supportagent.domain.errors import ServiceNowError
 
 DEFAULT_MAX_TRIES = 5
 DEFAULT_BACKOFF_BASE_S = 0.5
+DEFAULT_CONNECT_TIMEOUT_S = 10.0
+DEFAULT_READ_TIMEOUT_S = 30.0
+
+
+def build_client(base_url: str, *, transport: httpx.BaseTransport | None = None) -> httpx.Client:
+    """A production ``httpx.Client`` for one ServiceNow instance (02 §6).
+
+    Timeouts are 10 s connect / 30 s read. ``transport`` is a test seam: pass
+    ``SyncASGITransport`` to drive ``FakeServiceNowHTTP`` without sockets.
+    """
+    return httpx.Client(
+        base_url=base_url,
+        transport=transport,
+        timeout=httpx.Timeout(DEFAULT_READ_TIMEOUT_S, connect=DEFAULT_CONNECT_TIMEOUT_S),
+    )
 
 
 def _default_sleep(seconds: float) -> None:
@@ -136,6 +153,9 @@ class ServiceNowHTTP:
 
 __all__ = [
     "DEFAULT_BACKOFF_BASE_S",
+    "DEFAULT_CONNECT_TIMEOUT_S",
     "DEFAULT_MAX_TRIES",
+    "DEFAULT_READ_TIMEOUT_S",
     "ServiceNowHTTP",
+    "build_client",
 ]

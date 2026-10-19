@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from supportagent.adapters.servicenow.auth import BasicAuth, OAuthClientCredentials, ServiceNowAuth
-from supportagent.adapters.servicenow.http import ServiceNowHTTP
+from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import DEFAULT_FIELD_MAP, record_to_alert
 from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
@@ -89,5 +89,6 @@ __all__ = [
     "ServiceNowSink",
     "ServiceNowSource",
     "SnTable",
+    "build_client",
     "record_to_alert",
 ]
