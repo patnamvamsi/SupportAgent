@@ -17,9 +17,13 @@ Strings are NFC-normalized first (01 §7.1). The pipeline is idempotent —
 ``normalize(normalize(x)) == normalize(x)``, required by the 01 §7.2
 property test. This holds even when a tenant constant is a substring of a
 placeholder token (e.g. ``"c"`` inside ``<const>``): placeholder tokens are
-inert, so step 5 is applied only outside of them (see ``_PLACEHOLDER``);
-the other steps are idempotent on their own because the placeholders
-contain no digits.
+inert, so step 5 is applied only outside of them (see ``_PLACEHOLDER``).
+A single pass is still not a fixpoint: a ``<const>`` token (step 5) opens a
+fresh word boundary after steps 1-4 have run, so ``deadbeefACME`` becomes
+``deadbeef<const>`` and only a second pass yields ``<hex><const>``.
+``normalize`` therefore repeats the pass until the output stops changing.
+That terminates because every substitution consumes non-placeholder text
+and the other steps (whitespace, case, truncation) settle after one pass.
 """
 
 from __future__ import annotations
@@ -65,8 +69,15 @@ def _constants(s: str, consts: Sequence[str]) -> str:
 
 
 def normalize(text: str, tenant_constants: Sequence[str] = ()) -> str:
-    """Apply the 01 §7.2 pipeline to ``text``; see the module docstring."""
+    """Apply the 01 §7.2 pipeline to ``text`` until it is a fixpoint (module docstring)."""
     s = unicodedata.normalize("NFC", text)
+    while (nxt := _pass(s, tenant_constants)) != s:
+        s = nxt
+    return s
+
+
+def _pass(s: str, tenant_constants: Sequence[str]) -> str:
+    """One pass of 01 §7.2 steps 1-7, in order."""
     s = _UUID.sub("<uuid>", s)
     s = _TS.sub("<ts>", s)
     s = _IP.sub("<ip>", s)

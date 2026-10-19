@@ -8,7 +8,7 @@ truncation). Property test: ``normalize(normalize(x)) == normalize(x)``.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from supportagent.domain.normalize import normalize
@@ -81,13 +81,17 @@ def test_normalize_golden_table(text: str, consts: tuple[str, ...], expected: st
 
 
 _TEXT_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .:-_/"
-_CONST_ALPHABET = "abcdefgxyz"
+_CONST_ALPHABET = "abcdefgxyzACME"
 
 
 @given(
     text=st.text(alphabet=_TEXT_ALPHABET, max_size=120),
     consts=st.lists(st.text(alphabet=_CONST_ALPHABET, min_size=1, max_size=12), max_size=3),
 )
+# Constant substitution (step 5) runs after steps 1-4 and its "<const>"
+# token creates a fresh word boundary, exposing hex/IP text to a second pass.
+@example(text="deadbeefACME", consts=["ACME"])
+@example(text="ACME10.0.0.1", consts=["ACME"])
 def test_normalize_idempotent(text: str, consts: list[str]) -> None:
     """01 §7.2 property: normalize(normalize(x)) == normalize(x)."""
     once = normalize(text, consts)
