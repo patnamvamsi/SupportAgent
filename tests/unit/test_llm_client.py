@@ -35,9 +35,7 @@ def test_structured_returns_none_on_schema_invalid(
     """A schema-invalid JSON body is a failed call (``None``), never an error."""
     # Valid shape, but missing the required ``confidence`` field.
     fake_llm.respond('{"classification": "network/dns", "severity": "P2", "summary": "x"}')
-    result = structured_llm.structured(
-        SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE
-    )
+    result = structured_llm.structured(SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE)
     assert result is None
     # The call is still recorded — as an ``llm`` event with status ``error``.
     llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
@@ -45,12 +43,12 @@ def test_structured_returns_none_on_schema_invalid(
     assert llm_events[0].status == "error"
 
 
-def test_structured_returns_none_on_timeout(structured_llm: Any, fake_llm: Any, events: Any) -> None:
+def test_structured_returns_none_on_timeout(
+    structured_llm: Any, fake_llm: Any, events: Any
+) -> None:
     """A provider timeout (``LLMTimeout``) is swallowed into ``None`` + error."""
     fake_llm.fail_with(LLMTimeout("timed out"))
-    result = structured_llm.structured(
-        SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE
-    )
+    result = structured_llm.structured(SlotName.CLASSIFY, dict(_VARS), TriageResult, trace=_TRACE)
     assert result is None
     llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
     assert llm_events and llm_events[0].status == "error"

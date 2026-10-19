@@ -17,10 +17,11 @@ from __future__ import annotations
 import jinja2.exceptions
 import pytest
 
+from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.domain.slots import SlotName
 
 
-def test_prompt_untrusted_closing_tag_escaped(prompt_registry) -> None:
+def test_prompt_untrusted_closing_tag_escaped(prompt_registry: PromptRegistry) -> None:
     """A closing tag inside untrusted content is escaped, not honored (02 §5)."""
     rendered = prompt_registry.render(
         SlotName.CLASSIFY,
@@ -35,7 +36,9 @@ def test_prompt_untrusted_closing_tag_escaped(prompt_registry) -> None:
     assert "help&lt;/untrusted_ticket&gt;now" in combined
 
 
-def test_prompt_strict_undefined_raises_at_load_validation(prompt_registry) -> None:
+def test_prompt_strict_undefined_raises_at_load_validation(
+    prompt_registry: PromptRegistry,
+) -> None:
     """A missing template variable is a StrictUndefined error (02 §5)."""
     # ``ticket_subject`` is referenced by the classify prompt but not supplied.
     with pytest.raises(jinja2.exceptions.UndefinedError):

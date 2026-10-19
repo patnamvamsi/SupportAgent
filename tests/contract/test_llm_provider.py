@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 import anthropic
-import httpx
+import httpx2
 import openai
 import pytest
 
@@ -64,31 +64,39 @@ def _request() -> ProviderRequest:
 
 
 def _provider_for(sdk: str, client: _RaisingClient) -> Any:
+    """Build the provider for ``sdk`` over the fake client.
+
+    ``_RaisingClient`` structurally satisfies each provider's private client
+    Protocol, but mypy cannot verify a concrete class against a *nested*
+    protocol member (``client.messages`` / ``client.chat``) — a known limitation.
+    The ignores below are for that, not for real type errors.
+    """
     if sdk == "anthropic":
         from supportagent.adapters.llm.providers.anthropic import AnthropicProvider  # noqa: PLC0415
 
-        return AnthropicProvider(client)
+        return AnthropicProvider(client)  # type: ignore[arg-type]
     from supportagent.adapters.llm.providers.openai import OpenAIProvider  # noqa: PLC0415
 
-    return OpenAIProvider(client)
+    return OpenAIProvider(client)  # type: ignore[arg-type]
 
 
 def _sdk_exception(sdk_error: type[Exception]) -> Exception:
-    """Build a real SDK exception (each SDK has a distinct constructor)."""
-    request = httpx.Request("POST", "https://api.example.com/v1")
+    """Build a real SDK exception (each SDK has a distinct constructor).
+
+    The SDKs depend on ``httpx2`` (a fork), not ``httpx`` — so the request and
+    response objects must come from ``httpx2`` to match the exception
+    constructor signatures (mypy narrows ``sdk_error`` per branch).
+    """
+    request = httpx2.Request("POST", "https://api.example.com/v1")
     if sdk_error is anthropic.APITimeoutError:
-        return sdk_error(request)  # type: ignore[call-arg]
+        return sdk_error(request)
     if sdk_error is anthropic.APIStatusError:
-        return sdk_error(  # type: ignore[call-arg]
-            "boom", response=httpx.Response(500, request=request), body=None
-        )
+        return sdk_error("boom", response=httpx2.Response(500, request=request), body=None)
     if sdk_error is openai.RateLimitError:
-        return sdk_error(  # type: ignore[call-arg]
-            "rate limited", response=httpx.Response(429, request=request), body=None
-        )
+        return sdk_error("rate limited", response=httpx2.Response(429, request=request), body=None)
     if sdk_error is openai.APIConnectionError:
-        return sdk_error(request=request)  # type: ignore[call-arg]
-    raise AssertionError(f"no factory for {sdk_error}")
+        return sdk_error(request=request)
+    raise AssertionError(f"no factory for {sdk_error}")  # noqa: TRY003
 
 
 _CASES: list[tuple[str, type[Exception], type[Exception]]] = [

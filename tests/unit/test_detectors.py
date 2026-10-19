@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from supportagent.domain.detectors import DetectorClass
+from supportagent.ports.secrets import SecretDetector
 
 # (positive, negative) per detector class — the negative is same-shape but not a
 # secret (01 §7.13). Values are low-entropy fakes, safe for gitleaks.
@@ -71,13 +72,13 @@ _BUILTIN_CLASSES = [
 ]
 
 
-def _detector_for(cls: DetectorClass):
+def _detector_for(cls: DetectorClass) -> SecretDetector:
     from supportagent.adapters.llm.detectors import built_in_detectors  # noqa: PLC0415
 
     for detector in built_in_detectors():
         if detector.detector_class == cls:
             return detector
-    raise LookupError(f"no built-in detector for {cls}")
+    raise LookupError(f"no built-in detector for {cls}")  # noqa: TRY003
 
 
 @pytest.mark.parametrize("cls", _BUILTIN_CLASSES)
