@@ -18,7 +18,7 @@ class DetectorClass(StrEnum):
     EMAIL = "email"
     AWS_ACCESS_KEY = "aws_access_key"
     GENERIC_API_KEY = "generic_api_key"
-    BEARER_TOKEN = "bearer_token"  # noqa: S105 — an enum member name, not a secret
+    BEARER_TOKEN = "bearer_token"  # noqa: S105  # nosec B105 — an enum value, not a secret
     JWT = "jwt"
     PRIVATE_KEY_BLOCK = "private_key_block"
     CONNECTION_STRING = "connection_string"

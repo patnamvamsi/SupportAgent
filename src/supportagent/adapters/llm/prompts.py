@@ -51,7 +51,7 @@ class PromptRegistry:
         self._root = root
         self._env = jinja2.Environment(
             undefined=jinja2.StrictUndefined,
-            autoescape=False,  # noqa: S701 — prompts, not HTML
+            autoescape=False,  # noqa: S701  # nosec B701 — prompts, not HTML
         )
 
     def render(self, slot: SlotName, variables: Mapping[str, str]) -> RenderedPrompt:
