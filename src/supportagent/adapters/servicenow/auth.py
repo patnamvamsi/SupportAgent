@@ -72,8 +72,10 @@ class OAuthClientCredentials:
     def headers(self) -> Mapping[str, str]:
         if self._token is None or self._should_refresh(self._clock.now()):
             self._refresh()
-        assert self._token is not None  # noqa: S101 — _refresh() always sets it (or raises)
-        return {"Authorization": f"Bearer {self._token}"}
+        token = self._token
+        if token is None:  # pragma: no cover — _refresh() always sets it (or raises)
+            raise ServiceNowError("no OAuth token after refresh", retryable=True)  # noqa: TRY003
+        return {"Authorization": f"Bearer {token}"}
 
     def _should_refresh(self, now: datetime) -> bool:
         expires_at = self._expires_at
@@ -92,8 +94,10 @@ class OAuthClientCredentials:
         except httpx.HTTPError as exc:
             raise ServiceNowError(f"token request failed: {exc}", retryable=True) from exc  # noqa: TRY003
         if resp.status_code >= 400:  # noqa: PLR2004
+            # Bad credentials (400/401/403) will not fix themselves; only 429/5xx retry.
+            retryable = resp.status_code == 429 or resp.status_code >= 500  # noqa: PLR2004
             raise ServiceNowError(  # noqa: TRY003
-                f"token endpoint returned {resp.status_code}", retryable=True
+                f"token endpoint returned {resp.status_code}", retryable=retryable
             )
         payload = resp.json()
         try:

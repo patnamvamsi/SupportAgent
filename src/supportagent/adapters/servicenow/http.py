@@ -119,7 +119,8 @@ class ServiceNowHTTP:
                 continue
             # A non-retryable 4xx (400/401/403/404/...): fail fast (02 §5).
             raise ServiceNowError(f"{method} {path} -> {resp.status_code}", retryable=False)  # noqa: TRY003
-        assert last is not None  # noqa: S101
+        if last is None:  # pragma: no cover — the loop runs at least once
+            raise ServiceNowError(f"{method} {path}: no attempt made", retryable=True)  # noqa: TRY003
         raise last
 
     # -- internals ---------------------------------------------------------
