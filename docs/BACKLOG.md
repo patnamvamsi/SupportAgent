@@ -38,4 +38,3 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 |---|---|---|---|---|
 | BL-014 | P1 | `bootstrap.py` doesn't yet wire `OutboxExecutor`, `build_llm_client`, `SyncService` or the worker jobs. | WP-006 – 008 | WP-011 |
 | BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |
-| BL-017 | P3 | The WP status table in `tech-spec/10-wp-v0.0.md` still shows WP-005 to WP-008 as `todo`; they are merged. | — | next docs PR |
