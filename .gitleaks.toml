@@ -1,0 +1,13 @@
+# gitleaks config: the default rules, plus a path allowlist for the INV-06
+# detector fixtures. Those files hold synthetic, secret-shaped strings on
+# purpose (canaries and golden positives the redaction detectors must catch).
+# Keep this list to fixture files only; never allowlist src/.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic secret-shaped fixtures for the INV-06 detector tests"
+paths = [
+  '''^tests/data/canaries/[^/]+\.txt$''',
+  '''^tests/unit/test_detectors\.py$''',
+]
