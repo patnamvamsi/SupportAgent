@@ -66,11 +66,10 @@ def _rows(db: Any, fp: str) -> list[Any]:
         return list(
             conn.execute(
                 sa.text(
-                    "SELECT * FROM cases "
-                    "WHERE tenant_id = :t AND fingerprint = :fp ORDER BY id"
+                    "SELECT * FROM cases WHERE tenant_id = :t AND fingerprint = :fp ORDER BY id"
                 ),
                 {"t": TENANT, "fp": fp},
-            )
+            ).mappings()
         )
 
 
@@ -95,33 +94,39 @@ def test_dedup_single_case(db: Any) -> None:
     assert rows[0]["last_alert_ts"] > rows[0]["opened_ts"]
 
 
+def _race(db: Any, run: int) -> tuple[list[Any], list[Any]]:
+    """One DoD run: 8 barrier-synchronized threads race on one fresh
+    fingerprint (ARCH §4.1). Returns (the 8 upsert results, the rows)."""
+    fp = _alert_fp(resource=f"payments-api-run{run}", alert_type="error_rate")
+    barrier = threading.Barrier(CONCURRENCY)
+    lock = threading.Lock()
+    results: list[Any] = []
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        result = _upsert(db, case_id=f"case-inv02-c{run}-{i}", fp=fp)
+        with lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(CONCURRENCY)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    return results, _rows(db, fp)
+
+
 def test_dedup_concurrent_no_second_case(db: Any) -> None:
     """WP-009 DoD: 50 repeated runs of 8 concurrent upserts of one new
     fingerprint — on both engines (``make invariants``) exactly one case
     may be created and the row must end at duplicate_count == 7."""
     for run in range(50):
-        fp = _alert_fp(resource=f"payments-api-run{run}", alert_type="error_rate")
-        barrier = threading.Barrier(CONCURRENCY)
-        lock = threading.Lock()
-        results: list[Any] = []
-
-        def worker(i: int) -> None:
-            barrier.wait()
-            result = _upsert(db, case_id=f"case-inv02-c{run}-{i}", fp=fp)
-            with lock:
-                results.append(result)
-
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(CONCURRENCY)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
+        results, rows = _race(db, run)
         assert len(results) == CONCURRENCY
         assert sum(r.created for r in results) == 1  # exactly one winner
         assert max(r.duplicate_count for r in results) == CONCURRENCY - 1
 
-        rows = _rows(db, fp)
         assert len(rows) == 1
         assert rows[0]["duplicate_count"] == CONCURRENCY - 1
 

@@ -41,11 +41,12 @@ _UUID = st.from_regex(
 )
 _TS = st.from_regex(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", fullmatch=True)
 _IP = st.from_regex(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", fullmatch=True)
+_VARIANT = st.tuples(_UUID, _TS, _IP)  # (uuid, ts, ip)
 
 
-@given(uuid1=_UUID, uuid2=_UUID, ts1=_TS, ts2=_TS, ip1=_IP, ip2=_IP)
+@given(v1=_VARIANT, v2=_VARIANT)
 def test_fingerprint_alert_ignores_uuid_ts_ip(
-    uuid1: str, uuid2: str, ts1: str, ts2: str, ip1: str, ip2: str
+    v1: tuple[str, str, str], v2: tuple[str, str, str]
 ) -> None:
     """01 §7.2/§7.3 property: substituting UUIDs, timestamps and IPs in an
     alert's identifying fields must not change its fingerprint."""
@@ -59,4 +60,4 @@ def test_fingerprint_alert_ignores_uuid_ts_ip(
             )
         )
 
-    assert fingerprint(alert(uuid1, ts1, ip1), ()) == fingerprint(alert(uuid2, ts2, ip2), ())
+    assert fingerprint(alert(*v1), ()) == fingerprint(alert(*v2), ())
