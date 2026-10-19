@@ -1,0 +1,41 @@
+# Backlog
+
+Known gaps, deferred deliverables and follow-ups found while reviewing the merged work packages. Each item names the WP it came from and the WP that should pick it up. When an item is done, delete its row and reference the backlog ID in the PR.
+
+**Priority:** **P1** fix before the code path is wired into a running service (WP-011 / WP-016); **P2** fix within v0.0; **P3** later or opportunistic.
+
+## Outbox and executor
+
+| ID | P | Item | From | Pick up in |
+|---|---|---|---|---|
+| BL-001 | P1 | **Claim lease shorter than the ServiceNow retry budget.** `DEFAULT_LEASE_S = 60` (`app/outbox.py`), but one `ServiceNowHTTP` call can take ≈ 5 tries × (10 s connect + 30 s read) + backoff ≈ 200 s. A second worker can reclaim a row that is still mid-send, and both may write the journal entry. Derive the claim lease from the sink's worst-case budget, or make it config with a startup check `lease_s > sink budget`. | WP-006 / WP-008 | WP-011 |
+| BL-002 | P2 | `outbox.execute` job lease TTL is 10 s (`entrypoints/worker/jobs.py`), but a 50-row drain with HTTP calls can run much longer, so a second replica can start draining. Safe (claims are CAS), but wasteful. Renew the lease per row, or size the TTL to the drain budget. | WP-006 | WP-011 |
+| BL-003 | P3 | `FakeServiceNow.find_marker` matches the marker anywhere in the text, not only on the last line (01 §7.5). Its `ExternalRef.system` is the table name rather than `servicenow`. | WP-006 | any |
+| BL-004 | P2 | No `CommsRepository` for the `comms` table (01 §3 lists `uow.comms`). The table exists (migration 0003); nothing reads or writes it yet. | WP-005 | first comms WP (v0.1) |
+
+## LLM boundary
+
+| ID | P | Item | From | Pick up in |
+|---|---|---|---|---|
+| BL-005 | P1 | **Fixture provider** (`adapters/llm/providers/fixture.py`) is missing. ARCH §9 relies on fixture mode for deterministic code tests, and the WP-016 eval harness runs with `fixture` for wiring. | WP-007 | WP-010 |
+| BL-006 | P2 | **Ollama provider** (`providers/ollama.py`) is missing (air-gap requirement, ARCH §9). | WP-007 | WP-010 |
+| BL-007 | P2 | **`TracingLLMProvider`** decorator (`adapters/llm/tracing.py`) is missing. `LLMClient` emits the `llm` event itself, so decide whether to add the decorator or update the 10-wp deliverable list. | WP-007 | WP-010 |
+| BL-008 | P2 | **Provider-native JSON mode:** `ProviderRequest.json_schema` is built but neither the Anthropic nor the OpenAI provider sends it. JSON output currently depends on the prompt alone. | WP-007 | WP-010 |
+| BL-009 | P3 | `PromptRegistry` doesn't validate prompt front matter, and `StrictUndefined` raises at render time rather than at load validation (10-wp WP-007 wording). | WP-007 | WP-010 |
+| BL-010 | P3 | The `llm` event records only `resolved_model`; 10-wp lists both the requested `model` and `resolved_model`. | WP-007 | any |
+
+## ServiceNow and sync
+
+| ID | P | Item | From | Pick up in |
+|---|---|---|---|---|
+| BL-011 | P1 | **`sync.poll.<table>` lease and worker job.** `SyncService.poll_table` doesn't acquire the lease named in 10-wp WP-008, and no worker job schedules it (02 §7). | WP-008 | WP-011 |
+| BL-012 | P2 | **Recorded fixtures** `tests/data/sn/*.json` and the `make record-sn` docs (WP-008 DoD). This needs a ServiceNow developer instance. | WP-008 | before WP-016 |
+| BL-013 | P2 | Journal entries created inside the 2-minute overlap window can reach `on_changes` twice. Harmless while v0.0 only logs `sync` events. Dedup by journal entry `sys_id` (add it to the journal `sysparm_fields`) before lifecycle effects act on changes. | WP-008 | WP-101 |
+
+## Wiring, tenancy, housekeeping
+
+| ID | P | Item | From | Pick up in |
+|---|---|---|---|---|
+| BL-014 | P1 | `bootstrap.py` doesn't yet wire `OutboxExecutor`, `build_llm_client`, `SyncService` or the worker jobs. | WP-006 – 008 | WP-011 |
+| BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |
+| BL-017 | P3 | The WP status table in `tech-spec/10-wp-v0.0.md` still shows WP-005 to WP-008 as `todo`; they are merged. | — | next docs PR |
