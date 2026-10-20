@@ -136,6 +136,22 @@ def sync_poll(
     return JobResult(name=name, ran=True, rows=report.delivered)
 
 
+#: 02 §7: ``groups.close`` every 5 min (11-wp WP-111).
+GROUPS_CLOSE_LEASE = "groups.close"
+GROUPS_CLOSE_INTERVAL_S = 300
+
+
+def groups_close(*, close: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    """Close storm groups whose members are resolved or that are idle for 24 h."""
+    if not lease.acquire(name=GROUPS_CLOSE_LEASE, owner=owner, ttl_s=120):
+        return JobResult(name=GROUPS_CLOSE_LEASE, ran=False)
+    try:
+        closed = close()
+    finally:
+        lease.release(name=GROUPS_CLOSE_LEASE, owner=owner)
+    return JobResult(name=GROUPS_CLOSE_LEASE, ran=True, rows=closed)
+
+
 #: 02 §7: ``llm.deprecation_check`` runs daily (11-wp WP-106).
 LLM_DEPRECATION_LEASE = "llm.deprecation_check"
 LLM_DEPRECATION_INTERVAL_S = 86_400
@@ -181,6 +197,8 @@ def llm_deprecation_check(
 
 
 __all__ = [
+    "GROUPS_CLOSE_INTERVAL_S",
+    "GROUPS_CLOSE_LEASE",
     "LLM_DEPRECATION_INTERVAL_S",
     "LLM_DEPRECATION_LEASE",
     "OUTBOX_EXECUTE_LEASE",
@@ -189,6 +207,7 @@ __all__ = [
     "Executor",
     "JobResult",
     "Poller",
+    "groups_close",
     "llm_deprecation_check",
     "outbox_execute",
     "sync_poll",

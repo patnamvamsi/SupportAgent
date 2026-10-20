@@ -31,7 +31,13 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
-from supportagent.app.triage import TriageCaseRepo, TriageClassifier, TriageService
+from supportagent.app.triage import (
+    TriageCaseRepo,
+    TriageClassifier,
+    TriageGrouping,
+    TriageService,
+    TriageSpend,
+)
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
 from supportagent.domain.ids import IdPrefix
@@ -149,6 +155,8 @@ class ShadowRunner:
         catalog: Catalog,
         repo: _ShadowRepo,
         tenant_constants: Sequence[str] = (),
+        grouping: TriageGrouping | None = None,
+        spend: TriageSpend | None = None,
     ) -> None:
         self._uow = uow
         self._ids = ids
@@ -164,6 +172,8 @@ class ShadowRunner:
             gate=self._gate,
             catalog=catalog,
             tenant_constants=tenant_constants,
+            grouping=grouping,
+            spend=spend,
         )
 
     def run(self, evt: AlertEvent) -> ShadowRecord | None:

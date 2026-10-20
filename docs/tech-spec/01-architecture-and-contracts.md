@@ -266,6 +266,7 @@ class TriageDecision(BaseModel):             # what Loop A decided, persisted on
     reason: Literal["llm-failure", "classifier-conflict", "low-calibrated-score",
                     "unconfirmed-high-severity", "unresolved-service",
                     "no-paging-integration",   # ADR-0006 (ARCH §14)
+                    "storm-member",            # ADR-0007 (ARCH §4.3)
                     "spend-breaker", "routed"]
     classification: str | None
     severity: Severity | None

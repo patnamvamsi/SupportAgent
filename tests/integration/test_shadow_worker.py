@@ -66,6 +66,11 @@ def worker(  # noqa: PLR0913, PLR0917
     )
 
 
+def _polls(worker: Worker) -> list[JobResult]:
+    """The ``sync.poll`` results of one round (other jobs, like ``groups.close``, also run)."""
+    return [r for r in worker.run_once() if r.name.startswith("sync.poll.")]
+
+
 def _scalar(db: Engine, sql: str, **params: object) -> Any:
     with db.connect() as conn:
         return conn.execute(text(sql), params).scalar_one()
@@ -91,7 +96,7 @@ def test_worker_polls_new_incident_into_shadow(
         sys_updated_on=clock.now(),
         sys_updated_by="alice",
     )
-    assert worker.run_once() == [JobResult(name=_POLL, ran=True, rows=1)]
+    assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=1)]
 
     assert _scalar(db, "SELECT COUNT(*) FROM shadow_records") == 1
     case_id = _scalar(db, "SELECT case_id FROM shadow_records")
@@ -101,7 +106,7 @@ def test_worker_polls_new_incident_into_shadow(
     _no_side_effects(db)
 
     # Nothing new: the overlap window re-reads sys-1, and sync_seen dedups it.
-    assert worker.run_once() == [JobResult(name=_POLL, ran=True, rows=0)]
+    assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=0)]
     assert _scalar(db, "SELECT COUNT(*) FROM shadow_records") == 1
 
 
@@ -129,7 +134,7 @@ def test_worker_records_human_changes_and_drops_own_echo(
         sys_updated_on=clock.now(),
         sys_updated_by="svc_supportagent",
     )
-    assert worker.run_once() == [JobResult(name=_POLL, ran=True, rows=1)]
+    assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=1)]
     trace_id = _scalar(db, "SELECT trace_id FROM cases WHERE external_id = 'sys-1'")
     assert _scalar(db, "SELECT COUNT(*) FROM cases WHERE external_id = 'sys-own'") == 0
 
@@ -156,7 +161,7 @@ def test_worker_records_human_changes_and_drops_own_echo(
         newvalue="2",
         checkpoint=2,
     )
-    assert worker.run_once() == [JobResult(name=_POLL, ran=True, rows=1)]
+    assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=1)]
     assert (
         _scalar(
             db,
@@ -186,7 +191,7 @@ def test_worker_skips_when_another_replica_holds_the_lease(
         caller_id="u-caller",
         sys_updated_on=clock.now(),
     )
-    assert worker.run_once() == [JobResult(name=_POLL, ran=False)]
+    assert _polls(worker) == [JobResult(name=_POLL, ran=False)]
     assert _scalar(db, "SELECT COUNT(*) FROM cases") == 0
     assert _scalar(db, "SELECT owner FROM leases WHERE name = :n", n=_POLL) == "other"
 
@@ -195,5 +200,5 @@ def test_worker_survives_a_servicenow_outage(
     worker: Worker, db: Engine, clock: Any, sn: FakeServiceNowHTTP
 ) -> None:
     sn.queue_status(400, body={"error": {"message": "bad query"}})  # non-retryable
-    assert worker.run_once() == [], "the failed poll is logged, not raised"
+    assert _polls(worker) == [], "the failed poll is logged, not raised"
     assert _scalar(db, "SELECT COUNT(*) FROM leases") == 0, "released even on error"

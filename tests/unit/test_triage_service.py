@@ -147,6 +147,9 @@ def _wire(  # noqa: PLR0913, PLR0917
     aead: Any,
     fake: LLMProvider,
     catalog: Catalog | None = None,
+    *,
+    grouping: Any = None,
+    spend: Any = None,
 ) -> _Wired:
     # ``aead`` (the fixture) is built over the SAME ``uow`` instance, so its
     # internal ``SqlKeyStore`` and this sink's writes share one active
@@ -180,6 +183,8 @@ def _wire(  # noqa: PLR0913, PLR0917
         classifier=classifier,
         gate=gate,
         catalog=catalog,
+        grouping=grouping,
+        spend=spend,
     )
     return _Wired(triage, events, gate, case_repo, uow, catalog, fake)
 

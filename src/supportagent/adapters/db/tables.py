@@ -84,6 +84,8 @@ cases = sa.Table(
     sa.Column("tenant_id", sa.Text, nullable=False),
     sa.Column("fingerprint", sa.Text, nullable=False),
     sa.Column("origin", sa.Text, nullable=False),
+    # 0008 (WP-111): AlertEvent.source, for storm grouping rule (c).
+    sa.Column("source", sa.Text),
     sa.Column("external_table", sa.Text),
     sa.Column("external_id", sa.Text),
     sa.Column("ticket_number", sa.Text),
