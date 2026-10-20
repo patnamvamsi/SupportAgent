@@ -274,6 +274,8 @@ def _build_triage(config: AppConfig) -> TriageService:
         events=events,
         catalog=catalog,
         ttl=timedelta(hours=config.proposals.ttl_hours),
+        # BL-024: grant-authorized proposals enqueue in the triage UoW.
+        outbox=OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids),
     )
     return TriageService(
         uow=uow,
