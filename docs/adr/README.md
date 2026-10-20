@@ -8,6 +8,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0002](0002-calibrated-score-definition.md) | `calibrated_score` is the Wilson lower bound of per-label holdout accuracy | accepted |
 | 0003 | Provisional thresholds from the v0.0 shadow run | expected at the end of v0.0 (WP-016) |
 | [0004](0004-yaml-parsing-dependency.md) | PyYAML as the explicit runtime dependency for config parsing | accepted |
+| [0005](0005-t1-grant-scope-per-service.md) | T1 actions are scoped to the catalog service | accepted |
 
 ## Naming
 

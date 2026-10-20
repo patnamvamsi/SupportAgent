@@ -3,9 +3,11 @@
 ``build_action_specs`` turns one route's action list into concrete
 :class:`~supportagent.domain.model.action.ActionSpec` values targeting the
 case's source-system coordinates. The target service must be one the catalog
-knows (the gate rejects an unknown service before any write); the scope is the
-literal ``servicenow:<table>:<sys_id>:<kind>``; and the v0.0 work-note text is
-a fixed template of case fields — never LLM free text (10-wp WP-011).
+knows (the gate rejects an unknown service before any write); the scope is
+literal — ``service:<name>:<kind>`` for T1 kinds, so a setup grant covers them
+(ADR-0005), else ``servicenow:<table>:<sys_id>:<kind>``; and the v0.0
+work-note text is a fixed template of case fields — never LLM free text
+(10-wp WP-011).
 
 It is pure application code: no adapters, no I/O.
 """
@@ -18,6 +20,7 @@ from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.routing import Route
+from supportagent.domain.scopes import is_service_scoped, record_scope, service_scope
 
 #: v0.0 work-note template id (fixed; 10-wp WP-011).
 _WORK_NOTE_TEMPLATE_ID = "work_note_v1"
@@ -27,9 +30,9 @@ def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[Actio
     """One :class:`ActionSpec` per action the route requests, targeting the case.
 
     The target service must resolve in ``catalog`` (else the gate would reject
-    it before any write); the scope is the literal
-    ``servicenow:<table>:<sys_id>:<kind>`` (10-wp WP-011). The work-note payload
-    is a fixed template of case fields — never LLM free text.
+    it before any write). The scope is literal (``domain.scopes``, ADR-0005);
+    the target always names the concrete record. The work-note payload is a
+    fixed template of case fields — never LLM free text.
     """
     service = case.service
     known = {entry.name for entry in catalog.services}
@@ -49,7 +52,11 @@ def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[Actio
             ActionSpec(
                 kind=kind,
                 target=TargetRef(service=service, system="servicenow", ref=external_id),
-                scope=f"servicenow:{table}:{external_id}:{kind.value}",
+                scope=(
+                    service_scope(service, kind)
+                    if is_service_scoped(kind)
+                    else record_scope("servicenow", table, external_id, kind)
+                ),
                 payload=_payload_for(kind, case),
             )
         )

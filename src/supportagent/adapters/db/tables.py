@@ -13,13 +13,14 @@ import sqlalchemy as sa
 
 from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
+from supportagent.domain.roles import Role
 from supportagent.domain.severity import Severity
 
 metadata = sa.MetaData()
 
 # 03 §2.1: role literals. A domain Role enum lands in v0.1 (WP-103); until
 # then the literal set is pinned here and by the invariant test.
-ROLES: tuple[str, ...] = ("viewer", "analyst", "approver", "admin")
+ROLES: tuple[str, ...] = tuple(role.value for role in Role)
 # 03 §2.2: origin literals; cf. ``domain.model.alert.AlertEvent.origin``.
 ORIGINS: tuple[str, ...] = ("alert", "ticket")
 
@@ -53,6 +54,14 @@ role_assignments = sa.Table(
     sa.Column("granted_by", sa.Text, sa.ForeignKey("users.id")),
     sa.Column("granted_ts", sa.Integer, nullable=False),
     _check("role", ROLES),
+    # 0005: at most one bootstrap admin (granted_by NULL) per tenant (WP-012).
+    sa.Index(
+        "ux_role_assignments_bootstrap_admin",
+        "tenant_id",
+        unique=True,
+        sqlite_where=sa.text("role = 'admin' AND granted_by IS NULL"),
+        postgresql_where=sa.text("role = 'admin' AND granted_by IS NULL"),
+    ),
 )
 
 # --- 03 §2.2: cases ----------------------------------------------------------

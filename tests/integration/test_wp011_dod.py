@@ -84,7 +84,8 @@ _STRONG = CalibrationCountRow(n=40, correct=40)
 TENANT = "acme"
 SYS_ID = "INC0000001"
 _GRANT_ID = "grnt_dod"
-_SCOPE = f"servicenow:incident:{SYS_ID}:work_note"
+# ADR-0005: T1 kinds are scoped to the catalog service, not the record.
+_SCOPE = "service:payments:work_note"
 
 
 # --- shared wiring (mirrors tests/unit/test_triage_service.py) ---------------
