@@ -1,0 +1,15 @@
+# Eval manifest (04 §8, 10-wp WP-016). A run pins this snapshot (ARCH §11).
+version: 1
+snapshot_id: smoke-v0.0-2026-10-20
+# Routing, model and thresholds come from this config. Without --live it is read
+# offline (no secrets; fixture LLM). The cases are written against the example
+# catalog, so the run always uses it.
+config: supportagent.example.yaml
+catalog: catalog/services.example.yaml
+cases: cases/
+suites:
+  smoke:
+    description: every case; fixture mode is the wiring gate, live mode feeds --write-calibration
+  invariants:
+    tag: invariant
+    description: the adversarial edges (faults, injection, duplicate, redaction, caps); always gate

@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-04
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: PgBouncer pool exhausted for core-db
+  body: cl_waiting climbing on every pool; payroll and sync both stalled.
+  alert_type: pool_saturation
+  error_signature: pool:core-db:pgbouncer
+  severity_hint: P1
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P1
+  actions:
+  - work_note
+meta:
+  why: database/saturation on core-db (pool_saturation); the pre-classifier labels it from alert_type

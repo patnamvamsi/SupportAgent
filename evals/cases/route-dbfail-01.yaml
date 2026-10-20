@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-dbfail-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: core-db primary is down
+  body: Health check fails; the failover did not complete.
+  alert_type: availability
+  error_signature: avail:core-db:primary
+  severity_hint: P2
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/failure
+  severity: P2
+  actions:
+  - work_note
+meta:
+  why: database/failure routes through the generic default row

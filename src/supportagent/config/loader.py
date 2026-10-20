@@ -74,6 +74,33 @@ def load_config_default(path: Path = Path("supportagent.yaml")) -> AppConfig:
     return load_config(path, os.environ)
 
 
+def load_config_offline(path: Path) -> AppConfig:
+    """``path`` for an **offline** fixture eval run (10-wp WP-016): no secrets needed.
+
+    Every ``*_env`` secret becomes an unused placeholder, and the LLM becomes
+    the fixture provider (the ``test`` context 02 §1 allows it in). The result
+    can't reach ServiceNow, an IdP or an LLM, and is only for ``eval run``
+    without ``--live``.
+    """
+    raw = _load_yaml_file(path)
+    placeholder = "offline-eval-placeholder-not-a-secret"
+    env = {
+        str(node[key]): placeholder
+        for section, key, _ in _SECRET_SOURCES
+        if (node := _section(raw, section)) is not None and isinstance(node.get(key), str)
+    }
+    resolved = _resolve_secrets(raw, env)
+    llm = resolved.get("llm")
+    if isinstance(llm, dict):
+        llm["provider"] = "fixture"
+        llm["api_key"] = None
+        llm["base_url"] = None
+    try:
+        return AppConfig.model_validate(resolved)
+    except ValidationError as exc:
+        raise ConfigError(f"config {path}: {exc}") from exc  # noqa: TRY003
+
+
 def load_master_key(env: Mapping[str, str]) -> bytes:
     """Resolve the AES-256-GCM master key from ``SA_MASTER_KEY_ENV`` (03 §3).
 

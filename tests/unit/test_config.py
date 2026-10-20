@@ -168,3 +168,15 @@ def test_config_rejects_invalid_routing_action(tmp_path: Path) -> None:
     path = write_yaml_file(tmp_path, "config.yaml", data)
     with pytest.raises(ConfigError, match="actions"):
         load_config(path, SECRET_ENV)
+
+
+def test_load_config_offline_needs_no_secrets_and_selects_the_fixture_llm() -> None:
+    """WP-016: ``eval run`` without ``--live`` reads the example config offline."""
+    from supportagent.config.loader import load_config_offline  # noqa: PLC0415
+
+    repo = Path(__file__).resolve().parents[2]
+    cfg = load_config_offline(repo / "supportagent.example.yaml")
+    assert cfg.llm.provider == "fixture"
+    assert cfg.llm.api_key is None
+    assert cfg.routing[0].id == "db-saturation"
+    assert cfg.identity.session_secret.get_secret_value().startswith("offline-eval-placeholder")

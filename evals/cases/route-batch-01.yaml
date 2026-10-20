@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-batch-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: DAG nightly-sync failed at the extract step
+  body: extract_orders exited 1 after three retries.
+  alert_type: task_failed
+  error_signature: dag:nightly-sync:extract
+  severity_hint: P3
+  resource: dag:nightly-sync
+expect:
+  outcome: routed
+  classification: batch/failure
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: batch/failure routes through the generic default row

@@ -13,11 +13,14 @@ app service) and returns the ``ReplayView``.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import secrets
 import socket
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import anthropic
@@ -43,10 +46,17 @@ from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
+from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
-from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_client
+from supportagent.adapters.llm.client import (
+    FixtureAnswer,
+    FixtureLLMProvider,
+    LLMClient,
+    SlotSpec,
+    build_llm_client,
+)
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
@@ -74,25 +84,38 @@ from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.triage import TriageService
-from supportagent.config.loader import load_master_key_default
+from supportagent.config.loader import (
+    load_config_default,
+    load_config_offline,
+    load_master_key_default,
+)
 from supportagent.config.schema import AppConfig, RoutingRow
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
-from supportagent.domain.model.calibration import CalibrationTable
+from supportagent.domain.model.alert import AlertEvent
+from supportagent.domain.model.calibration import (
+    CalibrationCountRow,
+    CalibrationLabelRow,
+    CalibrationTable,
+)
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.shadow import ShadowRecord
+from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import JobResult, sync_poll, sync_poll_lease
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
+from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
+from supportagent.evals.harness import Manifest
+from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import DiscoveryProbe
 from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
-from supportagent.ports.llm import LLMProvider
+from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
 from supportagent.ports.tickets import SnTable
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
@@ -165,21 +188,25 @@ def _classify_slots(config: AppConfig) -> dict[SlotName, SlotSpec]:
     }
 
 
-def _build_llm(
+def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
     config: AppConfig,
     events: EventSink,
     ids: IdGenerator,
     clock: Clock,
     provider_override: LLMProvider | None = None,
+    *,
+    decorate: Callable[[LLMProvider], LLMProvider] | None = None,
 ) -> LLMClient:
     """The redacting LLM client for the configured provider (01 §5, INV-06).
 
     ``provider_override`` is the test seam (a scripted provider); it is still
     wrapped in ``LLMClient``, so redaction and the ``llm`` event apply.
+    ``decorate`` wraps the provider inside the client (the eval harness
+    records the redacted requests with it).
     """
     if provider_override is not None:
         return LLMClient(
-            provider=provider_override,
+            provider=decorate(provider_override) if decorate else provider_override,
             redactor=Redactor(detectors=built_in_detectors()),
             prompts=PromptRegistry(root=Path(config.paths.prompts)),
             events=events,
@@ -211,6 +238,7 @@ def _build_llm(
         ids=ids,
         clock=clock,
         slots=_classify_slots(config),
+        decorate=decorate,
     )
 
 
@@ -545,6 +573,148 @@ def request_default_grants(config: AppConfig, *, master_key: bytes | None = None
         return setup.request_default_grants(requested_by=config_marker(config))
     finally:
         engine.dispose()
+
+
+class _RecordingProvider:
+    """Records each (redacted) request the provider receives (eval INV-06 check)."""
+
+    def __init__(self, inner: LLMProvider) -> None:
+        self._inner = inner
+        self.requests: list[str] = []
+
+    def complete_json(self, request: ProviderRequest) -> ProviderResponse:
+        self.requests.append(request.system + "\n" + request.user)
+        return self._inner.complete_json(request)
+
+
+def _wiring_calibration(config: AppConfig) -> CalibrationTable:
+    """Every taxonomy label fully calibrated, so the harness exercises routing.
+
+    The smoke suite scores the pipeline's wiring; the production gate reads
+    the eval-produced artifact (ADR-0002), which this never replaces.
+    """
+    strong = CalibrationCountRow(n=1000, correct=1000)
+    labels = load_classification(Path(config.paths.taxonomy)).labels
+    return CalibrationTable(
+        grade="smoke",
+        snapshot_id="wiring",
+        model_id=config.llm.slots[SlotName.CLASSIFY.value].model_id,
+        labels={label.id: CalibrationLabelRow(agree=strong, abstain=strong) for label in labels},
+    )
+
+
+class EvalPipeline:
+    """Shadow triage for the eval harness (10-wp WP-016) on a throwaway database.
+
+    ``fixture`` mode scripts the LLM per case; ``live`` uses the configured
+    provider. Either way every request passes the redactor first and is
+    recorded for the case's INV-06 check. Nothing is proposed or sent: the
+    harness reads the shadow record (decision + the specs that would have
+    been proposed).
+    """
+
+    def __init__(self, config: AppConfig, workdir: Path, *, live: bool) -> None:
+        self.mode: Literal["fixture", "live"] = "live" if live else "fixture"
+        self.model_id = config.llm.slots[SlotName.CLASSIFY.value].model_id
+        url = f"sqlite:///{(workdir / 'eval.db').as_posix()}"
+        run_migrations(url)
+        self._engine = make_engine(url)
+        uow = SqlUnitOfWork(self._engine)
+        self._clock = ReplayClock()
+        ids = UlidIdGenerator()
+        events = _event_sink(uow, secrets.token_bytes(32), self._clock)
+        self._fixture = None if live else FixtureLLMProvider()
+        self._recorder: _RecordingProvider | None = None
+
+        def record(inner: LLMProvider) -> LLMProvider:
+            self._recorder = _RecordingProvider(inner)
+            return self._recorder
+
+        llm = _build_llm(config, events, ids, self._clock, self._fixture, decorate=record)
+        self._runner = ShadowRunner(
+            uow=uow,
+            clock=self._clock,
+            ids=ids,
+            events=events,
+            case_repo=CaseRepo(uow),
+            classifier=Classifier(
+                rule_set=_build_ruleset(config),
+                llm=llm,
+                calibration=_wiring_calibration(config),
+                min_score=config.calibration.min_score,
+                routing=_build_routing(config),
+            ),
+            catalog=_build_catalog(config),
+            repo=ShadowRepo(uow),
+            tenant_constants=config.redaction.tenant_constants,
+        )
+        self._seen: set[str] = set()
+        self._seen_before: set[str] = set()
+
+    def run(self, case: EvalCase, evt: AlertEvent) -> CaseRun:
+        if self._fixture is not None:
+            self._fixture.load([_fixture_answer(case.fixture_answer())])
+        if self._recorder is not None:
+            self._recorder.requests.clear()
+        record = self._deliver(case, evt)
+        for _ in range(case.repeat - 1):
+            record = self._deliver(case, evt)
+        # Linked: the last delivery landed on a case that already existed.
+        linked = record.case_id in self._seen_before
+        decision = TriageDecision.model_validate_json(json.dumps(record.proposed["decision"]))
+        specs = record.proposed.get("specs", [])
+        return CaseRun(
+            case_id=case.id,
+            linked=linked,
+            decision=decision,
+            actions=[str(spec["kind"]) for spec in specs] if isinstance(specs, list) else [],
+            llm_requests=list(self._recorder.requests) if self._recorder else [],
+        )
+
+    def _deliver(self, case: EvalCase, evt: AlertEvent) -> ShadowRecord:
+        self._clock.set(evt.received_at)
+        record = self._runner.run(evt)
+        if record is None:  # pragma: no cover — shadow cases always carry a record
+            raise RuntimeError(f"case {case.id}: no shadow record")  # noqa: TRY003
+        self._seen_before = set(self._seen)
+        self._seen.add(record.case_id)
+        return record
+
+    def close(self) -> None:
+        self._engine.dispose()
+
+
+def _fixture_answer(spec: FixtureSpec) -> FixtureAnswer:
+    if spec.fault is not None:
+        return FixtureAnswer(fault=spec.fault)
+    if spec.raw is not None:
+        return FixtureAnswer(raw=spec.raw)
+    if spec.classification is None or spec.severity is None:
+        # Nothing scripted: the call fails closed, like an LLM outage.
+        return FixtureAnswer(fault="unavailable")
+    return FixtureAnswer.triage(spec.classification, spec.severity)
+
+
+def wall_clock() -> Clock:
+    """The system clock, for entrypoints that label output with the time."""
+    return SystemClock()
+
+
+def eval_config(config_path: Path, *, live: bool, catalog: Path) -> AppConfig:
+    """The eval run's config: offline (fixture, no secrets) unless ``live``.
+
+    The catalog is the manifest's: the cases are written against it.
+    """
+    cfg = load_config_default(config_path) if live else load_config_offline(config_path)
+    paths = cfg.paths.model_copy(update={"catalog": catalog.as_posix()})
+    return cfg.model_copy(update={"paths": paths})
+
+
+def load_eval_suite(manifest_path: Path) -> tuple[list[EvalCase], Manifest]:
+    """The manifest and its case files (YAML read at the file boundary, ADR-0004)."""
+    manifest = Manifest.model_validate(load_yaml_document(manifest_path))
+    cases_dir = manifest_path.parent / manifest.cases
+    return parse_cases(load_eval_documents(cases_dir)), manifest
 
 
 def config_marker(config: AppConfig) -> str:

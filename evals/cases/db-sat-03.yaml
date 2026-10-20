@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-03
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: core-db WAL volume 95% full
+  body: pg_wal growing; archiver lagging behind.
+  alert_type: disk_saturation
+  error_signature: disk:core-db:wal
+  severity_hint: P2
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P2
+  actions:
+  - work_note
+meta:
+  why: database/saturation on core-db (disk_saturation); the pre-classifier labels it from alert_type

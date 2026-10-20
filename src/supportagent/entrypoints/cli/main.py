@@ -1,7 +1,7 @@
 """``supportagent`` CLI (typer). v0.0 surface: ``--version`` (WP-000),
 ``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012),
 ``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014), ``worker`` /
-``run``, ``doctor`` (WP-015). ``eval`` lands with WP-016 (10-wp).
+``run``, ``doctor`` (WP-015), ``eval run`` (WP-016).
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import typer
 
 import supportagent
 from supportagent.entrypoints.cli import doctor as doctor_command
+from supportagent.entrypoints.cli import eval as eval_command
 from supportagent.entrypoints.cli import grants as grants_command
 from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
@@ -46,6 +47,8 @@ app.command("run")(worker_command.run)
 # 02 §4: ``supportagent stats`` and ``shadow import`` (WP-014).
 app.command("stats")(stats_command.stats)
 app.add_typer(shadow_command.app, name="shadow")
+# 02 §4: ``supportagent eval run --suite smoke|invariants`` (WP-016).
+app.add_typer(eval_command.app, name="eval")
 # 02 §4: ``supportagent grants request --from config`` (WP-012).
 app.add_typer(grants_command.app, name="grants")
 

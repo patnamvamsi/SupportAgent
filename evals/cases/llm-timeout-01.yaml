@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: llm-timeout-01
+source: synthetic
+tags:
+- invariant
+- fault
+modes:
+- fixture
+input:
+  cmdb_ci: CI2002
+  alert_type: pool_saturation
+  error_signature: pool:core-db:timeout
+  subject: core-db pool saturation
+  body: Pool at limit.
+fixture:
+  fault: timeout
+expect:
+  outcome: safe_default
+  reason: llm-failure
+  actions: []
+meta:
+  why: an LLM timeout fails closed (INV-05)

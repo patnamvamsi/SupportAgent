@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: duplicate-01
+source: synthetic
+tags:
+- invariant
+input:
+  cmdb_ci: CI2002
+  alert_type: pool_saturation
+  error_signature: pool:core-db:dup
+  subject: core-db pool saturation
+  body: Pool at limit.
+  severity_hint: P3
+fixture:
+  classification: database/saturation
+  severity: P3
+repeat: 2
+expect:
+  outcome: linked
+meta:
+  why: 'INV-02: the same alert twice links to one case'

@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-12
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: core-db analytics pool saturation
+  body: Analytics pool at limit during month-end queries.
+  alert_type: pool_saturation
+  error_signature: pool:core-db:analytics
+  severity_hint: P3
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: database/saturation on core-db (pool_saturation); the pre-classifier labels it from alert_type

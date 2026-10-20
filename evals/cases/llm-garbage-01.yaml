@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: llm-garbage-01
+source: synthetic
+tags:
+- invariant
+- fault
+modes:
+- fixture
+input:
+  cmdb_ci: CI2002
+  alert_type: pool_saturation
+  error_signature: pool:core-db:garbage
+  subject: core-db pool saturation
+  body: Pool at limit.
+fixture:
+  raw: I think it is probably the database?? not sure
+expect:
+  outcome: safe_default
+  reason: llm-failure
+  actions: []
+meta:
+  why: garbage LLM output fails closed (INV-05)

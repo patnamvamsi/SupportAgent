@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: ticket-p1-cap-01
+source: synthetic
+tags:
+- ticket
+- invariant
+input:
+  origin: ticket
+  ticket_number: INC0020002
+  cmdb_ci: CI3003
+  subject: Whole finance team locked out of payroll
+  body: Nobody in finance can sign in to payroll; month-end close is today.
+fixture:
+  classification: auth/failure
+  severity: P1
+expect:
+  outcome: safe_default
+  reason: unconfirmed-high-severity
+  severity: P1
+  actions: []
+meta:
+  why: 'ARCH §4.2 severity cap: an LLM-only P1/P2 never routes without the pre-classifier'

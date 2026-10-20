@@ -184,7 +184,7 @@ jobs:
     # file and the llm adapter implementation (04 §6 L130).
     #
     # The `supportagent eval` command and cases land with WP-016, so the job
-    # also stays dormant while src/supportagent/evals/cli.py is absent —
+    # also stays dormant while src/supportagent/entrypoints/cli/eval.py is absent —
     # running the suite before the command exists would only fail the PR
     # (e.g. WP-002, which touches the config file).
     runs-on: ubuntu-latest
@@ -197,7 +197,7 @@ jobs:
       - name: Path trigger (04 §6) + command-exists guard (WP-016)
         id: filter
         run: |
-          if [ ! -f src/supportagent/evals/cli.py ]; then
+          if [ ! -f src/supportagent/entrypoints/cli/eval.py ]; then
             echo "supportagent eval CLI not present yet (lands with WP-016) — skipping"
             echo "triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
