@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
 
 from supportagent.domain.errors import AuthenticationFailed
-from supportagent.domain.roles import Role
+from supportagent.domain.rbac import Permission
 from supportagent.entrypoints.api import csrf, session
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.api.deps import context
@@ -58,7 +58,7 @@ def callback(
         ),
     )
     user = ctx.setup().login(claims)
-    target = "/ui/setup" if user.has_role(Role.ADMIN) else "/ui/approvals"
+    target = "/ui/setup" if user.can(Permission.ADMINISTER, anywhere=True) else "/ui/approvals"
     response = RedirectResponse(target, status_code=303)
     # A fresh cookie value replaces the pre-login one (no session fixation).
     session.write(response, ctx, {"uid": user.id}, ttl_s=int(ctx.session_ttl.total_seconds()))

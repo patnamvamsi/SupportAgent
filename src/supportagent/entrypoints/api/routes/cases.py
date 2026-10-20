@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends
 from supportagent.app.replay import summarize
 from supportagent.app.setup import SessionUser
 from supportagent.domain.errors import NotFound
-from supportagent.domain.roles import Role
+from supportagent.domain.rbac import Permission
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.api.deps import context, require_role
+from supportagent.entrypoints.api.deps import context, require_permission
 
 router = APIRouter(prefix="/api/v1")
-_viewer = require_role(Role.VIEWER)
+_viewer = require_permission(Permission.VIEW)
 
 
 @router.get("/cases/{case_id}")

@@ -55,6 +55,7 @@ class ProposalView:
     expires_ts: int | None
     severity: str | None
     target_ref: str | None
+    service: str | None = None
 
     @property
     def preview(self) -> str:
@@ -79,6 +80,7 @@ class ProposalView:
             "expires_ts": self.expires_ts,
             "severity": self.severity,
             "target_ref": self.target_ref,
+            "service": self.service,
         }
 
 
@@ -103,7 +105,7 @@ class CaseView:
 _PROPOSAL_SELECT = (
     "SELECT p.id, p.case_id, p.action_kind, p.scope, p.status, p.payload_json, "
     "p.payload_hash, p.trace_id, p.created_by, p.created_at_ts, p.expires_ts, "
-    "c.severity, c.external_id FROM proposals p JOIN cases c ON c.id = p.case_id "
+    "c.severity, c.external_id, c.service FROM proposals p JOIN cases c ON c.id = p.case_id "
 )
 
 
@@ -228,15 +230,24 @@ class AdminQueries:
                 .all()
             )
             roles: dict[str, list[str]] = {}
-            for user_id, role in conn.execute(
+            scopes: dict[str, dict[str, str]] = {}
+            for user_id, role, scope in conn.execute(
                 sa.text(
-                    "SELECT user_id, role FROM role_assignments WHERE tenant_id = :tenant "
+                    "SELECT user_id, role, scope FROM role_assignments WHERE tenant_id = :tenant "
                     "ORDER BY user_id, role"
                 ),
                 {"tenant": self._tenant},
             ):
                 roles.setdefault(str(user_id), []).append(str(role))
-        return [{**dict(u), "roles": roles.get(str(u["id"]), [])} for u in users]
+                scopes.setdefault(str(user_id), {})[str(role)] = str(scope)
+        return [
+            {
+                **dict(u),
+                "roles": roles.get(str(u["id"]), []),
+                "role_scopes": scopes.get(str(u["id"]), {}),
+            }
+            for u in users
+        ]
 
 
 def _proposal(row: sa.RowMapping) -> ProposalView:
@@ -255,6 +266,7 @@ def _proposal(row: sa.RowMapping) -> ProposalView:
         expires_ts=int(row["expires_ts"]) if row["expires_ts"] is not None else None,
         severity=row["severity"],
         target_ref=row["external_id"],
+        service=row["service"],
     )
 
 

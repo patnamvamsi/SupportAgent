@@ -28,6 +28,7 @@ from supportagent.domain.errors import (
     NotFound,
     SupportAgentError,
 )
+from supportagent.domain.rbac import Permission, service_role_scope
 from supportagent.domain.roles import Role
 from supportagent.entrypoints.api import csrf, session
 from supportagent.entrypoints.api.context import ApiContext
@@ -89,7 +90,7 @@ def _render(  # noqa: PLR0913 — the shared template context
 ) -> HTMLResponse:
     body = _ENV.get_template(name).render(
         user=user,
-        is_admin=user is not None and user.has_role(Role.ADMIN),
+        is_admin=user is not None and user.can(Permission.ADMINISTER, anywhere=True),
         csrf_token=request.cookies.get(csrf.COOKIE, ""),
         now_ts=int(ctx.clock.now().timestamp()),
         idp_label=ctx.idp_label,
@@ -132,15 +133,17 @@ def _ui_user(request: Request, ctx: ApiContext) -> SessionUser | None:
 def _page(
     request: Request,
     ctx: ApiContext,
-    role: Role,
+    permission: Permission,
     build: Callable[[SessionUser], Response],
 ) -> Response:
-    """Auth + role for a UI page; domain errors render the error page."""
+    """Auth + permission for a UI page; domain errors render the error page."""
     user = _ui_user(request, ctx)
     if user is None:
         return RedirectResponse("/ui/login", status_code=303)
-    if not user.has_role(role):
-        return _error(request, ctx, user, 403, f"This page needs the {role.value} role.")
+    if not user.can(permission, anywhere=True):
+        return _error(
+            request, ctx, user, 403, f"This page needs the {permission.value} permission."
+        )
     try:
         return build(user)
     except (NotFound, AuthorizationDenied, ConcurrencyConflict, DomainValidationError) as exc:
@@ -150,12 +153,12 @@ def _page(
 async def _post(
     request: Request,
     ctx: ApiContext,
-    role: Role,
+    permission: Permission,
     act: Callable[[SessionUser, Mapping[str, str]], Response],
 ) -> Response:
-    """Every UI POST: CSRF form check first, then auth, role and the action."""
+    """Every UI POST: CSRF form check first, then auth, permission and the action."""
     form = await csrf.verify_form(request)
-    return await run_in_threadpool(_page, request, ctx, role, lambda user: act(user, form))
+    return await run_in_threadpool(_page, request, ctx, permission, lambda user: act(user, form))
 
 
 # --- pages ------------------------------------------------------------------
@@ -177,7 +180,7 @@ def approvals_page(request: Request, ctx: ApiContext = Depends(context)) -> Resp
         proposals = ctx.queries().proposals(status="pending_approval")
         return _render(request, ctx, "approvals.html", user, proposals=proposals)
 
-    return _page(request, ctx, Role.VIEWER, build)
+    return _page(request, ctx, Permission.VIEW, build)
 
 
 def _proposal_page(  # noqa: PLR0913 — the page plus its optional error state
@@ -190,7 +193,9 @@ def _proposal_page(  # noqa: PLR0913 — the page plus its optional error state
     error: str | None = None,
 ) -> Response:
     proposal = ctx.queries().proposal(proposal_id)
-    can_decide = user.has_role(Role.APPROVER) and proposal.status == "pending_approval"
+    can_decide = proposal.status == "pending_approval" and user.can(
+        Permission.DECIDE_PROPOSAL, service_role_scope(proposal.service)
+    )
     return _render(
         request,
         ctx,
@@ -210,7 +215,7 @@ def proposal_page(
     ctx: ApiContext = Depends(context),  # noqa: B008
 ) -> Response:
     return _page(
-        request, ctx, Role.VIEWER, lambda user: _proposal_page(request, ctx, user, proposal_id)
+        request, ctx, Permission.VIEW, lambda user: _proposal_page(request, ctx, user, proposal_id)
     )
 
 
@@ -223,7 +228,7 @@ def case_page(
     def build(user: SessionUser) -> Response:
         return _render(request, ctx, "case.html", user, c=ctx.queries().case(case_id))
 
-    return _page(request, ctx, Role.VIEWER, build)
+    return _page(request, ctx, Permission.VIEW, build)
 
 
 @router.get("/ui/setup")
@@ -231,7 +236,7 @@ def setup_page(request: Request, ctx: ApiContext = Depends(context)) -> Response
     def build(user: SessionUser) -> Response:
         return _render(request, ctx, "setup.html", user, state=ctx.setup().state())
 
-    return _page(request, ctx, Role.ADMIN, build)
+    return _page(request, ctx, Permission.ADMINISTER, build)
 
 
 @router.get("/ui/grants")
@@ -239,7 +244,7 @@ def grants_page(request: Request, ctx: ApiContext = Depends(context)) -> Respons
     def build(user: SessionUser) -> Response:
         return _render(request, ctx, "grants.html", user, grants=ctx.queries().grants())
 
-    return _page(request, ctx, Role.ADMIN, build)
+    return _page(request, ctx, Permission.ADMINISTER, build)
 
 
 @router.get("/ui/stats")
@@ -254,7 +259,7 @@ def stats_page(
         report = ctx.stats().report(window=parse_window(window), mode=chosen)
         return _render(request, ctx, "stats.html", user, r=report, window=window)
 
-    return _page(request, ctx, Role.VIEWER, build)
+    return _page(request, ctx, Permission.VIEW, build)
 
 
 # --- form posts -------------------------------------------------------------
@@ -272,10 +277,11 @@ async def approve_form(
             user.id,
             seen_hash=form.get("payload_hash", ""),
             reason=form.get("reason") or None,
+            grants=user.grants,
         )
         return RedirectResponse(f"/ui/proposals/{proposal_id}", status_code=303)
 
-    return await _post(request, ctx, Role.APPROVER, act)
+    return await _post(request, ctx, Permission.DECIDE_PROPOSAL, act)
 
 
 @router.post("/ui/proposals/{proposal_id}/reject")
@@ -291,11 +297,15 @@ async def reject_form(
                 request, ctx, user, proposal_id, status=422, error="A reason is required to reject."
             )
         ctx.approvals().reject(
-            proposal_id, user.id, seen_hash=form.get("payload_hash", ""), reason=reason
+            proposal_id,
+            user.id,
+            seen_hash=form.get("payload_hash", ""),
+            reason=reason,
+            grants=user.grants,
         )
         return RedirectResponse(f"/ui/proposals/{proposal_id}", status_code=303)
 
-    return await _post(request, ctx, Role.APPROVER, act)
+    return await _post(request, ctx, Permission.DECIDE_PROPOSAL, act)
 
 
 @router.post("/ui/setup/approve")
@@ -304,7 +314,7 @@ async def setup_form(request: Request, ctx: ApiContext = Depends(context)) -> Re
         ctx.setup().run_setup(approver_id=user.id, requested_by=ctx.config_marker)
         return RedirectResponse("/ui/setup", status_code=303)
 
-    return await _post(request, ctx, Role.ADMIN, act)
+    return await _post(request, ctx, Permission.ADMINISTER, act)
 
 
 @router.post("/ui/grants/{grant_id}/approve")
@@ -321,7 +331,7 @@ async def grant_approve_form(
         ctx.setup().approve_grant(grant_id, approver_id=user.id, valid_days=days)
         return RedirectResponse("/ui/grants", status_code=303)
 
-    return await _post(request, ctx, Role.ADMIN, act)
+    return await _post(request, ctx, Permission.ADMINISTER, act)
 
 
 @router.post("/ui/grants/{grant_id}/revoke")
@@ -334,4 +344,53 @@ async def grant_revoke_form(
         ctx.setup().revoke_grant(grant_id, actor_id=user.id)
         return RedirectResponse("/ui/grants", status_code=303)
 
-    return await _post(request, ctx, Role.ADMIN, act)
+    return await _post(request, ctx, Permission.ADMINISTER, act)
+
+
+@router.get("/ui/users")
+def users_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(
+            request,
+            ctx,
+            "users.html",
+            user,
+            users=ctx.queries().users(),
+            roles=[r.value for r in Role],
+            services=ctx.setup().service_names(),
+        )
+
+    return _page(request, ctx, Permission.ADMINISTER, build)
+
+
+@router.post("/ui/users/{user_id}/roles")
+async def role_assign_form(
+    user_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        try:
+            role = Role(form.get("role", ""))
+        except ValueError as exc:
+            raise DomainValidationError(f"unknown role {form.get('role')!r}") from exc  # noqa: TRY003
+        ctx.setup().assign_role(
+            actor_id=user.id, user_id=user_id, role=role, scope=form.get("scope", "*")
+        )
+        return RedirectResponse("/ui/users", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)
+
+
+@router.post("/ui/users/{user_id}/roles/{role}/revoke")
+async def role_revoke_form(
+    user_id: str,
+    role: Role,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
+        ctx.setup().revoke_role(actor_id=user.id, user_id=user_id, role=role)
+        return RedirectResponse("/ui/users", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)

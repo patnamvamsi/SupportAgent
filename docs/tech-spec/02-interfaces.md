@@ -106,7 +106,8 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | GET/POST | `/api/v1/comms-plans/{id}[/approve]` | approver | v0.1 | Plan approval (`payload_hash = plan_hash`) |
 | GET | `/api/v1/stats?mode=shadow&window=30d` | viewer | v0.0 | Stats report (mode-separated) |
 | GET | `/api/v1/users` | admin | v0.0 | Users and their roles (added in WP-013) |
-| POST | `/api/v1/users/{id}/roles` | admin | v0.0 | Body `{role}`: grant a role. Every role change after the first admin is made by an admin (03 §2.1) |
+| POST | `/api/v1/users/{id}/roles` | admin | v0.0 | Body `{role, scope?}` (`*` or `service:<name>`, v0.1): grant a role. Every role change after the first admin is made by an admin (03 §2.1) |
+| DELETE | `/api/v1/users/{id}/roles/{role}` | admin | v0.1 | Revoke a role; 422 when it would remove the last admin (WP-103) |
 | POST | `/api/v1/webhooks/{source}` | HMAC | v0.1 | Generic webhook (`X-SA-Signature: sha256=<hex>`, `X-SA-Timestamp`, `X-SA-Nonce`) |
 
 **Approve semantics (exact):** within one UoW, load the proposal (must be `pending_approval`) and compare `body.payload_hash` with `proposal.payload_hash` (409 `stale_proposal` if they differ). Insert the approval; the DB trigger rejects self-approval and the API maps that to 403. Transition the proposal to `approved` and enqueue the outbox row with `approval_id`, then commit. The executor sends asynchronously.
@@ -123,6 +124,7 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | Proposal detail | `/ui/proposals/{id}` | v0.0 | Exact payload (rendered + raw JSON), payload_hash prefix, evidence links, approve / reject (reason textarea) |
 | Case view | `/ui/cases/{id}` | v0.0 | Decision and reason, LLM suggestion when safe-defaulted, proposals, sends, timeline from events |
 | Grants | `/ui/grants` | v0.0 | Requested / approved / revoked |
+| Users | `/ui/users` | v0.1 | Users, roles and role scopes; assign / remove (admin, WP-103) |
 | Stats | `/ui/stats` | v0.0 | Shadow counterfactual; v0.1 adds approval-fatigue and promotion-gate panels |
 | Owner drafts | case view panel | v0.1 | Cadence drafts under `human_owned` |
 

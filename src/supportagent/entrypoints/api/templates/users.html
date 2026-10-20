@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Users and roles</h1>
+<p class="muted">viewer: read only; analyst: plus hand-back; approver: plus approve/reject within its scope; admin: everything. A scope of <code>service:&lt;name&gt;</code> limits a role to one catalog service.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>User</th><th>Roles</th><th>Assign</th></tr></thead>
+  <tbody>{% for u in users %}
+  <tr>
+    <td>{{ u.name }}<br><span class="muted">{{ u.email }}</span>{% if not u.is_active %} <em>(inactive)</em>{% endif %}</td>
+    <td>
+      {% for r in u.roles %}
+      <form class="inline" method="post" action="/ui/users/{{ u.id }}/roles/{{ r }}/revoke">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <code>{{ r }}{% if u.role_scopes[r] != "*" %} @ {{ u.role_scopes[r] }}{% endif %}</code>
+        <button type="submit" aria-label="Remove {{ r }}">Remove</button>
+      </form>
+      {% else %}<span class="muted">none</span>{% endfor %}
+    </td>
+    <td>
+      <form class="inline" method="post" action="/ui/users/{{ u.id }}/roles">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Role <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select></label>
+        <label>Scope <select name="scope"><option value="*">all services</option>{% for s in services %}<option value="service:{{ s }}">{{ s }}</option>{% endfor %}</select></label>
+        <button type="submit">Assign</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -88,10 +88,12 @@ def csrf(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": token}
 
 
-def seed_users(db: Any, *rows: tuple[str, str | None]) -> None:
-    """Insert users with an optional role each (``(sub, role)``), admin-granted by ada."""
+def seed_users(db: Any, *rows: tuple[str, str | None] | tuple[str, str, str]) -> None:
+    """Insert users with an optional role each: ``(sub, role)`` or ``(sub, role, scope)``."""
     with db.begin() as conn:
-        for sub, role in rows:
+        for row in rows:
+            sub, role = row[0], row[1]
+            scope = row[2] if len(row) == 3 else "*"
             conn.execute(
                 text(
                     "INSERT INTO users (id, tenant_id, email, name, is_active, created_ts) "
@@ -104,9 +106,9 @@ def seed_users(db: Any, *rows: tuple[str, str | None]) -> None:
                     text(
                         "INSERT INTO role_assignments "
                         "(user_id, tenant_id, role, scope, granted_by, granted_ts) "
-                        "VALUES (:id, :t, :role, '*', NULL, 0)"
+                        "VALUES (:id, :t, :role, :scope, NULL, 0)"
                     ),
-                    {"id": sub, "t": TENANT, "role": role},
+                    {"id": sub, "t": TENANT, "role": role, "scope": scope},
                 )
 
 
@@ -124,6 +126,7 @@ def seed_proposal(  # noqa: PLR0913 — one knob per column the tests vary
     created_at_ts: int = 1_000,
     payload: dict[str, object] | None = None,
     sys_id: str = "INC0000001",
+    service: str = "payments",
 ) -> str:
     """A case (if new) plus one proposal with a real canonical payload hash."""
     from supportagent.domain.hashing import canonical_json, payload_hash  # noqa: PLC0415
@@ -136,7 +139,7 @@ def seed_proposal(  # noqa: PLR0913 — one knob per column the tests vary
                 "INSERT INTO cases (id, tenant_id, fingerprint, origin, status, trace_id, "
                 "duplicate_count, opened_ts, last_alert_ts, external_table, external_id, "
                 "service, severity, classification, decision_json) VALUES (:id, :t, :fp, "
-                "'alert', 'triaged', :tr, 0, 0, 0, 'incident', :sys, 'payments', :sev, "
+                "'alert', 'triaged', :tr, 0, 0, 0, 'incident', :sys, :svc, :sev, "
                 "'payments/api', :dj) ON CONFLICT (id) DO NOTHING"
             ),
             {
@@ -145,6 +148,7 @@ def seed_proposal(  # noqa: PLR0913 — one knob per column the tests vary
                 "fp": f"fp_{case_id}",
                 "tr": trace_id,
                 "sys": sys_id,
+                "svc": service,
                 "sev": severity,
                 "dj": '{"outcome": "routed", "reason": "routed"}',
             },

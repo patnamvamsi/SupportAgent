@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from supportagent.app.setup import SessionUser
-from supportagent.domain.roles import Role
+from supportagent.domain.rbac import Permission
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.api.deps import context, require_role
+from supportagent.entrypoints.api.deps import context, require_permission
 
 router = APIRouter(prefix="/api/v1/proposals")
-_viewer = require_role(Role.VIEWER)
-_approver = require_role(Role.APPROVER)
+_viewer = require_permission(Permission.VIEW)
+_approver = require_permission(Permission.DECIDE_PROPOSAL)
 
 
 class Decision(BaseModel):
@@ -51,7 +51,7 @@ def approve(
 ) -> dict[str, str]:
     """409 ``stale_proposal`` on a hash mismatch; 403 ``self_approval`` (02 §2)."""
     done = ctx.approvals().approve(
-        proposal_id, user.id, seen_hash=body.payload_hash, reason=body.reason
+        proposal_id, user.id, seen_hash=body.payload_hash, reason=body.reason, grants=user.grants
     )
     return {"approval_id": done.approval_id, "outbox_id": done.outbox_id}
 
@@ -65,6 +65,10 @@ def reject(
 ) -> dict[str, str]:
     """The reason is required (422 without one)."""
     approval_id = ctx.approvals().reject(
-        proposal_id, user.id, seen_hash=body.payload_hash, reason=body.reason or ""
+        proposal_id,
+        user.id,
+        seen_hash=body.payload_hash,
+        reason=body.reason or "",
+        grants=user.grants,
     )
     return {"approval_id": approval_id}
