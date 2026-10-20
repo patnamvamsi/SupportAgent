@@ -110,6 +110,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    # 0011 (WP-108): case memory (edges reference nodes).
+    "edges",
+    "nodes",
+    "kb_docs",
     # 0010 (WP-109): feedback references cases.
     "feedback",
     # 0009 (WP-113): webhook replay protection and inbox.
