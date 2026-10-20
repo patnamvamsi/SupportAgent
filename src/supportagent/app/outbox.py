@@ -28,7 +28,8 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, Protocol
+from types import TracebackType
+from typing import Any, Literal, Protocol, Self
 
 import sqlalchemy as sa
 
@@ -78,13 +79,19 @@ class _UoW(Protocol):
     the raw connection and an explicit ``commit``.
     """
 
-    connection: Any
+    @property
+    def connection(self) -> sa.Connection: ...
 
     def commit(self) -> None: ...
 
-    def __enter__(self) -> _UoW: ...
+    def __enter__(self) -> Self: ...
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...
 
 
 class _OutboxRepo(Protocol):
@@ -199,6 +206,64 @@ class ExecResult:
     error: str | None = None
 
 
+class OutboxWriter:
+    """Enqueue outbox rows (INV-01 edge enforced by the DB triggers, 03 §2.4).
+
+    Split from ``OutboxExecutor`` so a path that only authorizes work — the
+    approval API (WP-013) — enqueues without constructing a ``TicketSink``.
+    Its ``with`` blocks join an enclosing unit of work, so an approval and its
+    outbox row commit together.
+    """
+
+    def __init__(self, *, uow: _UoW, repo: _OutboxRepo, ids: IdGenerator) -> None:
+        self._uow = uow
+        self._repo = repo
+        self._ids = ids
+
+    def enqueue(
+        self,
+        authorization: Authorization,
+        spec: ActionSpec,
+        case_id: str,
+        trace: TraceContext,
+    ) -> OutboxRow:
+        """Insert one outbox row under ``authorization`` (INV-01 edge enforced by DB).
+
+        Idempotent on the derived key: a second ``enqueue`` with the same
+        authorization + spec returns the existing row instead of inserting.
+        """
+        ph = payload_hash(spec.payload)
+        key = authorization.idempotency_key(spec=spec, case_id=case_id, payload_hash=ph)
+        with self._uow:
+            existing = self._repo.get_by_key(key)
+        if existing is not None:
+            return _to_row(existing)
+
+        outbox_id = self._ids.new(IdPrefix.OUTBOX)
+        with self._uow:
+            self._repo.insert(
+                id=outbox_id,
+                tenant_id=trace.tenant_id,
+                case_id=case_id,
+                action_kind=spec.kind.value,
+                scope=spec.scope,
+                payload_json=canonical_json(spec.payload),
+                payload_hash=ph,
+                idempotency_key=key,
+                approval_id=authorization.approval_id,
+                policy_grant_id=authorization.policy_grant_id,
+                comms_plan_id=authorization.comms_plan_id,
+                trace_id=trace.trace_id,
+            )
+            self._uow.commit()
+
+        with self._uow:
+            row = self._repo.get(outbox_id)
+        if row is None:  # pragma: no cover — just committed; defensive only
+            raise NotFound(f"outbox row {outbox_id} vanished after insert")  # noqa: TRY003
+        return _to_row(row)
+
+
 class OutboxExecutor:
     """Enqueue and execute outbox rows under INV-01 + INV-04 (WP-006)."""
 
@@ -226,6 +291,7 @@ class OutboxExecutor:
         self._max_attempts = max_attempts
         self._lease_s = lease_s
         self._crash_hook = crash_hook
+        self._writer = OutboxWriter(uow=uow, repo=repo, ids=ids)
 
     # --- enqueue ------------------------------------------------------------
 
@@ -236,41 +302,8 @@ class OutboxExecutor:
         case_id: str,
         trace: TraceContext,
     ) -> OutboxRow:
-        """Insert one outbox row under ``authorization`` (INV-01 edge enforced by DB).
-
-        Idempotent on the derived key: a second ``enqueue`` with the same
-        authorization + spec returns the existing row instead of inserting.
-        """
-        ph = payload_hash(spec.payload)
-        key = authorization.idempotency_key(spec=spec, case_id=case_id, payload_hash=ph)
-        with self._uow:
-            existing = self._repo.get_by_key(key)
-        if existing is not None:
-            return self._to_row(existing)
-
-        outbox_id = self._ids.new(IdPrefix.OUTBOX)
-        with self._uow:
-            self._repo.insert(
-                id=outbox_id,
-                tenant_id=trace.tenant_id,
-                case_id=case_id,
-                action_kind=spec.kind.value,
-                scope=spec.scope,
-                payload_json=canonical_json(spec.payload),
-                payload_hash=ph,
-                idempotency_key=key,
-                approval_id=authorization.approval_id,
-                policy_grant_id=authorization.policy_grant_id,
-                comms_plan_id=authorization.comms_plan_id,
-                trace_id=trace.trace_id,
-            )
-            self._uow.commit()
-
-        with self._uow:
-            row = self._repo.get(outbox_id)
-        if row is None:  # pragma: no cover — just committed; defensive only
-            raise NotFound(f"outbox row {outbox_id} vanished after insert")  # noqa: TRY003
-        return self._to_row(row)
+        """Insert one outbox row under ``authorization`` (see ``OutboxWriter.enqueue``)."""
+        return self._writer.enqueue(authorization, spec, case_id, trace)
 
     # --- run_once -----------------------------------------------------------
 
@@ -543,28 +576,29 @@ class OutboxExecutor:
             )
         )
 
-    def _to_row(self, row: dict[str, Any]) -> OutboxRow:
-        return OutboxRow(
-            id=row["id"],
-            tenant_id=row["tenant_id"],
-            case_id=row["case_id"],
-            action_kind=ActionKind(row["action_kind"]),
-            scope=row["scope"],
-            payload_json=row["payload_json"],
-            payload_hash=row["payload_hash"],
-            idempotency_key=row["idempotency_key"],
-            trace_id=row["trace_id"],
-            approval_id=row.get("approval_id"),
-            policy_grant_id=row.get("policy_grant_id"),
-            comms_plan_id=row.get("comms_plan_id"),
-            status=row["status"],
-            attempts=row["attempts"],
-            next_attempt_ts=row.get("next_attempt_ts"),
-            last_error=row.get("last_error"),
-            external_ref=row.get("external_ref"),
-            claimed_at_ts=row.get("claimed_at_ts"),
-            done_at_ts=row.get("done_at_ts"),
-        )
+
+def _to_row(row: dict[str, Any]) -> OutboxRow:
+    return OutboxRow(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        case_id=row["case_id"],
+        action_kind=ActionKind(row["action_kind"]),
+        scope=row["scope"],
+        payload_json=row["payload_json"],
+        payload_hash=row["payload_hash"],
+        idempotency_key=row["idempotency_key"],
+        trace_id=row["trace_id"],
+        approval_id=row.get("approval_id"),
+        policy_grant_id=row.get("policy_grant_id"),
+        comms_plan_id=row.get("comms_plan_id"),
+        status=row["status"],
+        attempts=row["attempts"],
+        next_attempt_ts=row.get("next_attempt_ts"),
+        last_error=row.get("last_error"),
+        external_ref=row.get("external_ref"),
+        claimed_at_ts=row.get("claimed_at_ts"),
+        done_at_ts=row.get("done_at_ts"),
+    )
 
 
 __all__ = [
@@ -573,5 +607,6 @@ __all__ = [
     "Authorization",
     "ExecResult",
     "OutboxExecutor",
+    "OutboxWriter",
     "backoff_s",
 ]

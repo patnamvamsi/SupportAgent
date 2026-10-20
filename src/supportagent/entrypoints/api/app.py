@@ -9,9 +9,21 @@ from ulid import ULID
 
 from supportagent.entrypoints.api import csrf, problems
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.api.routes import auth, grants, setup
+from supportagent.entrypoints.api.routes import auth, cases, grants, proposals, setup, ui, users
 
 __all__ = ["ApiContext", "create_app"]
+
+#: 02 §3: no inline script or style; forms post only to this origin; no framing.
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 def create_app(ctx: ApiContext) -> FastAPI:
@@ -29,13 +41,13 @@ def create_app(ctx: ApiContext) -> FastAPI:
         request.state.trace_id = f"tr_{ULID()}"
         response = await call_next(request)
         response.headers["X-Trace-Id"] = request.state.trace_id
+        response.headers.update(_SECURITY_HEADERS)
         return response
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(auth.router)
-    app.include_router(setup.router)
-    app.include_router(grants.router)
+    for module in (auth, setup, grants, proposals, cases, users, ui):
+        app.include_router(module.router)
     return app

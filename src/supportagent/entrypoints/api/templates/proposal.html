@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+{% block title %}Proposal {{ p.id }}{% endblock %}
+{% block content %}
+<h1>{{ p.action_kind }} <span class="muted">{{ p.id }}</span></h1>
+<div class="grid">
+  <span class="muted">Status</span><span>{{ p.status }}</span>
+  <span class="muted">Case</span><span><a href="/ui/cases/{{ p.case_id }}">{{ p.case_id }}</a> <span class="sev-{{ p.severity }}">{{ p.severity or "" }}</span></span>
+  <span class="muted">Target</span><span>{{ p.target_ref or "—" }}</span>
+  <span class="muted">Scope</span><span><code>{{ p.scope }}</code></span>
+  <span class="muted">Payload hash</span><span><code>{{ p.payload_hash[:16] }}…</code></span>
+  <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ p.trace_id }}">{{ p.trace_id }}</a></span>
+</div>
+
+<h2>What will be posted</h2>
+<pre id="payload-preview">{{ p.preview }}</pre>
+<h2>Exact payload (approved bytes)</h2>
+<pre id="payload-raw">{{ p.payload_json }}</pre>
+
+{% if can_decide %}
+<h2>Decision</h2>
+<form method="post" action="/ui/proposals/{{ p.id }}/approve">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="payload_hash" value="{{ p.payload_hash }}">
+  <label for="reason-approve">Reason (optional)</label>
+  <textarea id="reason-approve" name="reason"></textarea>
+  <p><button class="primary" type="submit">Approve</button></p>
+</form>
+<form method="post" action="/ui/proposals/{{ p.id }}/reject">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="payload_hash" value="{{ p.payload_hash }}">
+  <label for="reason-reject">Reason (required to reject)</label>
+  <textarea id="reason-reject" name="reason"></textarea>
+  <p><button type="submit">Reject</button></p>
+</form>
+{% endif %}
+{% endblock %}

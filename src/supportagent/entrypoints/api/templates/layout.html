@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SupportAgent{% endblock %} · SupportAgent</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header>
+    <span class="brand">SupportAgent</span>
+    {% if user %}
+    <nav>
+      <a href="/ui/approvals">Approvals</a>
+      {% if is_admin %}<a href="/ui/grants">Grants</a><a href="/ui/setup">Setup</a>{% endif %}
+    </nav>
+    <span class="who">{{ user.name }} · {{ user.roles | join(", ") or "no role" }}</span>
+    {% endif %}
+  </header>
+  <main>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

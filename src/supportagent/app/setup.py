@@ -406,6 +406,34 @@ class SetupService:
             self._approve(conn, grant_id, approver_id, now, timedelta(days=valid_days))
             self._uow.commit()
 
+    def revoke_grant(self, grant_id: str, *, actor_id: str) -> None:
+        """Revoke a requested or approved grant (``POST /api/v1/grants/{id}/revoke``)."""
+        now = self._clock.now()
+        with self._uow:
+            conn = self._uow.connection
+            self._require_admin(conn, actor_id)
+            result = conn.execute(
+                sa.text(
+                    "UPDATE policy_grants SET status = 'revoked' WHERE id = :id "
+                    "AND tenant_id = :tenant AND status IN ('requested', 'approved')"
+                ),
+                {"id": grant_id, "tenant": self._tenant},
+            )
+            if result.rowcount != 1:
+                exists = conn.execute(
+                    sa.text("SELECT 1 FROM policy_grants WHERE id = :id AND tenant_id = :t"),
+                    {"id": grant_id, "t": self._tenant},
+                ).first()
+                if exists is None:
+                    raise NotFound(f"grant not found: {grant_id!r}")  # noqa: TRY003
+                raise ConcurrencyConflict(f"grant {grant_id!r} is not revocable")  # noqa: TRY003
+            self._emit(
+                actor=actor_id,
+                payload={"v": 1, "transition": "grant_revoked", "grant_id": grant_id},
+                ts=now,
+            )
+            self._uow.commit()
+
     # --- helpers ------------------------------------------------------------
 
     def _approve(

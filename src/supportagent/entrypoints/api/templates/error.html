@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block title %}{{ status }}{% endblock %}
+{% block content %}
+<h1>{{ status }} · {{ title }}</h1>
+<p>{{ detail }}</p>
+<p class="muted">Trace <code>{{ trace_id }}</code></p>
+{% endblock %}

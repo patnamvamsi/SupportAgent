@@ -1,0 +1,310 @@
+"""Server-rendered admin UI (02 §3): login, setup, approvals, proposal, case, grants.
+
+Plain HTML forms, no JavaScript: every form carries a hidden ``csrf_token``
+(checked by ``csrf.verify_form``) and the approve/reject forms carry the
+``payload_hash`` of the exact payload rendered on the page, so the approver
+approves exactly what they saw (02 §3). Jinja autoescaping is on, so payload
+text always renders as text. Signed-out GETs redirect to ``/ui/login``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from starlette.concurrency import run_in_threadpool
+
+from supportagent.app.setup import SessionUser
+from supportagent.domain.errors import (
+    AuthorizationDenied,
+    ConcurrencyConflict,
+    DomainValidationError,
+    NotFound,
+    SupportAgentError,
+)
+from supportagent.domain.roles import Role
+from supportagent.entrypoints.api import csrf, session
+from supportagent.entrypoints.api.context import ApiContext
+from supportagent.entrypoints.api.deps import context
+
+router = APIRouter()
+
+_HERE = Path(__file__).resolve().parent.parent
+_CSS = (_HERE / "static" / "app.css").read_text(encoding="utf-8")
+
+
+def _age(ts: int | None, now_ts: int) -> str:
+    if ts is None:
+        return "—"
+    minutes = max(0, now_ts - int(ts)) // 60
+    return f"{minutes // 60}h {minutes % 60}m" if minutes >= 60 else f"{minutes}m"  # noqa: PLR2004
+
+
+def _ttl(ts: int | None, now_ts: int) -> str:
+    if ts is None:
+        return "—"
+    left = int(ts) - now_ts
+    return "expired" if left <= 0 else _age(now_ts - left, now_ts)
+
+
+def _date(ts: int | None) -> str:
+    return "—" if ts is None else datetime.fromtimestamp(int(ts), UTC).strftime("%Y-%m-%d")
+
+
+_ENV = Environment(
+    loader=FileSystemLoader(_HERE / "templates"),
+    autoescape=select_autoescape(["html"]),
+    auto_reload=False,
+)
+_ENV.filters.update(age=_age, ttl=_ttl, date=_date)
+
+_STATUS_TITLES = {403: "Forbidden", 404: "Not found", 409: "Conflict", 422: "Invalid"}
+
+
+def _render(  # noqa: PLR0913 — the shared template context
+    request: Request,
+    ctx: ApiContext,
+    name: str,
+    user: SessionUser | None,
+    *,
+    status: int = 200,
+    error: str | None = None,
+    **values: object,
+) -> HTMLResponse:
+    body = _ENV.get_template(name).render(
+        user=user,
+        is_admin=user is not None and user.has_role(Role.ADMIN),
+        csrf_token=request.cookies.get(csrf.COOKIE, ""),
+        now_ts=int(ctx.clock.now().timestamp()),
+        idp_label=ctx.idp_label,
+        error=error,
+        **values,
+    )
+    return HTMLResponse(body, status_code=status)
+
+
+def _error(
+    request: Request, ctx: ApiContext, user: SessionUser | None, status: int, detail: str
+) -> HTMLResponse:
+    return _render(
+        request,
+        ctx,
+        "error.html",
+        user,
+        status=status,
+        title=_STATUS_TITLES.get(status, "Error"),
+        detail=detail,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+def _status_for(exc: SupportAgentError) -> int:
+    if isinstance(exc, AuthorizationDenied):
+        return 409 if exc.code == "stale_proposal" else 403
+    if isinstance(exc, NotFound):
+        return 404
+    if isinstance(exc, ConcurrencyConflict):
+        return 409
+    return 422
+
+
+def _ui_user(request: Request, ctx: ApiContext) -> SessionUser | None:
+    user_id = session.read(request, ctx).get("uid")
+    return ctx.setup().user(user_id) if isinstance(user_id, str) else None
+
+
+def _page(
+    request: Request,
+    ctx: ApiContext,
+    role: Role,
+    build: Callable[[SessionUser], Response],
+) -> Response:
+    """Auth + role for a UI page; domain errors render the error page."""
+    user = _ui_user(request, ctx)
+    if user is None:
+        return RedirectResponse("/ui/login", status_code=303)
+    if not user.has_role(role):
+        return _error(request, ctx, user, 403, f"This page needs the {role.value} role.")
+    try:
+        return build(user)
+    except (NotFound, AuthorizationDenied, ConcurrencyConflict, DomainValidationError) as exc:
+        return _error(request, ctx, user, _status_for(exc), str(exc))
+
+
+async def _post(
+    request: Request,
+    ctx: ApiContext,
+    role: Role,
+    act: Callable[[SessionUser, Mapping[str, str]], Response],
+) -> Response:
+    """Every UI POST: CSRF form check first, then auth, role and the action."""
+    form = await csrf.verify_form(request)
+    return await run_in_threadpool(_page, request, ctx, role, lambda user: act(user, form))
+
+
+# --- pages ------------------------------------------------------------------
+
+
+@router.get("/static/app.css")
+def stylesheet() -> Response:
+    return Response(_CSS, media_type="text/css")
+
+
+@router.get("/ui/login")
+def login_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    return _render(request, ctx, "login.html", None)
+
+
+@router.get("/ui/approvals")
+def approvals_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        proposals = ctx.queries().proposals(status="pending_approval")
+        return _render(request, ctx, "approvals.html", user, proposals=proposals)
+
+    return _page(request, ctx, Role.VIEWER, build)
+
+
+def _proposal_page(  # noqa: PLR0913 — the page plus its optional error state
+    request: Request,
+    ctx: ApiContext,
+    user: SessionUser,
+    proposal_id: str,
+    *,
+    status: int = 200,
+    error: str | None = None,
+) -> Response:
+    proposal = ctx.queries().proposal(proposal_id)
+    can_decide = user.has_role(Role.APPROVER) and proposal.status == "pending_approval"
+    return _render(
+        request,
+        ctx,
+        "proposal.html",
+        user,
+        status=status,
+        error=error,
+        p=proposal,
+        can_decide=can_decide,
+    )
+
+
+@router.get("/ui/proposals/{proposal_id}")
+def proposal_page(
+    proposal_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    return _page(
+        request, ctx, Role.VIEWER, lambda user: _proposal_page(request, ctx, user, proposal_id)
+    )
+
+
+@router.get("/ui/cases/{case_id}")
+def case_page(
+    case_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def build(user: SessionUser) -> Response:
+        return _render(request, ctx, "case.html", user, c=ctx.queries().case(case_id))
+
+    return _page(request, ctx, Role.VIEWER, build)
+
+
+@router.get("/ui/setup")
+def setup_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(request, ctx, "setup.html", user, state=ctx.setup().state())
+
+    return _page(request, ctx, Role.ADMIN, build)
+
+
+@router.get("/ui/grants")
+def grants_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(request, ctx, "grants.html", user, grants=ctx.queries().grants())
+
+    return _page(request, ctx, Role.ADMIN, build)
+
+
+# --- form posts -------------------------------------------------------------
+
+
+@router.post("/ui/proposals/{proposal_id}/approve")
+async def approve_form(
+    proposal_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        ctx.approvals().approve(
+            proposal_id,
+            user.id,
+            seen_hash=form.get("payload_hash", ""),
+            reason=form.get("reason") or None,
+        )
+        return RedirectResponse(f"/ui/proposals/{proposal_id}", status_code=303)
+
+    return await _post(request, ctx, Role.APPROVER, act)
+
+
+@router.post("/ui/proposals/{proposal_id}/reject")
+async def reject_form(
+    proposal_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        reason = form.get("reason", "")
+        if not reason.strip():
+            return _proposal_page(
+                request, ctx, user, proposal_id, status=422, error="A reason is required to reject."
+            )
+        ctx.approvals().reject(
+            proposal_id, user.id, seen_hash=form.get("payload_hash", ""), reason=reason
+        )
+        return RedirectResponse(f"/ui/proposals/{proposal_id}", status_code=303)
+
+    return await _post(request, ctx, Role.APPROVER, act)
+
+
+@router.post("/ui/setup/approve")
+async def setup_form(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
+        ctx.setup().run_setup(approver_id=user.id, requested_by=ctx.config_marker)
+        return RedirectResponse("/ui/setup", status_code=303)
+
+    return await _post(request, ctx, Role.ADMIN, act)
+
+
+@router.post("/ui/grants/{grant_id}/approve")
+async def grant_approve_form(
+    grant_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        raw = form.get("valid_days", "365")
+        if not raw.isdigit() or not 1 <= int(raw) <= 365:  # noqa: PLR2004 — 02 §2 bound
+            raise DomainValidationError("valid_days must be between 1 and 365")  # noqa: TRY003
+        days = int(raw)
+        ctx.setup().approve_grant(grant_id, approver_id=user.id, valid_days=days)
+        return RedirectResponse("/ui/grants", status_code=303)
+
+    return await _post(request, ctx, Role.ADMIN, act)
+
+
+@router.post("/ui/grants/{grant_id}/revoke")
+async def grant_revoke_form(
+    grant_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
+        ctx.setup().revoke_grant(grant_id, actor_id=user.id)
+        return RedirectResponse("/ui/grants", status_code=303)
+
+    return await _post(request, ctx, Role.ADMIN, act)

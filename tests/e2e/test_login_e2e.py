@@ -16,8 +16,7 @@ from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.bootstrap import build_api_context, run_migrations
 from supportagent.config.schema import AppConfig
 from supportagent.entrypoints.api.app import create_app
-from tests.unit.test_api_auth import csrf, login
-from tests.unit.test_setup_service import ADA
+from tests.unit.api_support import ADA, csrf, login
 from tests.unit.test_triage_service import _shadow_config
 
 

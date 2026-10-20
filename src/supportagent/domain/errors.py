@@ -58,18 +58,23 @@ class BudgetExhausted(SupportAgentError):
     """The tenant's LLM/tool budget is exhausted (spend breaker, 01 §7.3)."""
 
 
+DenialCode = Literal[
+    "no_valid_authorization", "self_approval", "immutable", "rbac", "stale_proposal"
+]
+
+
 class AuthorizationDenied(SupportAgentError):
     """An authorization rule rejected the action (01 §6, INV-01)."""
 
-    code: Literal["no_valid_authorization", "self_approval", "immutable", "rbac"]
+    code: DenialCode
 
     def __init__(
         self,
         message: str,
         *,
-        code: Literal["no_valid_authorization", "self_approval", "immutable", "rbac"] = (
-            "no_valid_authorization"
-        ),
+        code: Literal[
+            "no_valid_authorization", "self_approval", "immutable", "rbac", "stale_proposal"
+        ] = ("no_valid_authorization"),
     ) -> None:
         super().__init__(message)
         self.code = code

@@ -47,5 +47,5 @@ COPY migrations ./migrations
 USER supportagent
 EXPOSE 8000
 ENTRYPOINT ["supportagent"]
-# Walking skeleton: print the version. Replaced by `serve` in WP-013.
-CMD ["--version"]
+# The API + admin UI (WP-013); bind all interfaces inside the container.
+CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
