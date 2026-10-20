@@ -17,7 +17,7 @@ import json
 import os
 import secrets
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
@@ -43,6 +43,7 @@ from supportagent.adapters.db.repos.leases import SqlLease
 from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.repos.sync import SyncRepo
+from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink
 from supportagent.adapters.files.calibration_loader import load_calibration
@@ -100,6 +101,7 @@ from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.triage import TriageService
+from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
 from supportagent.config.loader import (
     load_config_default,
     load_config_offline,
@@ -129,11 +131,14 @@ from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    WEBHOOKS_DRAIN_INTERVAL_S,
+    WEBHOOKS_DRAIN_LEASE,
     JobResult,
     groups_close,
     llm_deprecation_check,
     sync_poll,
     sync_poll_lease,
+    webhooks_drain,
 )
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
@@ -618,6 +623,23 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         )
         for name in sn.tables
     ]
+    if config.webhooks:
+        inbox_uow = SqlUnitOfWork(engine)
+        inbox_cipher = Aead(master_key=key, keys=SqlKeyStore(inbox_uow), clock=clock)
+        drainer = WebhookDrainer(
+            uow=inbox_uow,
+            inbox=WebhookInbox(inbox_uow, inbox_cipher),
+            runner=runner,
+            clock=clock,
+            tenant_id=config.tenant.id,
+        )
+        jobs.append(
+            ScheduledJob(
+                name=WEBHOOKS_DRAIN_LEASE,
+                interval_s=float(WEBHOOKS_DRAIN_INTERVAL_S),
+                run=lambda: webhooks_drain(drain=drainer.run_once, lease=lease, owner=owner),
+            )
+        )
     grouping = GroupingService(
         uow=SqlUnitOfWork(engine),
         ids=ids,
@@ -964,6 +986,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     config_marker: str,
     proposal_ttl: timedelta = timedelta(hours=24),
     idp_label: str = "your identity provider",
+    webhook_sources: Mapping[str, WebhookSource] | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -1005,6 +1028,20 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         uow, events = _ports()
         return CommsPlans(uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id)
 
+    def webhooks() -> WebhookService:
+        uow = SqlUnitOfWork(engine)
+        aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
+        return WebhookService(
+            uow=uow,
+            clock=clock,
+            ids=ids,
+            events=SqlEventSink(uow=uow, cipher=aead),
+            nonces=SqlNonceStore(uow),
+            inbox=WebhookInbox(uow, aead),
+            sources=webhook_sources or {},
+            tenant_id=tenant_id,
+        )
+
     def lifecycle() -> LifecycleService:
         # The API only hands back; ServiceNow-driven transitions run in the worker.
         uow, events = _ports()
@@ -1018,6 +1055,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         replay=replay,
         lifecycle=lifecycle,
         comms_plans=comms_plans,
+        webhooks=webhooks,
         tenant_id=tenant_id,
         identity=identity,
         session_secret=session_secret,
@@ -1058,7 +1096,15 @@ def build_api_context(
         config_marker=config_marker(config),
         proposal_ttl=timedelta(hours=config.proposals.ttl_hours),
         idp_label=urlparse(config.identity.oidc_issuer).hostname or "your identity provider",
+        webhook_sources=_webhook_sources(config),
     )
+
+
+def _webhook_sources(config: AppConfig) -> dict[str, WebhookSource]:
+    return {
+        w.source: WebhookSource(secret=w.secret.get_secret_value().encode(), mapping=w.mapping)
+        for w in config.webhooks
+    }
 
 
 def request_grants_from_config(config: AppConfig, *, master_key: bytes | None = None) -> list[str]:

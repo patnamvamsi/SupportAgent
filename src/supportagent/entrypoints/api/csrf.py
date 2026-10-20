@@ -26,6 +26,7 @@ from supportagent.entrypoints.api.problems import problem
 COOKIE = "sa_csrf"
 HEADER = "X-CSRF-Token"
 FORM_FIELD = "csrf_token"
+WEBHOOK_PREFIX = "/api/v1/webhooks/"
 _FORM_TYPE = "application/x-www-form-urlencoded"
 
 
@@ -53,6 +54,10 @@ def install(app: FastAPI) -> None:
     async def _csrf(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
+        if request.url.path.startswith(WEBHOOK_PREFIX):
+            # HMAC-authenticated machine calls (WP-113): no session, no cookie,
+            # so there is nothing for a cross-site request to ride on.
+            return await call_next(request)
         if request.method not in _SAFE_METHODS:
             header = request.headers.get(HEADER)
             if header is None and _is_ui_form(request):

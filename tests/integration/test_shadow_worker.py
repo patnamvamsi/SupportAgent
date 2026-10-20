@@ -202,3 +202,68 @@ def test_worker_survives_a_servicenow_outage(
     sn.queue_status(400, body={"error": {"message": "bad query"}})  # non-retryable
     assert _polls(worker) == [], "the failed poll is logged, not raised"
     assert _scalar(db, "SELECT COUNT(*) FROM leases") == 0, "released even on error"
+
+
+def test_worker_drains_webhooks_into_shadow(  # noqa: PLR0913, PLR0917
+    tmp_path: Path, db: Engine, clock: Any, ids: Any, master_key: bytes, sn: FakeServiceNowHTTP
+) -> None:
+    """WP-113 through the worker: a verified delivery is triaged by the shadow runner."""
+    import json  # noqa: PLC0415
+
+    from supportagent.adapters.fakes.oidc import FakeOIDC  # noqa: PLC0415
+    from supportagent.bootstrap import api_context_for  # noqa: PLC0415
+    from supportagent.config.schema import Webhook  # noqa: PLC0415
+    from supportagent.domain.webhook import signature  # noqa: PLC0415
+
+    secret = "nagios-webhook-secret-0123456789abcdef"  # noqa: S105 — a test secret
+    mapping = {"external_id": "$.id", "subject": "$.title", "resource": "$.host"}
+    hook = Webhook(source="nagios", secret=secret, mapping=mapping)  # type: ignore[arg-type]
+    cfg = _config(tmp_path).model_copy(update={"webhooks": [hook]})
+    worker = build_worker(
+        cfg,
+        master_key=master_key,
+        clock=clock,
+        ids=ids,
+        transport=SyncASGITransport(sn.app),
+        llm_provider=FakeLLMProvider(),
+        engine=db,
+    )
+    from supportagent.app.webhooks import WebhookSource  # noqa: PLC0415
+
+    ctx = api_context_for(
+        db,
+        tenant_id="acme",
+        catalog=_catalog_of(cfg),
+        master_key=master_key,
+        clock=clock,
+        ids=ids,
+        identity=FakeOIDC(),
+        session_secret="s" * 32,
+        secure_cookies=False,
+        config_marker="config:x",
+        webhook_sources={"nagios": WebhookSource(secret=secret.encode(), mapping=mapping)},
+    )
+    body = json.dumps({"id": "evt-1", "title": "core-db down", "host": "db-pool-01"}).encode()
+    stamp = str(int(clock.now().timestamp()))
+    ctx.webhooks().receive(
+        "nagios",
+        {
+            "X-SA-Timestamp": stamp,
+            "X-SA-Nonce": "n1",
+            "X-SA-Signature": signature(secret.encode(), stamp, body),
+        },
+        body,
+    )
+    drained = [r for r in worker.run_once() if r.name == "webhooks.drain"]
+    assert drained == [JobResult(name="webhooks.drain", ran=True, rows=1)]
+    assert _scalar(db, "SELECT COUNT(*) FROM shadow_records") == 1
+    assert _scalar(db, "SELECT source FROM cases") == "webhook:nagios", (
+        "the alert type defaults to the source name"
+    )
+    assert _scalar(db, "SELECT COUNT(*) FROM webhook_inbox WHERE processed_ts IS NULL") == 0
+
+
+def _catalog_of(cfg: AppConfig) -> Any:
+    from supportagent.adapters.files.catalog_loader import load_catalog  # noqa: PLC0415
+
+    return load_catalog(Path(cfg.paths.catalog))

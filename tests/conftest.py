@@ -110,6 +110,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    # 0009 (WP-113): webhook replay protection and inbox.
+    "webhook_nonces",
+    "webhook_inbox",
     # 0007 (WP-102): comms_drafts references cases and comms_plans.
     "comms_drafts",
     # 0006 (WP-014): shadow_records references cases.

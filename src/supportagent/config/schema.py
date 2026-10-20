@@ -14,9 +14,11 @@ from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
+from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.base import DomainModel
 from supportagent.domain.severity import Severity
+from supportagent.domain.webhook import validate_mapping
 
 # 02 §1: model_id must be a dated snapshot; a floating alias has no date or
 # version component, i.e. no digit at all.
@@ -228,6 +230,31 @@ class Retention(DomainModel):
     alerts_days: int = Field(gt=0)
 
 
+class Webhook(DomainModel):
+    """One generic webhook source (02 §2, 11-wp WP-113). ``secret`` from ``secret_env``."""
+
+    source: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,31}$")
+    secret: SecretStr
+    mapping: dict[str, str] = Field(min_length=1)
+
+    @field_validator("secret")
+    @classmethod
+    def _secret_long_enough(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value().encode("utf-8")) < MIN_SESSION_SECRET_BYTES:
+            raise ValueError(  # noqa: TRY003
+                f"webhook secret must be at least {MIN_SESSION_SECRET_BYTES} bytes"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _mapping_is_valid(self) -> Webhook:
+        try:
+            validate_mapping(self.mapping)
+        except DomainValidationError as exc:
+            raise ValueError(f"webhook {self.source}: {exc}") from exc  # noqa: TRY003
+        return self
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -246,6 +273,15 @@ class AppConfig(DomainModel):
     proposals: Proposals
     grants_request: list[GrantRequest] = Field(default_factory=list)
     retention: Retention
+    #: v0.1 (WP-113): generic webhook sources; none by default.
+    webhooks: list[Webhook] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _webhook_sources_unique(self) -> AppConfig:
+        names = [w.source for w in self.webhooks]
+        if len(names) != len(set(names)):
+            raise ValueError("webhook sources must be unique")  # noqa: TRY003
+        return self
 
     @model_validator(mode="after")
     def _mode_gate(self) -> AppConfig:

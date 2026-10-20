@@ -136,6 +136,21 @@ def sync_poll(
     return JobResult(name=name, ran=True, rows=report.delivered)
 
 
+#: ``webhooks.drain`` every 5 s (11-wp WP-113): triage queued deliveries.
+WEBHOOKS_DRAIN_LEASE = "webhooks.drain"
+WEBHOOKS_DRAIN_INTERVAL_S = 5
+
+
+def webhooks_drain(*, drain: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    if not lease.acquire(name=WEBHOOKS_DRAIN_LEASE, owner=owner, ttl_s=SYNC_POLL_LEASE_TTL_S):
+        return JobResult(name=WEBHOOKS_DRAIN_LEASE, ran=False)
+    try:
+        done = drain()
+    finally:
+        lease.release(name=WEBHOOKS_DRAIN_LEASE, owner=owner)
+    return JobResult(name=WEBHOOKS_DRAIN_LEASE, ran=True, rows=done)
+
+
 #: 02 §7: ``groups.close`` every 5 min (11-wp WP-111).
 GROUPS_CLOSE_LEASE = "groups.close"
 GROUPS_CLOSE_INTERVAL_S = 300
@@ -204,6 +219,8 @@ __all__ = [
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
     "SYNC_POLL_LEASE_TTL_S",
+    "WEBHOOKS_DRAIN_INTERVAL_S",
+    "WEBHOOKS_DRAIN_LEASE",
     "Executor",
     "JobResult",
     "Poller",
@@ -212,4 +229,5 @@ __all__ = [
     "outbox_execute",
     "sync_poll",
     "sync_poll_lease",
+    "webhooks_drain",
 ]

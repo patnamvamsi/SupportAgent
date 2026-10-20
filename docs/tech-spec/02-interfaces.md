@@ -69,6 +69,16 @@ proposals:
 grants_request:                         # a REQUEST only (CAP §2); `grants request --from config`
   - {action: job_rerun, system: airflow, target: "dag:nightly-sync", requested_expiry_days: 90}   # v0.2
 retention: {events_days: 395, comms_days: 395, alerts_days: 90}
+webhooks:                               # v0.1 (WP-113): generic webhook sources; none by default
+  - source: nagios                      # POST /api/v1/webhooks/nagios
+    secret_env: SA_WEBHOOK_NAGIOS       # HMAC-SHA256 key, >= 32 bytes
+    mapping:                            # AlertEvent field -> $.path in the JSON body
+      external_id: $.id                 # required
+      subject: $.title                  # required
+      body: $.detail.message
+      resource: $.host
+      alert_type: $.check
+      severity_hint: $.severity         # P1-P4, 1-4, or critical/high/medium/low
 ```
 
 **Validation rules (beyond types):**

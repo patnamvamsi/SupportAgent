@@ -19,6 +19,7 @@ from supportagent.entrypoints.api.routes import (
     stats,
     ui,
     users,
+    webhooks,
 )
 
 __all__ = ["ApiContext", "create_app"]
@@ -58,6 +59,6 @@ def create_app(ctx: ApiContext) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    for module in (auth, setup, grants, proposals, cases, comms, users, stats, ui):
+    for module in (auth, setup, grants, proposals, cases, comms, users, stats, webhooks, ui):
         app.include_router(module.router)
     return app
