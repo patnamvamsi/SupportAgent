@@ -6,8 +6,9 @@
 useDefault = true
 
 [allowlist]
-description = "Synthetic secret-shaped fixtures for the INV-06 detector tests"
+description = "Synthetic secret-shaped fixtures for the INV-06 detector tests and the held-out recall corpus"
 paths = [
   '''^tests/data/canaries/[^/]+\.txt$''',
   '''^tests/unit/test_detectors\.py$''',
+  '''^evals/secrets_heldout/[^/]+\.jsonl$''',
 ]

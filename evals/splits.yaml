@@ -1,0 +1,7 @@
+# Holdout split (ROADMAP §2.1, ARCH §10.1). Cases used to tune prompts go in
+# `train`; the quality suite scores `holdout`. Every holdout case must be
+# later than every training case and share no normalized error signature with
+# one; `eval run --suite quality` refuses an overlapping split. Filled from the
+# design partner's corpus (WP-104 holdout build).
+train: []
+holdout: []

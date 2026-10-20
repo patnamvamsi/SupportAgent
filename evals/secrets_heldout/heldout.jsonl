@@ -1,0 +1,10 @@
+{"text": "Customer jane.doe@example.org reports login loop", "secrets": [{"value": "jane.doe@example.org", "class": "email"}]}
+{"text": "Escalate to ops-oncall+p1@corp.example.co.uk if no reply", "secrets": [{"value": "ops-oncall+p1@corp.example.co.uk", "class": "email"}]}
+{"text": "Caller left callback +442079460958 after hours", "secrets": [{"value": "+442079460958", "class": "phone_e164"}]}
+{"text": "Mobile +1 415 555 0132 (spaced, as typed by the caller)", "secrets": [{"value": "+1 415 555 0132", "class": "phone_e164"}]}
+{"text": "Card ending 5555555555554444 was double charged", "secrets": [{"value": "5555555555554444", "class": "card_number"}]}
+{"text": "Card 4000 0566 5566 5556 declined at checkout", "secrets": [{"value": "4000 0566 5566 5556", "class": "card_number"}]}
+{"text": "DSN in the log: mysql://report:Sup3rs3cret@db.internal:3306/sales", "secrets": [{"value": "mysql://report:Sup3rs3cret@db.internal:3306/sales", "class": "connection_string"}]}
+{"text": "Worker env had REDIS_URL=redis://:hunter2hunter2@cache:6379/0", "secrets": [{"value": "redis://:hunter2hunter2@cache:6379/0", "class": "connection_string"}]}
+{"text": "Header Authorization: Bearer heldoutTokenA1b2C3d4E5f6G7h8", "secrets": [{"value": "heldoutTokenA1b2C3d4E5f6G7h8", "class": "bearer_token"}]}
+{"text": "Deploy key api_key=heldout0123456789abcdefABCD rotated?", "secrets": [{"value": "heldout0123456789abcdefABCD", "class": "generic_api_key"}]}

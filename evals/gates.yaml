@@ -7,3 +7,6 @@ promotion:                 # shadow -> assisted (WP-115); the partner still deci
   overall: {min_lower_bound: 0.75, min_cases: 60}
   bands:
     P1-P2: {min_lower_bound: 0.75, min_cases: 20}
+quality:                   # the holdout quality suite (WP-104; ARCH §11, all prov.)
+  - {name: p1p2_classification, band: P1-P2, metric: classification, min_lb: 0.90, min_cases: 35}
+  - {name: p1p2_severity, band: P1-P2, metric: severity, min_lb: 0.85, min_cases: 22}

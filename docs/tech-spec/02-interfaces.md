@@ -158,6 +158,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | `supportagent replay <trace-id> [--json]` | v0.0 | Ordered event timeline with tokens and latencies | 0, 4 not found |
 | `supportagent stats [--mode shadow\|assisted] [--window 30d] [--json]` | v0.0 | Mode-separated report | |
 | `supportagent eval run --suite smoke\|invariants\|quality [--live] [--snapshot ID] [--samples N] [--write-calibration]` | v0.0 smoke / v0.1 quality | Runs the suite; writes `evals/artifacts/<run>/report.json`. Offline by default (fixture LLM, config read without secrets); `--live` calls the configured model and is required by `--write-calibration` | 0 pass, 1 gate fail, 2 usage |
+| `supportagent eval snapshot create --id ID [--config] [--root evals/snapshots]` | v0.1 | Freezes catalog, taxonomies, pre-classifier rules and prompts with a sha256 manifest; snapshots are immutable (ARCH §11) | 0, 2 on an existing id |
 | `supportagent grants request --from config` | v0.0 | Writes `requested` grants from `grants_request` (patterns expanded via catalog) | |
 | `supportagent shadow import <export.jsonl>` | v0.0 | Replays partner historical tickets through the shadow runner. One JSON object per line: `{"table"?, "record": {Table API fields incl. opened_at}, "human": {classification, severity, first_action_at}}` (`adapters/servicenow/export.py`) | |
 

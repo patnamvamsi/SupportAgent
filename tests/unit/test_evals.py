@@ -53,7 +53,7 @@ def test_suite_shape(suite: tuple[list[EvalCase], Manifest]) -> None:
     assert {"fault", "injection", "redaction", "invariant"} <= tags
     assert any(c.repeat > 1 for c in cases), "a duplicate case"
     assert all(c.meta.get("why") for c in cases), "every case says why (ROADMAP §2.1)"
-    assert set(manifest.suites) == {"smoke", "invariants"}
+    assert set(manifest.suites) == {"smoke", "invariants", "quality"}
 
 
 def test_harness_scores_golden_run(
@@ -208,7 +208,7 @@ def test_eval_cli_refuses_fixture_calibration() -> None:
 
 def test_eval_cli_unknown_suite() -> None:
     out = CliRunner().invoke(
-        app, ["eval", "run", "--suite", "quality", "--manifest", str(_MANIFEST)]
+        app, ["eval", "run", "--suite", "nonsense", "--manifest", str(_MANIFEST)]
     )
     assert out.exit_code == 2
 
