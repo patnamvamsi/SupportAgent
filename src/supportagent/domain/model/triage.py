@@ -21,7 +21,7 @@ class TriageResult(DomainModel):
 
 
 class TriageDecision(DomainModel):
-    """Why the case routed (or safe-defaulted) — one of the 7 reasons (01 §4)."""
+    """Why the case routed (or safe-defaulted) — one of the 8 reasons (01 §4, ADR-0006)."""
 
     outcome: Literal["routed", "safe_default"]
     reason: Literal[
@@ -30,6 +30,7 @@ class TriageDecision(DomainModel):
         "low-calibrated-score",
         "unconfirmed-high-severity",
         "unresolved-service",
+        "no-paging-integration",
         "spend-breaker",
         "routed",
     ]

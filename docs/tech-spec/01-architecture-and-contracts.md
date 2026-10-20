@@ -264,8 +264,9 @@ class TriageResult(BaseModel):               # the LLM slot schema for "classify
 class TriageDecision(BaseModel):             # what Loop A decided, persisted on the case
     outcome: Literal["routed", "safe_default"]
     reason: Literal["llm-failure", "classifier-conflict", "low-calibrated-score",
-                    "unconfirmed-high-severity", "unresolved-service", "spend-breaker",
-                    "routed"]
+                    "unconfirmed-high-severity", "unresolved-service",
+                    "no-paging-integration",   # ADR-0006 (ARCH §14)
+                    "spend-breaker", "routed"]
     classification: str | None
     severity: Severity | None
     preclass_label: str | None

@@ -97,7 +97,9 @@ class OAuthClientCredentials:
             # Bad credentials (400/401/403) will not fix themselves; only 429/5xx retry.
             retryable = resp.status_code == 429 or resp.status_code >= 500  # noqa: PLR2004
             raise ServiceNowError(  # noqa: TRY003
-                f"token endpoint returned {resp.status_code}", retryable=retryable
+                f"token endpoint returned {resp.status_code}",
+                retryable=retryable,
+                status=resp.status_code,
             )
         payload = resp.json()
         try:

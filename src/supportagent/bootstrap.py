@@ -25,11 +25,14 @@ import httpx
 import openai
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from supportagent.adapters.crypto.aead import Aead
 from supportagent.adapters.db.engine import make_engine
+from supportagent.adapters.db.probe import SqlSchemaProbe
+from supportagent.adapters.db.repos.automation import SqlAutomationActors
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
@@ -41,6 +44,7 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
+from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_client
 from supportagent.adapters.llm.detectors import built_in_detectors
@@ -54,11 +58,13 @@ from supportagent.adapters.servicenow.auth import (
 from supportagent.adapters.servicenow.export import read_export
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import record_to_alert
+from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
+from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.gate import GateService
 from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
@@ -82,6 +88,7 @@ from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import JobResult, sync_poll, sync_poll_lease
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.ports.clock import Clock
+from supportagent.ports.diagnostics import DiscoveryProbe
 from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
@@ -288,6 +295,17 @@ def _build_servicenow_source(
     config: AppConfig, *, clock: Clock, transport: httpx.BaseTransport | None = None
 ) -> ServiceNowSource:
     """The read side of ServiceNow only (02 §6): shadow mode never builds a sink."""
+    return ServiceNowSource(http=_servicenow_http(config, clock=clock, transport=transport))
+
+
+def _servicenow_http(
+    config: AppConfig,
+    *,
+    clock: Clock,
+    transport: httpx.BaseTransport | None = None,
+    max_tries: int | None = None,
+) -> ServiceNowHTTP:
+    """The instance's HTTP client with the configured auth (02 §1, §5)."""
     sn = config.servicenow
     auth: ServiceNowAuth
     if isinstance(sn.auth, BasicAuthConfig):
@@ -302,8 +320,10 @@ def _build_servicenow_source(
             client_secret=sn.auth.client_secret.get_secret_value(),
             clock=clock,
         )
-    http = ServiceNowHTTP(http=build_client(sn.instance_url, transport=transport), auth=auth)
-    return ServiceNowSource(http=http)
+    client = build_client(sn.instance_url, transport=transport)
+    if max_tries is None:
+        return ServiceNowHTTP(http=client, auth=auth)
+    return ServiceNowHTTP(http=client, auth=auth, max_tries=max_tries, backoff_base_s=0.2)
 
 
 def _worker_owner() -> str:
@@ -419,6 +439,112 @@ def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
         # The shadow worker (02 §7): read-only ServiceNow poll → ShadowInbound.
         "Worker": lambda: build_worker(config),
     }
+
+
+class _NullEvents:
+    """The doctor's LLM probe runs outside any trace: it records no events."""
+
+    def append(self, event: object) -> None:
+        del event
+
+
+class _LazyModelProbe:
+    """Builds the LLM client on first probe, so a provider wiring error is the ``llm`` fail."""
+
+    def __init__(self, factory: Callable[[], LLMClient]) -> None:
+        self._factory = factory
+        self._client: LLMClient | None = None
+
+    def probe(self, model_id: str) -> str:
+        if self._client is None:
+            self._client = self._factory()
+        return self._client.probe(model_id)
+
+
+def _head_revision() -> str:
+    """The newest migration shipped with this build (03 §4)."""
+    script = ScriptDirectory.from_config(_alembic_config("sqlite://"))
+    head = script.get_current_head()
+    if head is None:  # pragma: no cover — the build always ships migrations
+        raise ConfigError("no migrations found (03 §4)")  # noqa: TRY003
+    return head
+
+
+def _load_bundle(config: AppConfig) -> Bundle:
+    paths = config.paths
+    return Bundle(
+        catalog=load_catalog(Path(paths.catalog)),
+        taxonomy=load_classification(Path(paths.taxonomy)),
+        hypotheses=load_hypotheses(Path(paths.hypotheses)),
+    )
+
+
+def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
+    config: AppConfig,
+    *,
+    discover_automation: bool = False,
+    clock: Clock | None = None,
+    engine: Engine | None = None,
+    transport: httpx.BaseTransport | None = None,
+    llm_provider: LLMProvider | None = None,
+    identity: DiscoveryProbe | None = None,
+) -> DoctorContext:
+    """Everything ``supportagent doctor`` reads (02 §4.1), as read-only probes.
+
+    ServiceNow is reached through ``ServiceNowTableProbe`` only (GET; there is
+    no write method), with at most two tries so a dead instance fails fast.
+    """
+    clock = clock if clock is not None else SystemClock()
+    engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    ids = UlidIdGenerator()
+    oidc: DiscoveryProbe = identity or OIDCClient(
+        issuer=config.identity.oidc_issuer,
+        client_id=config.identity.client_id.get_secret_value(),
+        client_secret=config.identity.client_secret.get_secret_value(),
+        redirect_url=config.identity.redirect_url,
+        http=httpx.Client(timeout=10.0, transport=transport),
+        clock=clock,
+    )
+    return DoctorContext(
+        config=config,
+        load_bundle=lambda: _load_bundle(config),
+        load_calibration=lambda: _build_calibration(config),
+        schema=SqlSchemaProbe(engine, head=_head_revision()),
+        servicenow=ServiceNowTableProbe(
+            http=_servicenow_http(config, clock=clock, transport=transport, max_tries=2)
+        ),
+        llm=_LazyModelProbe(lambda: _build_llm(config, _NullEvents(), ids, clock, llm_provider)),
+        identity=oidc,
+        automation=SqlAutomationActors(engine),
+        clock=clock,
+        discover_automation=discover_automation,
+    )
+
+
+def run_doctor(config: AppConfig, *, discover_automation: bool = False) -> DoctorReport:
+    """``supportagent doctor``: every 02 §4.1 check against the configured deployment."""
+    ctx = build_doctor_context(config, discover_automation=discover_automation)
+    return Doctor(default_checks()).run(ctx)
+
+
+def request_default_grants(config: AppConfig, *, master_key: bytes | None = None) -> list[str]:
+    """``doctor --setup``: write the default T1 grant requests (ARCH §6.4); idempotent."""
+    key = master_key if master_key is not None else load_master_key_default()
+    engine = make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(engine)
+        clock = SystemClock()
+        setup = SetupService(
+            uow=uow,
+            clock=clock,
+            ids=UlidIdGenerator(),
+            events=_event_sink(uow, key, clock),
+            catalog=_build_catalog(config),
+            tenant_id=config.tenant.id,
+        )
+        return setup.request_default_grants(requested_by=config_marker(config))
+    finally:
+        engine.dispose()
 
 
 def config_marker(config: AppConfig) -> str:

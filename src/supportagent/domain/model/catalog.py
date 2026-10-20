@@ -68,3 +68,11 @@ class Catalog(DomainModel):
                 if cmdb_ci in service.cmdb_ci:
                     return service.name
         return None
+
+    def service(self, name: str) -> ServiceEntry | None:
+        """The catalog row for ``name``, or ``None``."""
+        return next((s for s in self.services if s.name == name), None)
+
+    def unpaged_services(self) -> list[str]:
+        """Services with no ``paging_integration`` (ARCH §14: triage is refused for them)."""
+        return [s.name for s in self.services if not s.paging_integration]

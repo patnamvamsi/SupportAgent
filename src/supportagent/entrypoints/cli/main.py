@@ -1,8 +1,7 @@
 """``supportagent`` CLI (typer). v0.0 surface: ``--version`` (WP-000),
 ``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012),
-``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014), ``worker`` / ``run``. Commands for
-doctor, evals and the rest land with their
-WPs (10-wp).
+``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014), ``worker`` /
+``run``, ``doctor`` (WP-015). ``eval`` lands with WP-016 (10-wp).
 """
 
 from __future__ import annotations
@@ -10,6 +9,7 @@ from __future__ import annotations
 import typer
 
 import supportagent
+from supportagent.entrypoints.cli import doctor as doctor_command
 from supportagent.entrypoints.cli import grants as grants_command
 from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
@@ -36,6 +36,8 @@ app = typer.Typer(
 app.command("migrate")(migrate_command.migrate)
 # 02 §4: ``supportagent replay <trace-id> [--json]`` (WP-004).
 app.command("replay")(replay_command.replay)
+# 02 §4: ``supportagent doctor`` (WP-015).
+app.command("doctor")(doctor_command.doctor)
 # 02 §4: ``supportagent serve`` — the API + admin UI (WP-013).
 app.command("serve")(serve_command.serve)
 # 02 §4: ``supportagent worker`` (jobs only) and ``run`` (API + worker).

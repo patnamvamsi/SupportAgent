@@ -105,6 +105,7 @@ def _catalog() -> Catalog:
                 resources=["payments-api"],
                 owners=["team-payments"],
                 depends_on=[],
+                paging_integration="pagerduty:payments",
             ),
         ],
     )
