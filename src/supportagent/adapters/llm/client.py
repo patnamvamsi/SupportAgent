@@ -20,6 +20,7 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from supportagent.adapters.llm.cache import CachingLLMProvider
 from supportagent.adapters.llm.faults import FaultInjectingLLMProvider
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.providers import make_llm_provider
@@ -329,6 +330,7 @@ def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus th
 # composition code reaches it through the client module, and only ever passes
 # it *into* an ``LLMClient`` (redaction still runs; llm-providers-private).
 __all__ = [
+    "CachingLLMProvider",
     "FaultInjectingLLMProvider",
     "FixtureAnswer",
     "FixtureLLMProvider",

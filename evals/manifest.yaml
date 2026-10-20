@@ -13,3 +13,6 @@ suites:
   invariants:
     tag: invariant
     description: the adversarial edges (faults, injection, duplicate, redaction, caps); always gate
+  quality:
+    tag: holdout
+    description: the 150-250-case holdout (partner data; WP-104/105). N samples, per-case majority, Wilson LB over cases per band

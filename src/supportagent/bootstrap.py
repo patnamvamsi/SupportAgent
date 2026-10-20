@@ -15,9 +15,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import socket
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
@@ -51,11 +52,12 @@ from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
-from supportagent.adapters.files.gates_loader import load_promotion_gate
+from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import (
+    CachingLLMProvider,
     FaultInjectingLLMProvider,
     FixtureAnswer,
     FixtureLLMProvider,
@@ -122,13 +124,17 @@ from supportagent.domain.model.calibration import (
     CalibrationLabelRow,
     CalibrationTable,
 )
+from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
+from supportagent.domain.normalize import normalize
 from supportagent.domain.promotion import PromotionGate
+from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.slots import SlotName
+from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_INTERVAL_S,
@@ -147,6 +153,7 @@ from supportagent.entrypoints.worker.jobs import (
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
 from supportagent.evals.harness import Manifest
+from supportagent.evals.quality import RecallReport
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
@@ -966,6 +973,159 @@ def _fixture_answer(spec: FixtureSpec) -> FixtureAnswer:
         # Nothing scripted: the call fails closed, like an LLM outage.
         return FixtureAnswer(fault="unavailable")
     return FixtureAnswer.triage(spec.classification, spec.severity)
+
+
+class QualityPipeline:
+    """The quality suite's sampler (11-wp WP-104): the configured classifier, cached.
+
+    ``live`` calls the configured model through the response cache
+    (``evals/.cache/``, keyed per ARCH §11, sample index included). Otherwise
+    the fixture LLM scripts each case, which tests wiring only. The classifier
+    is the production one (pre-classifier rules, calibration from config,
+    routing), but no case is persisted: each sample is a fresh decision.
+    """
+
+    def __init__(self, config: AppConfig, *, live: bool, snapshot_id: str, cache_dir: Path) -> None:
+        self.mode = "live" if live else "fixture"
+        self.model_id = config.llm.slots[SlotName.CLASSIFY.value].model_id
+        self._catalog = _build_catalog(config)
+        self._clock = SystemClock()
+        self._fixture = None if live else FixtureLLMProvider()
+        self._cache: CachingLLMProvider | None = None
+
+        def cached(inner: LLMProvider) -> LLMProvider:
+            self._cache = CachingLLMProvider(inner, directory=cache_dir, snapshot_id=snapshot_id)
+            return self._cache
+
+        llm = _build_llm(
+            config,
+            _NullEvents(),
+            UlidIdGenerator(),
+            self._clock,
+            self._fixture,
+            decorate=cached if live else None,
+            resilient=False,
+        )
+        self._classifier = Classifier(
+            rule_set=_build_ruleset(config),
+            llm=llm,
+            calibration=_wiring_calibration(config),
+            min_score=config.calibration.min_score,
+            routing=_build_routing(config),
+        )
+
+    @property
+    def cache_stats(self) -> tuple[int, int]:
+        return (self._cache.hits, self._cache.misses) if self._cache else (0, 0)
+
+    def sample(self, case: EvalCase, index: int, sample: int) -> tuple[str | None, str | None]:
+        if self._fixture is not None:
+            self._fixture.load([_fixture_answer(case.fixture_answer())])
+        if self._cache is not None:
+            self._cache.sample = sample
+        evt = case.alert(index)
+        service = self._catalog.resolve_service(resource=evt.resource, cmdb_ci=evt.cmdb_ci)
+        decision = self._classifier.decide(
+            evt,
+            Case(
+                id=f"quality-{case.id}",
+                tenant_id=evt.tenant_id,
+                fingerprint=f"quality-{case.id}",
+                origin=evt.origin,
+                service=service,
+                external_table=evt.table,
+                external_id=evt.external_id,
+                severity=evt.severity_hint,
+            ),
+            TraceContext.new(evt.tenant_id, f"tr_quality_{case.id}_{sample}", "quality"),
+        )
+        return decision.classification, (decision.severity.value if decision.severity else None)
+
+
+def detector_recall(path: Path) -> RecallReport:
+    """ARCH §6.1 quality metric: share of held-out secrets the redactor removes."""
+    redactor = Redactor(detectors=built_in_detectors())
+    per: dict[str, list[int]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        redacted = redactor.redact(str(row["text"])).text
+        for secret in row["secrets"]:
+            cell = per.setdefault(str(secret["class"]), [0, 0])
+            cell[1] += 1
+            cell[0] += int(str(secret["value"]) not in redacted)
+    detected = sum(d for d, _ in per.values())
+    total = sum(t for _, t in per.values())
+    return RecallReport(
+        total=total, detected=detected, by_class={k: (d, t) for k, (d, t) in per.items()}
+    )
+
+
+def split_problems(splits_path: Path, cases: Sequence[EvalCase]) -> list[str]:
+    """ROADMAP §2.1 / ARCH §10.1: ``evals/splits.yaml`` keeps train and holdout disjoint.
+
+    ``{train: [case ids], holdout: [case ids]}``: every holdout case is later
+    than every training case (by its input ``received_at``) and shares no
+    normalized error signature with one.
+    """
+    doc = load_yaml_document(splits_path)
+    by_id = {c.id: (i, c) for i, c in enumerate(cases)}
+
+    def side(name: str) -> list[SplitCase]:
+        out: list[SplitCase] = []
+        for case_id in doc.get(name) or []:
+            if case_id not in by_id:
+                continue
+            index, case = by_id[case_id]
+            evt = case.alert(index)
+            sig = normalize(evt.error_signature) if evt.error_signature else None
+            out.append(SplitCase(case_id=case.id, opened_at=evt.received_at, signature=sig))
+        return out
+
+    return split_violations(side("train"), side("holdout"))
+
+
+def quality_gates(config: AppConfig) -> tuple[QualityGate, ...]:
+    path = Path(config.paths.gates)
+    return load_quality_gates(path) if path.is_file() else DEFAULT_GATES
+
+
+def create_snapshot(config: AppConfig, snapshot_id: str, root: Path) -> Path:
+    """``eval snapshot create`` (ARCH §11): freeze what a rendered prompt depends on.
+
+    Copies the catalog, the taxonomies, the pre-classifier rules and the
+    prompts into ``root/<id>/`` with a manifest of their sha256s. A run
+    pinned to the snapshot keys its cache on the id, so a later catalog or
+    prompt edit can't silently change a pinned result.
+    """
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,63}", snapshot_id):
+        raise ConfigError(f"bad snapshot id {snapshot_id!r}")  # noqa: TRY003
+    out = root / snapshot_id
+    if out.exists():
+        raise ConfigError(f"snapshot {snapshot_id} exists; snapshots are immutable")  # noqa: TRY003
+    sources = {
+        "catalog.yaml": Path(config.paths.catalog),
+        "classification.yaml": Path(config.paths.taxonomy),
+        "hypotheses.yaml": Path(config.paths.hypotheses),
+        "preclass_rules.yaml": Path(config.paths.taxonomy).parent / "preclass_rules.yaml",
+    }
+    out.mkdir(parents=True)
+    files: dict[str, str] = {}
+    for name, src in sources.items():
+        data = src.read_bytes()
+        (out / name).write_bytes(data)
+        files[name] = hashlib.sha256(data).hexdigest()
+    prompts = Path(config.paths.prompts)
+    for prompt in sorted(prompts.rglob("*.md")):
+        rel = Path("prompts") / prompt.relative_to(prompts)
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        data = prompt.read_bytes()
+        (out / rel).write_bytes(data)
+        files[rel.as_posix()] = hashlib.sha256(data).hexdigest()
+    manifest = {"id": snapshot_id, "created": wall_clock().now().isoformat(), "files": files}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return out
 
 
 def wall_clock() -> Clock:

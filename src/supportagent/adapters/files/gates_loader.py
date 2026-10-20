@@ -7,6 +7,7 @@ from pathlib import Path
 from supportagent.adapters.files._yaml import load_yaml_file
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.promotion import PromotionGate, Threshold
+from supportagent.domain.quality import DEFAULT_GATES, QualityGate
 
 
 def _threshold(raw: object, where: str) -> Threshold:
@@ -36,4 +37,29 @@ def load_promotion_gate(path: Path) -> PromotionGate:
     )
 
 
-__all__ = ["load_promotion_gate"]
+def load_quality_gates(path: Path) -> tuple[QualityGate, ...]:
+    """``quality:`` rows of ``evals/gates.yaml``; the ARCH §11 defaults when absent."""
+    rows = load_yaml_file(path).get("quality")
+    if rows is None:
+        return DEFAULT_GATES
+    if not isinstance(rows, list):
+        raise ConfigError(f"{path}: 'quality' must be a list")  # noqa: TRY003
+    gates: list[QualityGate] = []
+    for row in rows:
+        try:
+            gate = QualityGate(
+                name=str(row["name"]),
+                band=str(row["band"]),
+                metric=str(row["metric"]),
+                min_lb=float(row["min_lb"]),
+                min_cases=int(row["min_cases"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ConfigError(f"{path}: quality gate {row!r}: {exc}") from exc  # noqa: TRY003
+        if gate.metric not in ("classification", "severity") or gate.band not in ("P1-P2", "P3-P4"):
+            raise ConfigError(f"{path}: quality gate {gate.name}: bad band or metric")  # noqa: TRY003
+        gates.append(gate)
+    return tuple(gates)
+
+
+__all__ = ["load_promotion_gate", "load_quality_gates"]
