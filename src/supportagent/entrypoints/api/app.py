@@ -9,7 +9,16 @@ from ulid import ULID
 
 from supportagent.entrypoints.api import csrf, problems
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.api.routes import auth, cases, grants, proposals, setup, ui, users
+from supportagent.entrypoints.api.routes import (
+    auth,
+    cases,
+    grants,
+    proposals,
+    setup,
+    stats,
+    ui,
+    users,
+)
 
 __all__ = ["ApiContext", "create_app"]
 
@@ -48,6 +57,6 @@ def create_app(ctx: ApiContext) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    for module in (auth, setup, grants, proposals, cases, users, ui):
+    for module in (auth, setup, grants, proposals, cases, users, stats, ui):
         app.include_router(module.router)
     return app

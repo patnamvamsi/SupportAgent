@@ -17,3 +17,7 @@ class FrozenClock:
     def advance(self, seconds: float) -> None:
         """Move the frozen clock forward by ``seconds`` (04 §3)."""
         self._now = self._now + timedelta(seconds=seconds)
+
+    def set(self, when: datetime) -> None:
+        """Jump to ``when`` (shadow import replays history at each record's time)."""
+        self._now = when

@@ -1,0 +1,40 @@
+{
+  "abstain_rate": 0.212766,
+  "agreement": {
+    "agreed": 30,
+    "n": 47,
+    "rate": 0.638298,
+    "wilson_lb": 0.495359
+  },
+  "agreement_by_band": {
+    "P1-P2": {
+      "agreed": 3,
+      "n": 10,
+      "rate": 0.3,
+      "wilson_lb": 0.107791
+    },
+    "P3-P4": {
+      "agreed": 27,
+      "n": 37,
+      "rate": 0.72973,
+      "wilson_lb": 0.570218
+    }
+  },
+  "conflict_rate": 0.135135,
+  "first_proposal_latency_s": {
+    "n": 28,
+    "p50": 7,
+    "p95": 12
+  },
+  "mode": "shadow",
+  "n_cases": 50,
+  "safe_default_by_reason": {
+    "classifier-conflict": 5,
+    "llm-failure": 4,
+    "low-calibrated-score": 5,
+    "unconfirmed-high-severity": 5,
+    "unresolved-service": 3
+  },
+  "safe_default_rate": 0.44,
+  "window_days": null
+}

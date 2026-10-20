@@ -12,6 +12,7 @@
     {% if user %}
     <nav>
       <a href="/ui/approvals">Approvals</a>
+      <a href="/ui/stats">Stats</a>
       {% if is_admin %}<a href="/ui/grants">Grants</a><a href="/ui/setup">Setup</a>{% endif %}
     </nav>
     <span class="who">{{ user.name }} · {{ user.roles | join(", ") or "no role" }}</span>

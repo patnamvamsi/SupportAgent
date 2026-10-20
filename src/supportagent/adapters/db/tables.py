@@ -362,6 +362,25 @@ automation_actors = sa.Table(
     sa.Column("confirmed_ts", sa.Integer),
 )
 
+# 03 §2.6 (0006, WP-014): one counterfactual record per shadow case.
+shadow_records = sa.Table(
+    "shadow_records",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("alert_received_ts", sa.BigInteger, nullable=False),
+    sa.Column("first_proposal_ts", sa.BigInteger),
+    sa.Column("proposed_json", sa.Text, nullable=False),
+    sa.Column("human_classification", sa.Text),
+    sa.Column("human_severity", sa.Text),
+    sa.Column("human_first_action_ts", sa.BigInteger),
+    sa.Column("human_action_json", sa.Text),
+    sa.Column("agreement", sa.Integer),
+    sa.UniqueConstraint("tenant_id", "case_id", name="uq_shadow_records_case"),
+    sa.Index("ix_shadow_records_received", "tenant_id", "alert_received_ts"),
+)
+
 # ARCH §6.3: the comms history / rendering record. Every send IS an outbox row.
 comms = sa.Table(
     "comms",

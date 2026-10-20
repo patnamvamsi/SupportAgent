@@ -1,0 +1,37 @@
+{% extends "layout.html" %}
+{% block title %}Stats{% endblock %}
+{% block content %}
+<h1>{{ r.mode | capitalize }} report <span class="muted">{{ window }}</span></h1>
+<p class="muted">
+  {% if r.mode == "shadow" %}Counterfactual: what the agent would have done. MTTA/MTTR delta is zero by construction in shadow (ARCH §8.4).
+  {% else %}Live pipeline cases only; shadow cases are never mixed in.{% endif %}
+</p>
+<p>
+  <a href="/ui/stats?mode=shadow&amp;window={{ window }}">Shadow</a> ·
+  <a href="/ui/stats?mode=assisted&amp;window={{ window }}">Assisted</a>
+</p>
+
+<h2>Triage agreement</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Band</th><th>Labelled</th><th>Agreed</th><th>Rate</th><th>Wilson 95% lower bound</th></tr></thead>
+  <tbody>
+  {% for name, s in [("All", r.agreement)] + (r.agreement_by_band | dictsort) %}
+  <tr><td>{{ name }}</td><td>{{ s.n }}</td><td>{{ s.agreed }}</td>
+      <td>{{ s.rate | pct }}</td><td><strong>{{ s.wilson_lb | pct }}</strong></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="muted">The promotion gate reads the lower bound, not the rate (CAP §4.7).</p>
+
+<h2>Alert → first proposal</h2>
+<p>{{ r.first_proposal_latency_s.n }} cases proposed · p50 {{ r.first_proposal_latency_s.p50 | secs }} · p95 {{ r.first_proposal_latency_s.p95 | secs }}</p>
+
+<h2>Safe defaults</h2>
+<p>{{ r.n_cases }} cases · safe-default rate {{ r.safe_default_rate | pct }} · abstain {{ r.abstain_rate | pct }} · conflict {{ r.conflict_rate | pct }}</p>
+{% if r.safe_default_by_reason %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Reason</th><th>Cases</th></tr></thead>
+  <tbody>{% for reason, n in r.safe_default_by_reason.items() %}<tr><td>{{ reason }}</td><td>{{ n }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}
