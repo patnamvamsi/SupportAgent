@@ -364,6 +364,29 @@ automation_actors = sa.Table(
     sa.Column("confirmed_ts", sa.Integer),
 )
 
+# 0009 (WP-113): webhook replay protection and the encrypted inbox.
+webhook_nonces = sa.Table(
+    "webhook_nonces",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("source", sa.Text, nullable=False, primary_key=True),
+    sa.Column("nonce", sa.Text, nullable=False, primary_key=True),
+    sa.Column("expires_ts", sa.BigInteger, nullable=False),
+)
+
+webhook_inbox = sa.Table(
+    "webhook_inbox",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("source", sa.Text, nullable=False),
+    sa.Column("event_enc", sa.LargeBinary, nullable=False),
+    sa.Column("received_ts", sa.BigInteger, nullable=False),
+    sa.Column("processed_ts", sa.BigInteger),
+    sa.Column("error", sa.Text),
+    sa.Index("ix_webhook_inbox_pending", "tenant_id", "processed_ts"),
+)
+
 # 0007 (WP-102): cadence updates rendered as drafts for a human owner.
 comms_drafts = sa.Table(
     "comms_drafts",

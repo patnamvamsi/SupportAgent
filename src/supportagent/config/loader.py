@@ -91,6 +91,9 @@ def load_config_offline(path: Path) -> AppConfig:
         for section, key, _ in _SECRET_SOURCES
         if (node := _section(raw, section)) is not None and isinstance(node.get(key), str)
     }
+    for hook in raw.get("webhooks") or []:
+        if isinstance(hook, dict) and isinstance(hook.get("secret_env"), str):
+            env[hook["secret_env"]] = placeholder
     resolved = _resolve_secrets(raw, env)
     llm = resolved.get("llm")
     if isinstance(llm, dict):
@@ -167,6 +170,10 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
             node[field] = None  # e.g. llm.api_key_env: null for ollama / fixture
         else:
             node[field] = _resolve_variable(variable, key, env)
+    # 11-wp WP-113: each webhook source carries its own ``secret_env``.
+    for hook in resolved.get("webhooks") or []:
+        if isinstance(hook, dict) and "secret_env" in hook:
+            hook["secret"] = _resolve_variable(hook.pop("secret_env"), "secret_env", env)
     return resolved
 
 

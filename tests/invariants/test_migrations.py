@@ -57,6 +57,9 @@ EXPECTED_TABLES = frozenset(
         "shadow_records",
         # WP-102 owner drafts (0007).
         "comms_drafts",
+        # WP-113 webhooks (0009).
+        "webhook_nonces",
+        "webhook_inbox",
         "alembic_version",
     }
 )

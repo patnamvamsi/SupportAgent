@@ -13,6 +13,7 @@ from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayView
 from supportagent.app.setup import SetupService
 from supportagent.app.stats import StatsService
+from supportagent.app.webhooks import WebhookService
 from supportagent.ports.clock import Clock
 from supportagent.ports.identity import IdentityProvider
 
@@ -28,6 +29,7 @@ class ApiContext:
     replay: Callable[[str], ReplayView]
     lifecycle: Callable[[], LifecycleService]
     comms_plans: Callable[[], CommsPlans]
+    webhooks: Callable[[], WebhookService]
     tenant_id: str
     identity: IdentityProvider
     session_secret: str
