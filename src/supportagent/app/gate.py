@@ -41,7 +41,7 @@ from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.outbox import OutboxRow
-from supportagent.domain.model.proposal import Proposal
+from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.proposal_state import (
     ProposalEvent,
     ProposalStatus,
@@ -116,7 +116,7 @@ class GateService:
 
     # --- submit -------------------------------------------------------------
 
-    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal:
+    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped:
         """Mint a proposal for ``spec`` and return it in its initial status.
 
         An unknown service target is a ``DomainValidationError`` raised before
@@ -130,6 +130,10 @@ class GateService:
                 f"unknown service target '{spec.target.service}' for action "
                 f"kind '{spec.kind.value}'"
             )
+
+        if self._case_status(case_id) == "human_owned":
+            # 11-wp WP-101 / ARCH §8.2: a human owns the case; the agent stops proposing.
+            return Skipped(case_id=case_id, action_kind=spec.kind, reason="human_owned")
 
         kind = spec.kind
         now = self._clock.now()
@@ -465,6 +469,13 @@ class GateService:
                     code="self_approval",
                 ) from exc
             raise
+
+    def _case_status(self, case_id: str) -> str | None:
+        with self._uow:
+            row = self._uow.connection.execute(
+                sa.text("SELECT status FROM cases WHERE id = :id"), {"id": case_id}
+            ).first()
+        return None if row is None else str(row[0])
 
     def _covering_grant(
         self, tenant_id: str, kind: ActionKind, scope: str, now_ts: int

@@ -13,5 +13,26 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <p><button class="primary" type="submit">Approve all default grants</button></p>
 </form>
-<p class="muted">Environment checks (<code>supportagent doctor</code>) appear here once doctor lands.</p>
+<h2>Automation actors</h2>
+<p>ServiceNow users that changed <code>assigned_to</code> without being people (from <code>supportagent doctor --discover-automation</code>). A confirmed automation actor's changes are never a takeover; an undecided one counts as a person. Assisted mode needs every candidate decided.</p>
+{% if automation %}
+<div class="table-wrap"><table>
+  <thead><tr><th>ServiceNow user</th><th>Kind</th><th>Decided by</th><th></th></tr></thead>
+  <tbody>{% for a in automation %}
+  <tr>
+    <td><code>{{ a.sys_user }}</code></td><td>{{ a.kind }}</td><td>{{ a.confirmed_by or "undecided" }}</td>
+    <td>
+      {% for decision, label in (("automation", "Automation"), ("human", "A person")) %}
+      <form class="inline" method="post" action="/ui/setup/automation/{{ a.sys_user }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="decision" value="{{ decision }}">
+        <button type="submit">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </td>
+  </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No candidates. Run <code>supportagent doctor --discover-automation</code>.</p>{% endif %}
+<p class="muted">Environment checks: run <code>supportagent doctor</code> (BL-031: shown here later).</p>
 {% endblock %}

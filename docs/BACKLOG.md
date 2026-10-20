@@ -28,7 +28,7 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
 | BL-012 | P2 | **Recorded fixtures** `tests/data/sn/*.json` and the `make record-sn` docs (WP-008 DoD). This needs a ServiceNow developer instance. | WP-008 | before WP-016 |
-| BL-013 | P2 | Journal entries created inside the 2-minute overlap window can reach `on_changes` twice. Harmless while v0.0 only logs `sync` events. Dedup by journal entry `sys_id` (add it to the journal `sysparm_fields`) before lifecycle effects act on changes. | WP-008 | WP-101 |
+| BL-013 | P3 | Journal entries created inside the 2-minute overlap window can reach `on_changes` twice. Harmless so far: WP-101's lifecycle acts only on `sys_audit` field changes (deduped by checkpoint), and journal entries only add a `sync` event. Dedup by journal entry `sys_id` (add it to the journal `sysparm_fields`) before anything acts on journal changes (WP-102 cadence reads human-actor values from the history). | WP-008 | WP-102 |
 
 ## Wiring, tenancy, housekeeping
 
@@ -43,4 +43,5 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 | BL-029 | P3 | The `sync.poll` lease isn't renewed during a run; its 900 s TTL bounds one poll. A slower poll (a large backlog where every record is an LLM call) can overlap the next holder, which `sync_seen` and INV-02 dedup absorb. Renew per page if overlaps show up in the `sync` events. | shadow worker PR | any |
 | BL-030 | P2 | **Check the doctor's ServiceNow heuristics against a real instance.** The ACL checks don't evaluate ACL conditions or scripts (a role-less `work_notes` read ACL counts as exposed). The rate-limit recommendation assumes hourly limits and `CALLS_PER_POLL = 3` (prov.). `sys_audit` retention is read from `sys_auto_flush.age`. Every probe runs against FakeServiceNowHTTP only. | WP-015 | with BL-012 (developer instance), before the WP-016 exit demo |
 | BL-031 | P3 | `/ui/setup` should show the `doctor` status (02 §3); it shows only the grants. A doctor run makes network calls, so the page needs a cached last report (e.g. written by `doctor` to the DB) rather than running checks per request. | WP-015 | any |
+| BL-032 | P3 | Takeover state values are ServiceNow's incident defaults (`6` resolved, `7` closed, `8` canceled; anything else open). An instance with custom states needs a `servicenow.state_map` config entry. | WP-101 | when a partner needs it |
 | BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |

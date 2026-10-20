@@ -38,7 +38,7 @@ from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.event import Event
-from supportagent.domain.model.proposal import Proposal
+from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.model.triage import (
     Linked,
     Retriaged,
@@ -128,7 +128,7 @@ class TriageClassifier(Protocol):
 class _Gate(Protocol):
     """The gate ``TriageService`` submits proposals through (INV-01)."""
 
-    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal: ...
+    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped: ...
 
 
 class TriageService:
@@ -290,7 +290,8 @@ class TriageService:
         route = self._classifier.routing.lookup(decision.classification, decision.severity)
         full_case = self._case_for(evt, fp, case_id, service, decision.classification)
         specs = build_action_specs(route, full_case, self._catalog)
-        return [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
+        submitted = [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
+        return [p for p in submitted if isinstance(p, Proposal)]
 
     # --- helpers ------------------------------------------------------------
 

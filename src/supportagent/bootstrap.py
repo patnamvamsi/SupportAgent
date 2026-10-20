@@ -76,6 +76,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.gate import GateService
+from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
@@ -111,7 +112,7 @@ from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
 from supportagent.evals.harness import Manifest
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
-from supportagent.ports.diagnostics import DiscoveryProbe
+from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
 from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
@@ -356,6 +357,52 @@ def _servicenow_http(
     return ServiceNowHTTP(http=client, auth=auth, max_tries=max_tries, backoff_base_s=0.2)
 
 
+def require_automation_decided(config: AppConfig, store: AutomationActorStore) -> None:
+    """Assisted mode needs every automation-actor candidate decided (11-wp WP-101).
+
+    An undecided candidate counts as a human, so every ticket it auto-assigns
+    would look taken over (ARCH §8.2). Shadow mode only records, so it runs
+    without the decisions.
+    """
+    if config.mode == "shadow":
+        return
+    total, decided = store.summary(config.tenant.id)
+    if total > decided:
+        raise ConfigError(  # noqa: TRY003
+            f"mode '{config.mode}' needs every automation-actor candidate confirmed or "
+            f"rejected; {total - decided} undecided (admin: /ui/setup)"
+        )
+
+
+def _integration_ids(
+    config: AppConfig, *, clock: Clock, transport: httpx.BaseTransport | None
+) -> Callable[[], frozenset[str]]:
+    """The values ``assigned_to`` takes for the agent: its user name and ``sys_id``.
+
+    The ``sys_id`` is looked up once, lazily, with a read-only probe. Until the
+    lookup succeeds only the user name is known; a hand-back by
+    re-assignment is then missed, never invented.
+    """
+    name = config.servicenow.integration_user
+    resolved: set[str] = set()
+
+    def ids() -> frozenset[str]:
+        if not resolved:
+            try:
+                probe = ServiceNowTableProbe(
+                    http=_servicenow_http(config, clock=clock, transport=transport, max_tries=2)
+                )
+                rows = probe.read(
+                    "sys_user", query=f"user_name={name}", fields=["sys_id"], limit=1
+                ).rows
+            except ExternalServiceError:
+                rows = []
+            resolved.update(r["sys_id"] for r in rows if r.get("sys_id"))
+        return frozenset({name, *resolved})
+
+    return ids
+
+
 def _worker_owner() -> str:
     """The lease owner for this process (03 §2.5): host and pid."""
     return f"worker:{socket.gethostname()}:{os.getpid()}"
@@ -379,26 +426,37 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     built: nothing can reach ServiceNow except the read-only poll.
     ``transport`` / ``llm_provider`` / ``engine`` are test seams.
     """
+    engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    require_automation_decided(config, SqlAutomationActors(engine))
     if config.mode != "shadow":
         raise ConfigError(  # noqa: TRY003 — the config mode gate already enforces this (02 §1)
             f"v0.0 accepts only mode 'shadow'; got '{config.mode}' (02 §1, CAP §4.7)"
         )
     clock = clock if clock is not None else SystemClock()
     ids = ids if ids is not None else UlidIdGenerator()
-    engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     key = master_key if master_key is not None else load_master_key_default()
     runner_uow = SqlUnitOfWork(engine)
     runner = _build_shadow_runner(
         config, clock=clock, master_key=key, uow=runner_uow, ids=ids, llm_provider=llm_provider
     )
+    inbound_events = _event_sink(runner_uow, key, clock)
     inbound = ShadowInbound(
         runner=runner,
         uow=runner_uow,
         cases=CaseRepo(runner_uow),
-        events=_event_sink(runner_uow, key, clock),
+        events=inbound_events,
         ids=ids,
         clock=clock,
         tenant_id=config.tenant.id,
+        lifecycle=LifecycleService(
+            uow=runner_uow,
+            clock=clock,
+            ids=ids,
+            events=inbound_events,
+            tenant_id=config.tenant.id,
+            integration_user=config.servicenow.integration_user,
+            integration_ids=_integration_ids(config, clock=clock, transport=transport),
+        ),
     )
     sync_uow = SqlUnitOfWork(engine)
     sn = config.servicenow
@@ -780,12 +838,18 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         with uow:  # read-only: never commits
             return ReplayService(repo=events).replay(trace_id)
 
+    def lifecycle() -> LifecycleService:
+        # The API only hands back; ServiceNow-driven transitions run in the worker.
+        uow, events = _ports()
+        return LifecycleService(uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
         queries=queries,
         stats=stats,
         replay=replay,
+        lifecycle=lifecycle,
         tenant_id=tenant_id,
         identity=identity,
         session_secret=session_secret,

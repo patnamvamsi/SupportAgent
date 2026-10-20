@@ -1,4 +1,4 @@
-"""``/api/v1/cases/{id}`` and ``/api/v1/traces/{trace_id}`` (02 §2)."""
+"""``/api/v1/cases/{id}``, its hand-back, and ``/api/v1/traces/{trace_id}`` (02 §2)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from supportagent.entrypoints.api.deps import context, require_permission
 
 router = APIRouter(prefix="/api/v1")
 _viewer = require_permission(Permission.VIEW)
+_analyst = require_permission(Permission.HAND_BACK)
 
 
 @router.get("/cases/{case_id}")
@@ -22,6 +23,17 @@ def get_case(
     ctx: ApiContext = Depends(context),  # noqa: B008
 ) -> dict[str, object]:
     return ctx.queries().case(case_id).as_dict()
+
+
+@router.post("/cases/{case_id}/hand-back")
+def hand_back(
+    case_id: str,
+    user: SessionUser = Depends(_analyst),  # noqa: B008
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> dict[str, str]:
+    """``human_owned → in_progress`` (02 §2, ARCH §8.2); scoped to the case's service."""
+    ctx.lifecycle().hand_back(case_id, user.id, grants=user.grants)
+    return {"case_id": case_id, "status": "in_progress"}
 
 
 @router.get("/traces/{trace_id}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from typing import Literal
 
 from supportagent.domain.hashing import _reject_floats
 from supportagent.domain.kinds import ActionKind
@@ -29,3 +30,11 @@ class Proposal(DomainModel):
     def _assert_domain_rules(self) -> None:
         # 01 §7.1: floats are forbidden in hashed payloads.
         _reject_floats(self.payload)
+
+
+class Skipped(DomainModel):
+    """A submit the gate refused to mint (11-wp WP-101): nothing was written."""
+
+    case_id: str
+    action_kind: ActionKind
+    reason: Literal["human_owned"]

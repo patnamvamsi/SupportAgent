@@ -11,6 +11,15 @@
   <span class="muted">Duplicates</span><span>{{ c.case.duplicate_count }}</span>
   <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ c.case.trace_id }}">{{ c.case.trace_id }}</a></span>
 </div>
+{% if c.case.status == "human_owned" %}
+<p class="warn">A person owns this case: the agent proposes and sends nothing until it is handed back.</p>
+{% if can_hand_back %}
+<form method="post" action="/ui/cases/{{ c.case.id }}/hand-back">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit">Hand back to the agent</button>
+</form>
+{% endif %}
+{% endif %}
 
 <h2>Decision</h2>
 {% if c.decision %}

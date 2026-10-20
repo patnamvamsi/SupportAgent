@@ -361,6 +361,67 @@ class SetupService:
                 "the last admin can't be removed; make someone else admin first"
             )
 
+    # --- automation actors (ARCH §8.2) ---------------------------------------
+
+    def automation_actors(self) -> list[dict[str, object]]:
+        """Candidates from ``doctor --discover-automation`` and the admin's decisions."""
+        with self._uow:
+            rows = (
+                self._uow.connection.execute(
+                    sa.text(
+                        "SELECT sys_user, kind, confirmed_by, confirmed_ts FROM automation_actors "
+                        "WHERE tenant_id = :tenant ORDER BY sys_user"
+                    ),
+                    {"tenant": self._tenant},
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(r) for r in rows]
+
+    def decide_automation_actor(self, *, actor_id: str, sys_user: str, automation: bool) -> None:
+        """Confirm a candidate as automation, or mark it a human (``kind = 'human'``).
+
+        Only confirmed automation actors are excluded from takeover detection;
+        an undecided candidate counts as human (WP-101).
+        """
+        now = self._clock.now()
+        with self._uow:
+            conn = self._uow.connection
+            self._require_admin(conn, actor_id)
+            row = conn.execute(
+                sa.text(
+                    "SELECT kind FROM automation_actors WHERE tenant_id = :tenant AND sys_user = :u"
+                ),
+                {"tenant": self._tenant, "u": sys_user},
+            ).first()
+            if row is None:
+                raise NotFound(f"no automation-actor candidate {sys_user!r}")  # noqa: TRY003
+            kind = (str(row[0]) if row[0] != "human" else "integration") if automation else "human"
+            conn.execute(
+                sa.text(
+                    "UPDATE automation_actors SET kind = :kind, confirmed_by = :by, "
+                    "confirmed_ts = :ts WHERE tenant_id = :tenant AND sys_user = :u"
+                ),
+                {
+                    "kind": kind,
+                    "by": actor_id,
+                    "ts": int(now.timestamp()),
+                    "tenant": self._tenant,
+                    "u": sys_user,
+                },
+            )
+            self._emit(
+                actor=actor_id,
+                payload={
+                    "v": 1,
+                    "transition": "automation_confirmed" if automation else "automation_rejected",
+                    "sys_user": sys_user,
+                },
+                ts=now,
+            )
+            self._uow.commit()
+
     def service_names(self) -> list[str]:
         """The catalog's services: the scopes a role can be limited to."""
         return sorted(s.name for s in self._catalog.services)
