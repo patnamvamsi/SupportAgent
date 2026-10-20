@@ -412,14 +412,15 @@ def test_fault_injection_suite(  # noqa: PLR0913, PLR0917
     # --- sn_500 → outbox retry --------------------------------------------
     # The triage flow ends at gate.submit; the SN sink is called during
     # outbox execution. Queue a 500 fault and verify the retry path.
-    # Seed a case with external_table + external_id (required by _claim).
+    # Seed a case with external_table + external_id (required by _claim). Its id
+    # must not collide with the llm-failure cases above, which are persisted.
     with db.begin() as conn:
         conn.exec_driver_sql(
             "INSERT INTO cases "
             "(id, tenant_id, fingerprint, origin, status, trace_id, duplicate_count, "
             "opened_ts, last_alert_ts, external_table, external_id, "
             "service, severity, classification) "
-            "VALUES ('case_0001', 'acme', 'fp_1', 'alert', 'open', 'trace_0001', 0, "
+            "VALUES ('case_sn500', 'acme', 'fp_1', 'alert', 'open', 'trace_0001', 0, "
             "0, 0, 'incident', 'INC0000001', 'payments', 'P3', 'payments/api')"
         )
     _seed_grant(db)  # outbox.policy_grant_id is an FK to policy_grants.id
@@ -449,6 +450,6 @@ def test_fault_injection_suite(  # noqa: PLR0913, PLR0917
         handlers=HANDLERS,
     )
     trace = TraceContext.new("acme", "trace_0001", "span_obx")
-    executor.enqueue(auth, spec, "case_0001", trace)
+    executor.enqueue(auth, spec, "case_sn500", trace)
     result = executor.run_once(clock.now())
     assert result.status == "retried"

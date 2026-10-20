@@ -6,7 +6,7 @@
 2. Pre-classify, decide (via the injected classifier/LLM), and record the
    decision on the case (same unit of work).
 3. If the decision is routed, submit the proposals through the ``GateService``
-   (the same UoW instance, sequential transactions).
+   inside the same unit of work (its ``with`` block joins the outer one).
 
 A safe default still writes the case, the decision and the events, and proposes
 nothing. Every stage emits its event (``ingest``, ``dedup``, ``preclass``,
@@ -20,9 +20,10 @@ the world through ``ports`` and pure ``domain``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from types import TracebackType
-from typing import Literal, Protocol, Self
+from typing import Protocol, Self
 
 from ulid import ULID
 
@@ -30,6 +31,7 @@ from supportagent.app.propose import build_action_specs
 from supportagent.domain.events import EventKind
 from supportagent.domain.fingerprint import fingerprint
 from supportagent.domain.ids import IdPrefix
+from supportagent.domain.lifecycle import CaseEvent, CaseStatus, next_status
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.case import Case
@@ -131,9 +133,9 @@ class _Gate(Protocol):
 class TriageService:
     """Triage one inbound alert: dedup + decision, then gate the proposals.
 
-    8 keyword-only ports/config: the UoW, the 4 standard ports (clock, ids,
-    events, case_repo), and the decision/propose collaborators (classifier,
-    gate, catalog).
+    Keyword-only ports/config: the UoW, the 4 standard ports (clock, ids,
+    events, case_repo), the decision/propose collaborators (classifier,
+    gate, catalog), and the tenant constants for the fingerprint.
     """
 
     def __init__(  # noqa: PLR0913 — the signature is the service's public contract
@@ -147,6 +149,7 @@ class TriageService:
         classifier: _Classifier,
         gate: _Gate,
         catalog: Catalog,
+        tenant_constants: Sequence[str] = (),
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -156,30 +159,26 @@ class TriageService:
         self._classifier = classifier
         self._gate = gate
         self._catalog = catalog
+        #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
+        #: fingerprint (01 §7.2 step 5) so per-tenant literals don't split cases.
+        self._tenant_constants = tuple(tenant_constants)
 
     # --- handle -------------------------------------------------------------
 
     def handle(self, evt: AlertEvent) -> TriageOutcome:
-        """Triage ``evt`` and return the outcome (new case, linked, or retried).
+        """Triage ``evt`` and return the outcome (new case, linked, or re-triaged).
 
-        One unit of work covers ingest + dedup + (preclass, decision, case
-        update). A routed decision then submits its proposals through the gate
-        (sequential transactions on the same UoW). A safe default proposes
-        nothing; a duplicate either links or retriggers an escalation.
+        One unit of work covers ingest, dedup, preclass, the decision, the case
+        update and — for a routed decision — the gate proposals (10-wp WP-011),
+        so a routed case never commits without its proposals. A safe default
+        (including ``llm-failure``) still writes the case, the decision and the
+        events, and proposes nothing (INV-05: the human queue). A duplicate
+        either links or, on a severity escalation, re-triages in place.
         """
         trace_id = f"tr_{ULID()}"
         root = TraceContext.new(evt.tenant_id, trace_id, _ROOT_SPAN)
-        fp = fingerprint(evt)
+        fp = fingerprint(evt, self._tenant_constants)
         now = self._clock.now()
-
-        outcome: Literal["new", "linked", "retriaged"]
-        decision: TriageDecision | None = None
-        service: str | None = None
-        case_id: str
-        # INV-05: an LLM failure is fail-closed — the safe-default path does not
-        # persist the case row (the UoW rolls back on exit); it returns the
-        # decision to the caller and proposes nothing.
-        commit = True
 
         with self._uow:
             self._emit(
@@ -201,73 +200,80 @@ class TriageService:
                 root,
                 EventKind.DEDUP,
                 _span("dedup"),
-                {"v": 1, "fingerprint": fp, "first_seen": not upsert.created},
+                {"v": 1, "fingerprint": fp, "first_seen": upsert.created},
             )
 
+            # A re-triage keeps the case's lifecycle status: severity escalation
+            # re-decides in place and never takes a case back from a human
+            # (01 §7.11 has no re-triage transition).
+            status: str
             if upsert.created:
-                outcome = "new"
+                status = CaseStatus.OPEN.value
             else:
                 row = self._case_repo.get(case_id)
-                escalated = row is not None and severity_escalated(evt, row)
-                outcome = "retriaged" if escalated else "linked"
+                if row is None or not severity_escalated(evt, row):
+                    self._uow.commit()
+                    return Linked(case_id=case_id)
+                status = str(row["status"])
 
-            if outcome in ("new", "retriaged"):
-                service = self._resolve_service(evt)
-                case = self._case_for(evt, fp, case_id, service)
-                self._emit(
-                    root,
-                    EventKind.PRECLASS,
-                    _span("preclass"),
-                    {"v": 1, "service": service},
+            service = self._resolve_service(evt)
+            self._emit(root, EventKind.PRECLASS, _span("preclass"), {"v": 1, "service": service})
+            decision = self._classifier.decide(
+                evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
+            )
+            severity_value = decision.severity.value if decision.severity is not None else None
+            self._emit(
+                root,
+                EventKind.DECISION,
+                _span("decision"),
+                {
+                    "v": 1,
+                    "outcome": decision.outcome,
+                    "reason": decision.reason,
+                    "classification": decision.classification,
+                    "severity": severity_value,
+                    "route_id": decision.route_id,
+                },
+            )
+            if upsert.created:
+                event = (
+                    CaseEvent.TRIAGED if decision.outcome == "routed" else CaseEvent.SAFE_DEFAULTED
                 )
-                decision = self._classifier.decide(evt, case, root.child(_span("classify")))
-                severity_value = decision.severity.value if decision.severity is not None else None
-                self._emit(
-                    root,
-                    EventKind.DECISION,
-                    _span("decision"),
-                    {
-                        "v": 1,
-                        "outcome": decision.outcome,
-                        "reason": decision.reason,
-                        "classification": decision.classification,
-                        "severity": severity_value,
-                        "route_id": decision.route_id,
-                    },
-                )
-                if decision.outcome == "safe_default" and decision.reason == "llm-failure":
-                    # INV-05 fail-closed: no LLM result means no triaged case.
-                    # Skip the case update and leave the UoW uncommitted so the
-                    # row (and stage events) roll back; nothing is proposed.
-                    commit = False
-                else:
-                    self._case_repo.update(
-                        case_id=case_id,
-                        service=service,
-                        severity=evt.severity_hint.value if evt.severity_hint is not None else None,
-                        classification=decision.classification,
-                        external_table=evt.table,
-                        external_id=evt.external_id,
-                        status="triaged",
-                        decision_json=decision.model_dump_json(),
-                        trace_id=trace_id,
-                        now=self._clock.now(),
-                    )
-            if commit:
-                self._uow.commit()
+                status = next_status(CaseStatus.OPEN, event).value
+            self._case_repo.update(
+                case_id=case_id,
+                service=service,
+                severity=evt.severity_hint.value if evt.severity_hint is not None else None,
+                classification=decision.classification,
+                external_table=evt.table,
+                external_id=evt.external_id,
+                status=status,
+                decision_json=decision.model_dump_json(),
+                trace_id=trace_id,
+                now=self._clock.now(),
+            )
 
-        if outcome == "linked":
-            return Linked(case_id=case_id)
-        # A non-linked outcome always decided above. Bandit B101 forbids `assert`,
-        # so a defensive raise stands in for the mypy narrowing.
-        if decision is None:  # defensive: unreachable — see the branches above
-            raise RuntimeError("triage: a non-linked outcome requires a decision")  # noqa: TRY003
-        if outcome == "retriaged":
-            return Retriaged(case_id=case_id, decision=decision)
-        # outcome == "new": a safe default proposes nothing; a routed decision
-        # submits its proposals through the gate (same UoW, sequential UoWs).
-        if decision.outcome == "safe_default":
-            return SafeDefaulted(case_id=case_id, decision=decision)
+            result: TriageOutcome
+            if not upsert.created:
+                result = Retriaged(case_id=case_id, decision=decision)
+            elif decision.outcome == "safe_default":
+                result = SafeDefaulted(case_id=case_id, decision=decision)
+            else:
+                proposals = self._propose(evt, fp, case_id, service, decision, root)
+                result = Triaged(case_id=case_id, decision=decision, proposals=proposals)
+            self._uow.commit()
+        return result
+
+    def _propose(  # noqa: PLR0913, PLR0917 — the case coordinates the proposal builder needs
+        self,
+        evt: AlertEvent,
+        fp: str,
+        case_id: str,
+        service: str | None,
+        decision: TriageDecision,
+        root: TraceContext,
+    ) -> list[Proposal]:
+        """Submit the routed decision's proposals inside the caller's UoW (INV-01)."""
         # A routed decision always carries the LLM's classification and severity
         # (classify.py populates both); the guard is only for mypy's narrowing.
         if decision.classification is None or decision.severity is None:
@@ -277,8 +283,7 @@ class TriageService:
         route = self._classifier.routing.lookup(decision.classification, decision.severity)
         full_case = self._case_for(evt, fp, case_id, service, decision.classification)
         specs = build_action_specs(route, full_case, self._catalog)
-        proposals = [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
-        return Triaged(case_id=case_id, decision=decision, proposals=proposals)
+        return [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
 
     # --- helpers ------------------------------------------------------------
 

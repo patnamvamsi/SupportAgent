@@ -25,20 +25,34 @@ class SqlUnitOfWork:
 
     The instance is reusable across successive ``with`` blocks; each block
     gets a fresh connection and transaction.
+
+    Nested ``with`` blocks on the same instance join the outer transaction
+    (10-wp WP-011: proposals are submitted in the triage UoW). Only the
+    outermost block owns the transaction: an inner ``commit()`` is deferred to
+    it, and an exception leaving an inner block marks the transaction
+    rollback-only, so a later outer ``commit()`` raises instead of persisting
+    a half-done unit.
     """
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
         self._connection: Connection | None = None
         self._committed = False
+        self._depth = 0
+        self._rollback_only = False
 
     def __enter__(self) -> SqlUnitOfWork:
+        if self._depth > 0:  # nested: join the outer transaction
+            self._depth += 1
+            return self
         connection = self._engine.connect()
         if self._engine.dialect.name == "sqlite":
             # 10-wp: the write UoW takes the write lock up front.
             connection.exec_driver_sql("BEGIN IMMEDIATE")
         self._connection = connection
         self._committed = False
+        self._rollback_only = False
+        self._depth = 1
         return self
 
     def __exit__(
@@ -47,6 +61,12 @@ class SqlUnitOfWork:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        if self._depth > 1:  # nested: the outermost block decides
+            self._depth -= 1
+            if exc_type is not None:
+                self._rollback_only = True
+            return
+        self._depth = 0
         connection = self._connection
         committed = self._committed
         self._connection = None
@@ -58,8 +78,18 @@ class SqlUnitOfWork:
             connection.close()
 
     def commit(self) -> None:
-        """Persist the transaction (10-wp: commit is explicit, never implicit)."""
-        self._require_connection().commit()
+        """Persist the transaction (10-wp: commit is explicit, never implicit).
+
+        Inside a nested block this is deferred to the outermost block.
+        """
+        connection = self._require_connection()
+        if self._rollback_only:
+            raise RuntimeError(  # noqa: TRY003
+                "SqlUnitOfWork is rollback-only: a nested block raised"
+            )
+        if self._depth > 1:
+            return
+        connection.commit()
         self._committed = True
 
     @property

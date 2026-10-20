@@ -30,6 +30,7 @@ from supportagent.adapters.db.repos.events import SqlEventSink
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
+from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_client
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
@@ -102,9 +103,13 @@ def _build_calibration(config: AppConfig) -> CalibrationTable:
     )
 
 
-def _build_ruleset() -> RuleSet:
-    """v0.0 pre-classifier: no rules (the LLM decides; ARCH §4.2)."""
-    return RuleSet(rules=[])
+def _build_ruleset(config: AppConfig) -> RuleSet:
+    """The pre-classifier rules beside the taxonomy (ARCH §4.2, 10-wp WP-010).
+
+    An empty rule set would make every case abstain, so the cross-check never
+    runs and every P1/P2 is capped — the shipped rules are always loaded.
+    """
+    return load_preclass_rules(Path(config.paths.taxonomy).parent / "preclass_rules.yaml")
 
 
 def _build_llm(
@@ -159,7 +164,7 @@ def _build_triage(config: AppConfig) -> TriageService:
     case_repo = CaseRepo(uow)
     catalog = _build_catalog(config)
     classifier = Classifier(
-        rule_set=_build_ruleset(),
+        rule_set=_build_ruleset(config),
         llm=_build_llm(config, events, ids, clock),
         calibration=_build_calibration(config),
         min_score=config.calibration.min_score,
@@ -182,6 +187,7 @@ def _build_triage(config: AppConfig) -> TriageService:
         classifier=classifier,
         gate=gate,
         catalog=catalog,
+        tenant_constants=config.redaction.tenant_constants,
     )
 
 
