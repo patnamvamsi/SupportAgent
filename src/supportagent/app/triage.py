@@ -131,6 +131,12 @@ class _Gate(Protocol):
     def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped: ...
 
 
+class _Planner(Protocol):
+    """``CommsPlanner``: a route's comms template → a plan proposal (WP-102)."""
+
+    def plan(self, case_id: str, plan_template: str, trace: TraceContext) -> Proposal | Skipped: ...
+
+
 class TriageService:
     """Triage one inbound alert: dedup + decision, then gate the proposals.
 
@@ -151,6 +157,7 @@ class TriageService:
         gate: _Gate,
         catalog: Catalog,
         tenant_constants: Sequence[str] = (),
+        planner: _Planner | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -159,6 +166,7 @@ class TriageService:
         self._case_repo = case_repo
         self._classifier = classifier
         self._gate = gate
+        self._planner = planner
         self._catalog = catalog
         self._unpaged = frozenset(catalog.unpaged_services())
         #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
@@ -291,6 +299,9 @@ class TriageService:
         full_case = self._case_for(evt, fp, case_id, service, decision.classification)
         specs = build_action_specs(route, full_case, self._catalog)
         submitted = [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
+        if route.comms and self._planner is not None:
+            # WP-102: the route's comms plan is a proposal of its own, in this UoW.
+            submitted.append(self._planner.plan(case_id, route.comms, root.child(_span("comms"))))
         return [p for p in submitted if isinstance(p, Proposal)]
 
     # --- helpers ------------------------------------------------------------

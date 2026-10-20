@@ -110,6 +110,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    # 0007 (WP-102): comms_drafts references cases and comms_plans.
+    "comms_drafts",
     # 0006 (WP-014): shadow_records references cases.
     "shadow_records",
     # 0004 (WP-008): sync state; automation_actors references users.

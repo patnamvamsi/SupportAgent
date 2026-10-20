@@ -29,7 +29,7 @@ from supportagent.domain.events import EventKind
 from supportagent.domain.lifecycle import CaseStatus
 from supportagent.domain.severity import Severity
 
-# 10-wp / 03 §4: the exact table set at head (0001 .. 0006, plus the
+# 10-wp / 03 §4: the exact table set at head (0001 .. 0007, plus the
 # alembic bookkeeping table).
 EXPECTED_TABLES = frozenset(
     {
@@ -55,6 +55,8 @@ EXPECTED_TABLES = frozenset(
         "automation_actors",
         # 03 §2.6 shadow counterfactual (0006).
         "shadow_records",
+        # WP-102 owner drafts (0007).
+        "comms_drafts",
         "alembic_version",
     }
 )

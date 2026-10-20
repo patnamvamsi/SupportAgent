@@ -259,17 +259,7 @@ class LifecycleService:
             )
 
     def _automation_actors(self) -> frozenset[str]:
-        """Confirmed automation actors (``kind = 'human'`` marks a rejected candidate)."""
-        return frozenset(
-            str(u)
-            for u in self._uow.connection.execute(
-                sa.text(
-                    "SELECT sys_user FROM automation_actors WHERE tenant_id = :tenant "
-                    "AND confirmed_by IS NOT NULL AND kind <> 'human'"
-                ),
-                {"tenant": self._tenant},
-            ).scalars()
-        )
+        return confirmed_automation_actors(self._uow.connection, self._tenant)
 
     def _emit(
         self, case: dict[str, object], kind: EventKind, actor: str, payload: dict[str, object]
@@ -290,9 +280,23 @@ class LifecycleService:
         )
 
 
+def confirmed_automation_actors(conn: sa.Connection, tenant_id: str) -> frozenset[str]:
+    """Confirmed automation actors (``kind = 'human'`` marks a rejected candidate)."""
+    return frozenset(
+        str(u)
+        for u in conn.execute(
+            sa.text(
+                "SELECT sys_user FROM automation_actors WHERE tenant_id = :tenant "
+                "AND confirmed_by IS NOT NULL AND kind <> 'human'"
+            ),
+            {"tenant": tenant_id},
+        ).scalars()
+    )
+
+
 def _keep(case: dict[str, object]) -> int | None:
     value = case.get("resolved_ts")
     return int(str(value)) if value is not None else None
 
 
-__all__ = ["LifecycleService"]
+__all__ = ["LifecycleService", "confirmed_automation_actors"]

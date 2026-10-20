@@ -47,6 +47,7 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
+from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
@@ -85,6 +86,7 @@ from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
+from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.gate import GateService
 from supportagent.app.lifecycle import LifecycleService
@@ -138,7 +140,7 @@ from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
-from supportagent.ports.tickets import SnTable, TicketSink
+from supportagent.ports.tickets import SnTable, TicketSink, TicketSource
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -366,6 +368,46 @@ def _build_triage(config: AppConfig) -> TriageService:
         gate=gate,
         catalog=catalog,
         tenant_constants=config.redaction.tenant_constants,
+        planner=CommsPlanner(
+            uow=uow, ids=ids, gate=gate, plans=_comms(config).plans, tenant_id=config.tenant.id
+        ),
+    )
+
+
+def _comms(config: AppConfig) -> CommsCatalog:
+    """The comms plan templates; every routing row's ``comms`` must name one (WP-102)."""
+    catalog = load_comms_catalog(Path(config.paths.comms))
+    rows = [*config.routing, *([config.default] if config.default else [])]
+    unknown = sorted({r.comms for r in rows if r.comms and r.comms not in catalog.plans})
+    if unknown:
+        raise ConfigError(  # noqa: TRY003
+            f"routing names unknown comms plan template(s): {', '.join(unknown)} "
+            f"(known: {', '.join(sorted(catalog.plans)) or 'none'})"
+        )
+    return catalog
+
+
+def build_cadence_job(  # noqa: PLR0913 — config plus the injectable ports
+    config: AppConfig,
+    *,
+    engine: Engine,
+    source: TicketSource,
+    clock: Clock,
+    ids: IdGenerator,
+    master_key: bytes | None = None,
+) -> CadenceJob:
+    """``comms.cadence`` (02 §7). Assisted mode: shadow has no outbox writer to feed."""
+    uow = SqlUnitOfWork(engine)
+    return CadenceJob(
+        uow=uow,
+        clock=clock,
+        ids=ids,
+        events=_event_sink(uow, master_key, clock),
+        outbox=OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids),
+        source=source,
+        templates=_comms(config).templates,
+        tenant_id=config.tenant.id,
+        integration_user=config.servicenow.integration_user,
     )
 
 
@@ -932,6 +974,10 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         with uow:  # read-only: never commits
             return ReplayService(repo=events).replay(trace_id)
 
+    def comms_plans() -> CommsPlans:
+        uow, events = _ports()
+        return CommsPlans(uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id)
+
     def lifecycle() -> LifecycleService:
         # The API only hands back; ServiceNow-driven transitions run in the worker.
         uow, events = _ports()
@@ -944,6 +990,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         stats=stats,
         replay=replay,
         lifecycle=lifecycle,
+        comms_plans=comms_plans,
         tenant_id=tenant_id,
         identity=identity,
         session_secret=session_secret,

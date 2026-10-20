@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Protocol, Self
 
@@ -91,6 +91,8 @@ class CaseView:
     proposals: list[ProposalView]
     outbox: list[dict[str, object]]
     event_counts: dict[str, int]
+    comms_plans: list[dict[str, object]] = field(default_factory=list)
+    drafts: list[dict[str, object]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -99,6 +101,8 @@ class CaseView:
             "proposals": [p.as_dict() for p in self.proposals],
             "outbox": self.outbox,
             "event_counts": self.event_counts,
+            "comms_plans": self.comms_plans,
+            "drafts": self.drafts,
         }
 
 
@@ -179,6 +183,27 @@ class AdminQueries:
                     {"id": case_id, "tenant": self._tenant},
                 ).mappings()
             ]
+            plans = [
+                dict(r)
+                for r in conn.execute(
+                    sa.text(
+                        "SELECT id, proposal_id, template_id, cadence_minutes, status, plan_hash "
+                        "FROM comms_plans WHERE case_id = :id AND tenant_id = :tenant ORDER BY id"
+                    ),
+                    {"id": case_id, "tenant": self._tenant},
+                ).mappings()
+            ]
+            drafts = [
+                {**dict(r), "body": json.loads(str(r["body_json"])).get("text", "")}
+                for r in conn.execute(
+                    sa.text(
+                        "SELECT plan_id, trigger, interval_slot, body_json, created_ts "
+                        "FROM comms_drafts WHERE case_id = :id AND tenant_id = :tenant "
+                        "ORDER BY created_ts, interval_slot"
+                    ),
+                    {"id": case_id, "tenant": self._tenant},
+                ).mappings()
+            ]
             counts = {
                 str(kind): int(n)
                 for kind, n in conn.execute(
@@ -198,6 +223,8 @@ class AdminQueries:
             proposals=self.proposals(case_id=case_id),
             outbox=outbox,
             event_counts=counts,
+            comms_plans=plans,
+            drafts=[{k: v for k, v in d.items() if k != "body_json"} for d in drafts],
         )
 
     def grants(self, *, status: str | None = None) -> list[dict[str, object]]:

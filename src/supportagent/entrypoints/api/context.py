@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from supportagent.app.approvals import ApprovalService
+from supportagent.app.comms import CommsPlans
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayView
@@ -26,6 +27,7 @@ class ApiContext:
     stats: Callable[[], StatsService]
     replay: Callable[[str], ReplayView]
     lifecycle: Callable[[], LifecycleService]
+    comms_plans: Callable[[], CommsPlans]
     tenant_id: str
     identity: IdentityProvider
     session_secret: str

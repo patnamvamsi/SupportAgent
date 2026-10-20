@@ -143,7 +143,12 @@ class GateService:
         scope = spec.scope
         tenant_id = trace.tenant_id
 
-        grant_eligible = kind not in NEVER_EXECUTABLE_KINDS and kind not in CUSTOMER_FACING_KINDS
+        # A comms plan is "approval only" (ARCH §6.3, §12.2): never grant-approved.
+        grant_eligible = (
+            kind not in NEVER_EXECUTABLE_KINDS
+            and kind not in CUSTOMER_FACING_KINDS
+            and kind is not ActionKind.COMMS_PLAN
+        )
         grant_id = self._covering_grant(tenant_id, kind, scope, now_ts) if grant_eligible else None
         if grant_id is not None:
             status = next_status(ProposalStatus.PROPOSED, ProposalEvent.GRANT_MATCHED)

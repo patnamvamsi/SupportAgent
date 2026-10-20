@@ -31,6 +31,23 @@
 {% endif %}
 {% else %}<p class="muted">Not decided yet.</p>{% endif %}
 
+<h2>Comms plans</h2>
+{% if c.comms_plans %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Plan</th><th>Template</th><th>Cadence</th><th>Status</th></tr></thead>
+  <tbody>{% for cp in c.comms_plans %}
+  <tr><td><a href="/ui/proposals/{{ cp.proposal_id }}">{{ cp.id }}</a></td><td>{{ cp.template_id }}</td>
+      <td>{{ cp.cadence_minutes ~ " min" if cp.cadence_minutes else "on resolve" }}</td><td>{{ cp.status }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+<p class="muted">Approve a pending plan on its proposal page: one approval covers every update that fits the plan.</p>
+{% else %}<p class="muted">No comms plan.</p>{% endif %}
+{% if c.drafts %}
+<h2>Drafts for the owner</h2>
+<p class="muted">A person owns this case, so these due updates were not sent.</p>
+{% for d in c.drafts %}<pre>{{ d.trigger }} #{{ d.interval_slot }}: {{ d.body }}</pre>{% endfor %}
+{% endif %}
+
 <h2>Proposals</h2>
 {% if c.proposals %}
 <div class="table-wrap"><table>
