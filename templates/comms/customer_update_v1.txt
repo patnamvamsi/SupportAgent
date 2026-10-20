@@ -1,0 +1,2 @@
+Update on your incident: status {{ state }}, priority {{ priority }}.
+Our team is working on it. Next update by {{ next_update_eta }}.

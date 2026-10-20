@@ -69,7 +69,8 @@ class _Writer(Protocol):
 @dataclass(frozen=True, slots=True)
 class Approved:
     approval_id: str
-    outbox_id: str
+    #: ``None`` for a comms plan: approving it authorizes later sends, it sends nothing.
+    outbox_id: str | None
 
 
 class ApprovalService:
@@ -96,6 +97,12 @@ class ApprovalService:
             approval_id = self._gate.approve(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason
             )
+            if spec.kind is ActionKind.COMMS_PLAN:
+                # ARCH §6.3: the approval *is* the plan's authorization; each
+                # cadence send is its own outbox row on the plan path (WP-102).
+                self._set_plan(proposal_id, status="approved", approval_id=approval_id)
+                self._uow.commit()
+                return Approved(approval_id=approval_id, outbox_id=None)
             row = self._outbox.enqueue(
                 Authorization(approval_id=approval_id),
                 spec,
@@ -123,8 +130,26 @@ class ApprovalService:
             approval_id = self._gate.reject(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason.strip()
             )
+            if spec.kind is ActionKind.COMMS_PLAN:
+                self._set_plan(proposal_id, status="rejected", approval_id=None)
             self._uow.commit()
         return approval_id
+
+    def _set_plan(self, proposal_id: str, *, status: str, approval_id: str | None) -> None:
+        self._uow.connection.execute(
+            sa.text(
+                "UPDATE comms_plans SET status = :status, "
+                "approval_id = COALESCE(:approval, approval_id) "
+                "WHERE proposal_id = :proposal AND tenant_id = :tenant "
+                "AND status = 'pending_approval'"
+            ),
+            {
+                "status": status,
+                "approval": approval_id,
+                "proposal": proposal_id,
+                "tenant": self._tenant,
+            },
+        )
 
     def _spec_for(self, proposal_id: str) -> tuple[ActionSpec, str, str]:
         """The proposal's exact ``ActionSpec``: the approved bytes are the enqueued bytes."""

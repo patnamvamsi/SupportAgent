@@ -56,6 +56,7 @@ paths:
   catalog: catalog/services.yaml
   prompts: prompts/
   runbooks: runbooks/                   # v0.1
+  comms: templates/comms/               # v0.1: comms plan templates (plans.yaml) + message bodies
 routing:                                # rows reference taxonomy labels; CI validates (ARCH §12)
   - id: db-saturation
     match: {classification: database/saturation, severity: [P1, P2, P3]}

@@ -362,6 +362,22 @@ automation_actors = sa.Table(
     sa.Column("confirmed_ts", sa.Integer),
 )
 
+# 0007 (WP-102): cadence updates rendered as drafts for a human owner.
+comms_drafts = sa.Table(
+    "comms_drafts",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("plan_id", sa.Text, sa.ForeignKey("comms_plans.id"), nullable=False),
+    sa.Column("trigger", sa.Text, nullable=False),
+    sa.Column("interval_slot", sa.Integer, nullable=False),
+    sa.Column("body_json", sa.Text, nullable=False),
+    sa.Column("created_ts", sa.BigInteger, nullable=False),
+    sa.UniqueConstraint("plan_id", "trigger", "interval_slot", name="uq_comms_drafts_slot"),
+    sa.Index("ix_comms_drafts_case", "tenant_id", "case_id"),
+)
+
 # 03 §2.6 (0006, WP-014): one counterfactual record per shadow case.
 shadow_records = sa.Table(
     "shadow_records",

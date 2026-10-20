@@ -48,8 +48,11 @@ def approve(
     body: Decision,
     user: SessionUser = Depends(_approver),  # noqa: B008
     ctx: ApiContext = Depends(context),  # noqa: B008
-) -> dict[str, str]:
-    """409 ``stale_proposal`` on a hash mismatch; 403 ``self_approval`` (02 §2)."""
+) -> dict[str, str | None]:
+    """409 ``stale_proposal`` on a hash mismatch; 403 ``self_approval`` (02 §2).
+
+    A comms plan returns ``outbox_id: null``: approving it sends nothing.
+    """
     done = ctx.approvals().approve(
         proposal_id, user.id, seen_hash=body.payload_hash, reason=body.reason, grants=user.grants
     )

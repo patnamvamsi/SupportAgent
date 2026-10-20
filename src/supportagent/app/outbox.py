@@ -142,6 +142,9 @@ class Authorization:
     approval_id: str | None = None
     policy_grant_id: str | None = None
     comms_plan_id: str | None = None
+    #: The comms path's key (01 §7.4) needs audience/trigger/slot, so the
+    #: comms service derives it and passes it here (WP-102).
+    plan_key: str | None = None
 
     def __post_init__(self) -> None:
         paths = (self.approval_id, self.policy_grant_id, self.comms_plan_id)
@@ -161,12 +164,14 @@ class Authorization:
                 scope=spec.scope,
                 payload_hash=payload_hash,
             )
-        # comms-plan keys need audience/trigger/interval_slot, which the v0.0
-        # enqueue signature does not carry (01 §7.4); the comms service derives
-        # them. Refuse here rather than mint a wrong key (INV-04).
-        raise DomainValidationError(  # noqa: TRY003
-            "comms-plan authorization requires the comms service to derive its key"
-        )
+        # comms-plan keys need audience/trigger/interval_slot (01 §7.4): the
+        # comms service derives them. Without one, refuse rather than mint a
+        # wrong key (INV-04).
+        if self.plan_key is None:
+            raise DomainValidationError(  # noqa: TRY003
+                "comms-plan authorization requires the comms service to derive its key"
+            )
+        return self.plan_key
 
 
 @dataclass(frozen=True, slots=True)

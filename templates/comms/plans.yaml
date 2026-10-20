@@ -1,0 +1,18 @@
+# Comms plan templates (ARCH §6.3, 11-wp WP-102). A routing row's `comms:` names
+# one of these. Approving the plan proposal authorizes every cadence update
+# that fits it. Changing anything here changes plan_hash and voids
+# approvals of the old plan.
+#
+# Field sources: record_state = read from the ServiceNow record as last set by
+# a human (ARCH §8.2); schedule = computed from the cadence. There is no agent source.
+version: 1
+plans:
+  customer-4h:
+    audience: customer
+    channel: servicenow_comment
+    template_id: customer_update_v1
+    cadence_minutes: 240
+    allowed_fields:
+      state: record_state
+      priority: record_state
+      next_update_eta: schedule

@@ -156,6 +156,8 @@ class Paths(DomainModel):
     catalog: str = Field(min_length=1)
     prompts: str = Field(min_length=1)
     runbooks: str = Field(min_length=1)
+    #: v0.1 (WP-102): comms plan templates and message bodies.
+    comms: str = "templates/comms/"
 
 
 class RoutingMatch(DomainModel):
