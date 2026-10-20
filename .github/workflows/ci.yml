@@ -155,6 +155,13 @@ jobs:
           fi
           uv run pytest -m integration --db=${{ matrix.db }} \
             --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+      # ARCH §19 storm soak (WP-114): 1,000 alerts, 0 duplicate cases, bounded
+      # LLM calls, 0 double-sends. It runs in seconds, so every PR runs it as
+      # well as the nightly (04 §6: it blocks release).
+      - name: soak --db=${{ matrix.db }}
+        run: |
+          uv run pytest -m soak --db=${{ matrix.db }} \
+            --allow-unix-socket --allow-hosts=127.0.0.1,localhost
 
   e2e:
     runs-on: ubuntu-latest
