@@ -48,12 +48,11 @@ from supportagent.adapters.llm.redact import Redactor
 from supportagent.app.classify import Classifier
 from supportagent.app.gate import GateService
 from supportagent.app.handlers import HANDLERS
-from supportagent.app.outbox import Authorization, OutboxExecutor
+from supportagent.app.outbox import OutboxExecutor, OutboxWriter
 from supportagent.app.replay import ReplayService
 from supportagent.app.triage import TriageService
 from supportagent.domain.events import EventKind
 from supportagent.domain.kinds import ActionKind
-from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
@@ -67,7 +66,6 @@ from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.severity import Severity
 from supportagent.domain.slots import SlotName
-from supportagent.domain.trace import TraceContext
 from supportagent.ports.llm import LLMProvider
 from supportagent.ports.tickets import JournalField, SnTable
 from tests.builders import an_alert
@@ -177,7 +175,15 @@ def _wire(
         min_score=0.80,
         routing=_routing(),
     )
-    gate = GateService(uow=uow, clock=clock, ids=ids, events=events, catalog=catalog, ttl=_TTL)
+    gate = GateService(
+        uow=uow,
+        clock=clock,
+        ids=ids,
+        events=events,
+        catalog=catalog,
+        ttl=_TTL,
+        outbox=OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids),
+    )
     triage = TriageService(
         uow=uow,
         clock=clock,
@@ -256,7 +262,7 @@ def test_wp011_dod_work_note_posted_once_and_replayed(  # noqa: PLR0913, PLR0917
     fake_llm: Any,
     fake_sn: Any,
 ) -> None:
-    """WP-011 DoD: alert → triage → grant-approve → outbox → work note once.
+    """WP-011 DoD: alert → triage → grant-approve + enqueue → work note once.
 
     The full Loop A path is driven end-to-end against a real SQLite DB and a
     fake ServiceNow sink; the work note lands on the incident exactly once and
@@ -272,27 +278,26 @@ def test_wp011_dod_work_note_posted_once_and_replayed(  # noqa: PLR0913, PLR0917
     outcome = w.triage.handle(_evt())
     assert isinstance(outcome, Triaged)
     assert outcome.proposals, "a routed case must submit at least one proposal"
-    # Every proposal is a WORK_NOTE, in scope, and auto-approved by the grant.
+    # Every proposal is a WORK_NOTE, in scope, auto-approved by the grant and
+    # enqueued in the same unit of work (BL-024), so it is already executed.
     for p in outcome.proposals:
         assert p.action_kind == ActionKind.WORK_NOTE
         assert p.scope == _SCOPE
-        assert p.status == ProposalStatus.APPROVED
+        assert p.status == ProposalStatus.EXECUTED
 
     proposal = outcome.proposals[0]
     trace_id = proposal.trace_id
     case_id = outcome.case_id
 
-    # 4. Enqueue the approved proposal into the outbox under the grant's
-    #    Authorization (idempotency key derived from the grant, not an approval).
-    spec = ActionSpec(
-        kind=proposal.action_kind,
-        target=TargetRef(service="payments", system="servicenow", ref=SYS_ID),
-        scope=proposal.scope,
-        payload=dict(proposal.payload),
-    )
-    trace = TraceContext.new(TENANT, trace_id, "span_outbox")
+    # 4. Triage enqueued the row under the grant's Authorization (the
+    #    idempotency key derives from the grant, not an approval).
+    with db.connect() as conn:
+        rows = conn.execute(
+            text("SELECT policy_grant_id, approval_id FROM outbox WHERE case_id = :c"),
+            {"c": case_id},
+        ).all()
+    assert [tuple(r) for r in rows] == [(_GRANT_ID, None)]
     ex = _executor(uow, clock, ids, w.events, fake_sn)
-    ex.enqueue(Authorization(policy_grant_id=_GRANT_ID), spec, case_id, trace)
 
     # 5. The worker drains the outbox: the work note is delivered once.
     res = ex.run_once(clock.now())

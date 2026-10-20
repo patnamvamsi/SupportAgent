@@ -22,6 +22,7 @@ from typing import Protocol, Self
 
 import sqlalchemy as sa
 
+from supportagent.app.outbox import Authorization
 from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
@@ -39,6 +40,7 @@ from supportagent.domain.kinds import (
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.event import Event
+from supportagent.domain.model.outbox import OutboxRow
 from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.proposal_state import (
     ProposalEvent,
@@ -75,6 +77,18 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
+class _Enqueuer(Protocol):
+    """``OutboxWriter.enqueue``: joins the gate's unit of work (BL-024)."""
+
+    def enqueue(
+        self,
+        authorization: Authorization,
+        spec: ActionSpec,
+        case_id: str,
+        trace: TraceContext,
+    ) -> OutboxRow: ...
+
+
 class GateService:
     """Mint and advance proposals under the INV-01 authorization model (10-wp)."""
 
@@ -90,6 +104,7 @@ class GateService:
         events: EventSink,
         catalog: Catalog,
         ttl: timedelta,
+        outbox: _Enqueuer | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -97,6 +112,7 @@ class GateService:
         self._events = events
         self._catalog = catalog
         self._ttl = ttl
+        self._outbox = outbox
 
     # --- submit -------------------------------------------------------------
 
@@ -124,7 +140,8 @@ class GateService:
         tenant_id = trace.tenant_id
 
         grant_eligible = kind not in NEVER_EXECUTABLE_KINDS and kind not in CUSTOMER_FACING_KINDS
-        if grant_eligible and self._grant_covers(tenant_id, kind, scope, now_ts):
+        grant_id = self._covering_grant(tenant_id, kind, scope, now_ts) if grant_eligible else None
+        if grant_id is not None:
             status = next_status(ProposalStatus.PROPOSED, ProposalEvent.GRANT_MATCHED)
         else:
             status = next_status(ProposalStatus.PROPOSED, ProposalEvent.SUBMITTED)
@@ -165,6 +182,25 @@ class GateService:
                 transition="submit",
                 ts=now,
             )
+            if grant_id is not None and self._outbox is not None:
+                # BL-024: a grant-authorized proposal is executable now. Its
+                # outbox row commits with it, like an approval's (ARCH §6.2).
+                self._outbox.enqueue(Authorization(policy_grant_id=grant_id), spec, case_id, trace)
+                status = next_status(status, ProposalEvent.OUTBOX_INSERTED)
+                self._uow.connection.execute(
+                    sa.text("UPDATE proposals SET status = :status WHERE id = :id"),
+                    {"status": status.value, "id": proposal_id},
+                )
+                self._append_gate_event(
+                    tenant_id=tenant_id,
+                    trace_id=trace.trace_id,
+                    span_id=trace.span_id,
+                    parent_span_id=trace.parent_span_id,
+                    proposal_id=proposal_id,
+                    actor="agent",
+                    transition="grant_enqueued",
+                    ts=now,
+                )
             self._uow.commit()
 
         return Proposal(
@@ -430,13 +466,15 @@ class GateService:
                 ) from exc
             raise
 
-    def _grant_covers(self, tenant_id: str, kind: ActionKind, scope: str, now_ts: int) -> bool:
-        """True when an approved, in-scope, unexpired policy grant covers the
-        (tenant, kind, scope) — the same predicate as trigger path 2."""
+    def _covering_grant(
+        self, tenant_id: str, kind: ActionKind, scope: str, now_ts: int
+    ) -> str | None:
+        """The approved, in-scope, unexpired policy grant covering the
+        (tenant, kind, scope), if any — the same predicate as trigger path 2."""
         with self._uow:
             row = self._uow.connection.execute(
                 sa.text(
-                    "SELECT 1 AS one FROM policy_grants "
+                    "SELECT id FROM policy_grants "
                     "WHERE tenant_id = :tenant_id AND action_kind = :kind "
                     "AND scope = :scope AND status = 'approved' "
                     "AND valid_to_ts IS NOT NULL AND valid_to_ts > :now_ts"
@@ -448,7 +486,7 @@ class GateService:
                     "now_ts": now_ts,
                 },
             ).first()
-        return row is not None
+        return None if row is None else str(row[0])
 
     # 8 keyword params == the Event's required fields (tenant/trace/span/
     # parent_span) + proposal_id + actor + transition + ts. Natural set, not a
