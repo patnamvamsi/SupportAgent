@@ -201,6 +201,7 @@ Alembic revisions live in `migrations/versions/`, named `NNNN_<slug>.py`, with l
 | 0005 | first_admin | WP-012 | v0.0 | `ux_role_assignments_bootstrap_admin` (shipped as 0005; shadow became 0006) |
 | 0006 | shadow | WP-014 | v0.0 | `shadow_records` |
 | 0007 | comms_drafts | WP-102 | v0.1 | `comms_drafts` (owner drafts while `human_owned`) |
+| 0008 | case_source | WP-111 | v0.1 | `cases.source` (storm grouping rule c) |
 | 0101 | memory | WP-108 | v0.1 | `nodes`, `edges`, `kb_fts` / `kb_docs` |
 | 0102 | feedback | WP-109 | v0.1 | `feedback` |
 | 0103 | rca | WP-110 | v0.1 | `rca_artifacts` |

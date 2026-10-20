@@ -44,7 +44,9 @@ from supportagent.ports.clock import Clock
 Mode = Literal["shadow", "assisted"]
 
 #: Reasons decided before the pre-classifier runs (ARCH §4 branch order).
-_BEFORE_PRECLASS = frozenset({"unresolved-service", "no-paging-integration", "spend-breaker"})
+_BEFORE_PRECLASS = frozenset(
+    {"unresolved-service", "no-paging-integration", "storm-member", "spend-breaker"}
+)
 _HIGH_BAND = frozenset({"P1", "P2"})
 
 

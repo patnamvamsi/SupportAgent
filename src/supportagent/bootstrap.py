@@ -89,12 +89,14 @@ from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.gate import GateService
+from supportagent.app.grouping import GroupingService
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
+from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.triage import TriageService
@@ -123,9 +125,12 @@ from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
+    GROUPS_CLOSE_INTERVAL_S,
+    GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
     JobResult,
+    groups_close,
     llm_deprecation_check,
     sync_poll,
     sync_poll_lease,
@@ -371,6 +376,8 @@ def _build_triage(config: AppConfig) -> TriageService:
         planner=CommsPlanner(
             uow=uow, ids=ids, gate=gate, plans=_comms(config).plans, tenant_id=config.tenant.id
         ),
+        grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
+        spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
     )
 
 
@@ -424,6 +431,7 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
     uow = uow if uow is not None else _build_uow(config)
     ids = ids if ids is not None else UlidIdGenerator()
     events = _event_sink(uow, master_key, clock)
+    catalog = _build_catalog(config)
     return ShadowRunner(
         uow=uow,
         clock=clock,
@@ -431,9 +439,13 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
         events=events,
         case_repo=CaseRepo(uow),
         classifier=_build_classifier(config, events, ids, clock, llm_provider),
-        catalog=_build_catalog(config),
+        catalog=catalog,
         repo=ShadowRepo(uow),
         tenant_constants=config.redaction.tenant_constants,
+        # WP-111: storm grouping and the spend breaker apply in shadow too, so
+        # the counterfactual (and the LLM bill) match assisted mode.
+        grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
+        spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
     )
 
 
@@ -606,6 +618,21 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         )
         for name in sn.tables
     ]
+    grouping = GroupingService(
+        uow=SqlUnitOfWork(engine),
+        ids=ids,
+        catalog=_build_catalog(config),
+        tenant_id=config.tenant.id,
+    )
+    jobs.append(
+        ScheduledJob(
+            name=GROUPS_CLOSE_LEASE,
+            interval_s=float(GROUPS_CLOSE_INTERVAL_S),
+            run=lambda: groups_close(
+                close=lambda: grouping.close_due(clock.now()), lease=lease, owner=owner
+            ),
+        )
+    )
     if config.llm.deprecation_feed:
         feed = load_deprecation_feed(Path(config.llm.deprecation_feed))
         slots = {name: slot.model_id for name, slot in config.llm.slots.items()}

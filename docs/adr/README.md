@@ -10,6 +10,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0004](0004-yaml-parsing-dependency.md) | PyYAML as the explicit runtime dependency for config parsing | accepted |
 | [0005](0005-t1-grant-scope-per-service.md) | T1 actions are scoped to the catalog service | accepted |
 | [0006](0006-no-paging-integration-safe-default.md) | A service without a paging integration safe-defaults as `no-paging-integration` | accepted |
+| [0007](0007-storm-member-safe-default.md) | A storm group's non-lead members safe-default as `storm-member` | accepted |
 
 ## Naming
 

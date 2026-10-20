@@ -41,6 +41,7 @@ _DecideReason = Literal[
     "unconfirmed-high-severity",
     "unresolved-service",
     "no-paging-integration",
+    "storm-member",
     "spend-breaker",
     "routed",
 ]

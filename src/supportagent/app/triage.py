@@ -20,7 +20,7 @@ the world through ``ports`` and pure ``domain``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
@@ -28,6 +28,7 @@ from typing import Protocol, Self
 from ulid import ULID
 
 from supportagent.app.classify import safe_default
+from supportagent.app.grouping import GroupOutcome
 from supportagent.app.propose import build_action_specs
 from supportagent.domain.events import EventKind
 from supportagent.domain.fingerprint import fingerprint
@@ -46,10 +47,11 @@ from supportagent.domain.model.triage import (
     Triaged,
     TriageDecision,
     TriageOutcome,
+    TriageResult,
 )
 from supportagent.domain.model.upsert import UpsertResult
 from supportagent.domain.routing import RoutingTable
-from supportagent.domain.severity import severity_escalated
+from supportagent.domain.severity import Severity, severity_escalated
 from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
@@ -131,6 +133,54 @@ class _Gate(Protocol):
     def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped: ...
 
 
+class TriageGrouping(Protocol):
+    """``GroupingService.assign`` (WP-111)."""
+
+    def assign(
+        self, case_id: str, *, service: str | None, source: str, now: datetime
+    ) -> GroupOutcome: ...
+
+
+class TriageSpend(Protocol):
+    """``SpendBreaker`` (WP-111)."""
+
+    budget: int
+
+    def allow(self, tenant_id: str, now: datetime) -> bool: ...
+
+
+def _upstream(evt: AlertEvent) -> str:
+    """The upstream source for grouping rule (c) (01 §7.8): adapter plus alert type.
+
+    The adapter alone (``servicenow``) is shared by every case, which would
+    make rule (c) group a whole storm. For ServiceNow the alert type is
+    ``u_alert_source``, the monitoring tool behind the record.
+    """
+    return f"{evt.source}:{evt.alert_type or evt.origin}"
+
+
+def _storm_member_decision(
+    lead_case_id: str | None, lead: Mapping[str, object] | None
+) -> TriageDecision:
+    """A storm member's safe default: the lead's labels as the suggestion."""
+    classification = lead.get("classification") if lead else None
+    severity = lead.get("severity") if lead else None
+    suggestion = None
+    if isinstance(classification, str) and isinstance(severity, str):
+        suggestion = TriageResult(
+            classification=classification,
+            severity=Severity(severity),
+            summary=f"storm group member; lead case {lead_case_id}",
+            confidence=0.0,
+        )
+    return safe_default(
+        "storm-member",
+        classification=suggestion.classification if suggestion else None,
+        severity=suggestion.severity if suggestion else None,
+        llm_suggestion=suggestion,
+    )
+
+
 class _Planner(Protocol):
     """``CommsPlanner``: a route's comms template → a plan proposal (WP-102)."""
 
@@ -158,6 +208,8 @@ class TriageService:
         catalog: Catalog,
         tenant_constants: Sequence[str] = (),
         planner: _Planner | None = None,
+        grouping: TriageGrouping | None = None,
+        spend: TriageSpend | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -167,6 +219,8 @@ class TriageService:
         self._classifier = classifier
         self._gate = gate
         self._planner = planner
+        self._grouping = grouping
+        self._spend = spend
         self._catalog = catalog
         self._unpaged = frozenset(catalog.unpaged_services())
         #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
@@ -228,10 +282,45 @@ class TriageService:
 
             service = self._resolve_service(evt)
             self._emit(root, EventKind.PRECLASS, _span("preclass"), {"v": 1, "service": service})
+            group = (
+                self._grouping.assign(case_id, service=service, source=_upstream(evt), now=now)
+                if self._grouping is not None and upsert.created
+                else None
+            )
+            if group is not None and group.group_id is not None:
+                self._emit(
+                    root,
+                    EventKind.DEDUP,
+                    _span("group"),
+                    {
+                        "v": 1,
+                        "group_id": group.group_id,
+                        "action": group.decision.action,
+                        "rule": group.decision.rule,
+                        "storm": group.decision.storm,
+                    },
+                )
             if service is not None and service in self._unpaged:
                 # ARCH §14 / ADR-0006: paging stays with the customer's own
                 # tooling, so a service without it is never triaged.
                 decision = safe_default("no-paging-integration")
+            elif group is not None and group.decision.storm_member:
+                # ARCH §4.3 / ADR-0007: one triage per storm group; members
+                # inherit the lead's labels as a suggestion, for a human.
+                decision = _storm_member_decision(group.lead_case_id, group.lead_decision)
+            elif (
+                service is not None
+                and self._spend is not None
+                and not self._spend.allow(evt.tenant_id, now)
+            ):
+                # ARCH §11: over the daily budget, safe-default without the LLM.
+                self._emit(
+                    root,
+                    EventKind.SPEND_BREAKER,
+                    _span("spend"),
+                    {"v": 1, "budget_tokens": self._spend.budget},
+                )
+                decision = safe_default("spend-breaker")
             else:
                 decision = self._classifier.decide(
                     evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
@@ -354,4 +443,10 @@ class TriageService:
         )
 
 
-__all__ = ["TriageCaseRepo", "TriageClassifier", "TriageService"]
+__all__ = [
+    "TriageCaseRepo",
+    "TriageClassifier",
+    "TriageGrouping",
+    "TriageService",
+    "TriageSpend",
+]
