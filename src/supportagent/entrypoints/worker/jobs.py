@@ -14,14 +14,17 @@ drives the executor, and releases the lease. It never runs SQL or HTTP itself
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
     from datetime import datetime
 
     from supportagent.app.outbox import ExecResult
     from supportagent.app.sync import SyncReport
+    from supportagent.domain.deprecation import DeprecationNotice
     from supportagent.ports.clock import Clock
     from supportagent.ports.leases import Lease
     from supportagent.ports.tickets import SnTable
@@ -133,13 +136,60 @@ def sync_poll(
     return JobResult(name=name, ran=True, rows=report.delivered)
 
 
+#: 02 §7: ``llm.deprecation_check`` runs daily (11-wp WP-106).
+LLM_DEPRECATION_LEASE = "llm.deprecation_check"
+LLM_DEPRECATION_INTERVAL_S = 86_400
+
+_log = logging.getLogger("supportagent.worker")
+
+
+def llm_deprecation_check(
+    *,
+    notices: Callable[[], Sequence[DeprecationNotice]],
+    lease: Lease,
+    owner: str,
+    lease_ttl_s: int = 300,
+) -> JobResult:
+    """Warn for every slot whose pinned model retires within 90 days (ARCH §9).
+
+    A retired slot is logged as an error. Its calls already safe-default
+    (``RetiredModelGuard``), and the operator has to re-pin and re-calibrate.
+    """
+    if not lease.acquire(name=LLM_DEPRECATION_LEASE, owner=owner, ttl_s=lease_ttl_s):
+        return JobResult(name=LLM_DEPRECATION_LEASE, ran=False)
+    try:
+        found = list(notices())
+        for n in found:
+            if n.status == "retired":
+                _log.error(
+                    "llm slot %s: model %s retired on %s; calls safe-default until re-pinned",
+                    n.slot,
+                    n.model_id,
+                    n.retires_on,
+                )
+            else:
+                _log.warning(
+                    "llm slot %s: model %s retires on %s (%d days): start the deprecation runbook",
+                    n.slot,
+                    n.model_id,
+                    n.retires_on,
+                    n.days_left,
+                )
+    finally:
+        lease.release(name=LLM_DEPRECATION_LEASE, owner=owner)
+    return JobResult(name=LLM_DEPRECATION_LEASE, ran=True, rows=len(found))
+
+
 __all__ = [
+    "LLM_DEPRECATION_INTERVAL_S",
+    "LLM_DEPRECATION_LEASE",
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
     "SYNC_POLL_LEASE_TTL_S",
     "Executor",
     "JobResult",
     "Poller",
+    "llm_deprecation_check",
     "outbox_execute",
     "sync_poll",
     "sync_poll_lease",

@@ -126,6 +126,14 @@ class LLMUnavailable(ExternalServiceError):
     """The LLM provider is down or unreachable."""
 
 
+class LLMCircuitOpen(LLMUnavailable):
+    """The LLM circuit breaker is open: degraded mode, no call made (11-wp WP-106)."""
+
+
+class LLMModelRetired(LLMUnavailable):
+    """The slot's pinned model is past its retirement date (ARCH §9)."""
+
+
 class LLMTimeout(ExternalServiceError):
     """The LLM call exceeded its deadline (01 §7.2)."""
 

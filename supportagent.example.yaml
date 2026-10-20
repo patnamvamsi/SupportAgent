@@ -37,6 +37,7 @@ llm:
       timeout_s: 15
       max_output_tokens: 400
   daily_budget_tokens: 2000000       # v0.1 enforces; v0.0 logs only
+  deprecation_feed: null             # v0.1: provider model-retirement feed (YAML); warns at T-90
 redaction:
   custom_patterns: []                # {name, regex}
   tenant_constants: []               # tenant-specific literals to redact

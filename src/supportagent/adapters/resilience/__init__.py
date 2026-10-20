@@ -1,1 +1,1 @@
-"""supportagent.adapters.resilience (01 §1 layout; content lands with its WP)."""
+"""Resilience decorators over ports (11-wp WP-106): retry and circuit breaking."""

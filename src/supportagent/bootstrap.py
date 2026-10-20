@@ -44,22 +44,32 @@ from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
+from supportagent.adapters.fakes.faults import FaultInjectingTicketSink
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
+from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import (
+    FaultInjectingLLMProvider,
     FixtureAnswer,
     FixtureLLMProvider,
     LLMClient,
+    RetiredModelGuard,
     SlotSpec,
     build_llm_client,
 )
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
+from supportagent.adapters.resilience.breaker import (
+    CircuitBreaker,
+    CircuitBreakerLLMProvider,
+    CircuitBreakerTicketSink,
+)
+from supportagent.adapters.resilience.retry import RetryingTicketSink
 from supportagent.adapters.servicenow.auth import (
     BasicAuth,
     OAuthClientCredentials,
@@ -69,6 +79,7 @@ from supportagent.adapters.servicenow.export import read_export
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
+from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
@@ -88,11 +99,14 @@ from supportagent.app.triage import TriageService
 from supportagent.config.loader import (
     load_config_default,
     load_config_offline,
+    load_fault_injection_default,
     load_master_key_default,
 )
 from supportagent.config.schema import AppConfig, RoutingRow
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
+from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
+from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
@@ -106,7 +120,14 @@ from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.worker.jobs import JobResult, sync_poll, sync_poll_lease
+from supportagent.entrypoints.worker.jobs import (
+    LLM_DEPRECATION_INTERVAL_S,
+    LLM_DEPRECATION_LEASE,
+    JobResult,
+    llm_deprecation_check,
+    sync_poll,
+    sync_poll_lease,
+)
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
 from supportagent.evals.harness import Manifest
@@ -117,7 +138,7 @@ from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
-from supportagent.ports.tickets import SnTable
+from supportagent.ports.tickets import SnTable, TicketSink
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -197,17 +218,20 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
     provider_override: LLMProvider | None = None,
     *,
     decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+    resilient: bool = True,
 ) -> LLMClient:
     """The redacting LLM client for the configured provider (01 §5, INV-06).
 
     ``provider_override`` is the test seam (a scripted provider); it is still
     wrapped in ``LLMClient``, so redaction and the ``llm`` event apply.
     ``decorate`` wraps the provider inside the client (the eval harness
-    records the redacted requests with it).
+    records the redacted requests with it). ``resilient`` adds the WP-106
+    chain around it (``_resilience``); the eval harness turns it off.
     """
+    chain = _compose(_resilience(config, clock) if resilient else None, decorate)
     if provider_override is not None:
         return LLMClient(
-            provider=decorate(provider_override) if decorate else provider_override,
+            provider=chain(provider_override) if chain else provider_override,
             redactor=Redactor(detectors=built_in_detectors()),
             prompts=PromptRegistry(root=Path(config.paths.prompts)),
             events=events,
@@ -239,7 +263,61 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
         ids=ids,
         clock=clock,
         slots=_classify_slots(config),
-        decorate=decorate,
+        decorate=chain,
+    )
+
+
+def _compose(
+    outer: Callable[[LLMProvider], LLMProvider] | None,
+    inner: Callable[[LLMProvider], LLMProvider] | None,
+) -> Callable[[LLMProvider], LLMProvider] | None:
+    """``outer(inner(provider))``; either side may be absent."""
+    if outer is None:
+        return inner
+    if inner is None:
+        return outer
+    return lambda provider: outer(inner(provider))
+
+
+def _resilience(config: AppConfig, clock: Clock) -> Callable[[LLMProvider], LLMProvider]:
+    """11-wp WP-106, outermost first: retired-model guard → breaker → faults → provider.
+
+    Injected faults sit inside the breaker, so an injected outage trips it
+    like a real one. The retired guard sits outside, so a retired model
+    never counts as the provider being down.
+    """
+    faults = {f.value for f in load_fault_injection_default() & LLM_FAULTS}
+    feed = (
+        load_deprecation_feed(Path(config.llm.deprecation_feed))
+        if (config.llm.deprecation_feed)
+        else {}
+    )
+    breaker = CircuitBreaker(clock=clock, name="llm")
+
+    def wrap(provider: LLMProvider) -> LLMProvider:
+        inner: LLMProvider = FaultInjectingLLMProvider(provider, faults) if faults else provider
+        guarded: LLMProvider = CircuitBreakerLLMProvider(inner, breaker)
+        return RetiredModelGuard(guarded, feed=feed, clock=clock) if feed else guarded
+
+    return wrap
+
+
+def build_ticket_sink(
+    config: AppConfig, *, clock: Clock, transport: httpx.BaseTransport | None = None
+) -> TicketSink:
+    """The write side of ServiceNow (assisted mode; shadow never builds it).
+
+    breaker → retry → faults → ``ServiceNowSink`` (11-wp WP-106). The retry
+    never repeats an ambiguous journal append (``RetryingTicketSink``).
+    """
+    sink: TicketSink = ServiceNowSink(
+        http=_servicenow_http(config, clock=clock, transport=transport)
+    )
+    faults = load_fault_injection_default() & SINK_FAULTS
+    if faults:
+        sink = FaultInjectingTicketSink(sink, faults)
+    return CircuitBreakerTicketSink(
+        RetryingTicketSink(sink), CircuitBreaker(clock=clock, name="servicenow")
     )
 
 
@@ -486,6 +564,20 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         )
         for name in sn.tables
     ]
+    if config.llm.deprecation_feed:
+        feed = load_deprecation_feed(Path(config.llm.deprecation_feed))
+        slots = {name: slot.model_id for name, slot in config.llm.slots.items()}
+        jobs.append(
+            ScheduledJob(
+                name=LLM_DEPRECATION_LEASE,
+                interval_s=float(LLM_DEPRECATION_INTERVAL_S),
+                run=lambda: llm_deprecation_check(
+                    notices=lambda: deprecation_notices(slots, feed, clock.now().date()),
+                    lease=lease,
+                    owner=owner,
+                ),
+            )
+        )
     return Worker(jobs)
 
 
@@ -690,7 +782,9 @@ class EvalPipeline:
             self._recorder = _RecordingProvider(inner)
             return self._recorder
 
-        llm = _build_llm(config, events, ids, self._clock, self._fixture, decorate=record)
+        llm = _build_llm(
+            config, events, ids, self._clock, self._fixture, decorate=record, resilient=False
+        )
         self._runner = ShadowRunner(
             uow=uow,
             clock=self._clock,

@@ -42,6 +42,7 @@ llm:
     entail:            {model_id: "<dated-snapshot-id>", timeout_s: 5,  max_output_tokens: 50}    # v0.1
     draft_comms:       {model_id: "<dated-snapshot-id>", timeout_s: 20, max_output_tokens: 600}   # v0.1
   daily_budget_tokens: 2000000          # spend breaker (v0.1); v0.0 logs only
+  deprecation_feed: null                # v0.1: path to {models: {<model_id>: {retires_on: YYYY-MM-DD}}}; warns at T-90, retired slots safe-default
 redaction:
   custom_patterns: []                   # [{name: acct_no, regex: "ACCT-\\d{8}"}]
   tenant_constants: []                  # literal strings normalised to <const>

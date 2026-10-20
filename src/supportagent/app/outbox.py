@@ -322,7 +322,15 @@ class OutboxExecutor:
         # INV-04: reconcile journal kinds against the external marker.
         key = str(claim.row["idempotency_key"])
         if claim.kind in JOURNAL_KINDS:
-            found = self._sink.find_marker(claim.table, claim.sys_id, marker(key))
+            try:
+                found = self._sink.find_marker(claim.table, claim.sys_id, marker(key))
+            except ExternalServiceError as exc:
+                # Nothing was sent: an outage during the reconciliation read is
+                # retried like a failed send (11-wp WP-106, INV-05).
+                attempts = claim.attempts + 1
+                if exc.retryable and attempts < self._max_attempts:
+                    return self._record_retry(claim, now, now_ts, attempts, f"reconcile: {exc}")
+                return self._finalize_failure(claim, now, attempts, f"reconcile failed: {exc}")
             if found is not None:
                 return self._record_done(claim, now, now_ts, found.as_text(), "reconciled")
         self._crash("after_reconcile")

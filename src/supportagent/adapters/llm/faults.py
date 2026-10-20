@@ -12,6 +12,7 @@ network call, and without the inner provider observing the request at all.
 from __future__ import annotations
 
 import os
+from collections.abc import Collection
 
 from supportagent.domain.errors import LLMRateLimited, LLMTimeout, LLMUnavailable
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
@@ -30,13 +31,24 @@ _ENV = "SUPPORTAGENT_FAULT_INJECT"
 
 
 class FaultInjectingLLMProvider:
-    """A decorator provider that injects a configured fault (04 §1)."""
+    """A decorator provider that injects a configured fault (04 §1).
 
-    def __init__(self, inner: LLMProvider) -> None:
+    ``faults`` is the parsed ``SUPPORTAGENT_FAULT_INJECT`` set (read by the
+    config loader, 11-wp WP-106). Without it the variable is read per call,
+    the v0.0 test seam.
+    """
+
+    def __init__(self, inner: LLMProvider, faults: Collection[str] | None = None) -> None:
         self._inner = inner
+        self._faults = None if faults is None else frozenset(str(f) for f in faults)
+
+    def _active(self) -> str | None:
+        if self._faults is None:
+            return os.getenv(_ENV)
+        return next((f for f in sorted(self._faults) if f.startswith("llm_")), None)
 
     def complete_json(self, request: ProviderRequest) -> ProviderResponse:
-        fault = os.getenv(_ENV)
+        fault = self._active()
         if fault in _FAULTS:
             raise _FAULTS[fault](f"injected fault: {fault}")  # noqa: TRY003
         if fault == "llm_garbage":

@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError
+from supportagent.domain.faults import Fault, parse_faults
 
 # 02 §1 secret sources: (section path, `*_env` key in the file, resolved field).
 _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
@@ -37,6 +38,7 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
 
 # 02 §1: the fixture provider is test/--demo only.
 _FIXTURE_ENV_VAR = "SUPPORTAGENT_ENV"
+_FAULT_ENV_VAR = "SUPPORTAGENT_FAULT_INJECT"
 _FIXTURE_ENV_VALUE = "test"
 
 # 03 §3: the AES-256-GCM master key that wraps the per-tenant data keys.
@@ -99,6 +101,15 @@ def load_config_offline(path: Path) -> AppConfig:
         return AppConfig.model_validate(resolved)
     except ValidationError as exc:
         raise ConfigError(f"config {path}: {exc}") from exc  # noqa: TRY003
+
+
+def load_fault_injection(env: Mapping[str, str]) -> frozenset[Fault]:
+    """``SUPPORTAGENT_FAULT_INJECT`` (11-wp WP-106): the faults to inject, or none."""
+    return parse_faults(env.get(_FAULT_ENV_VAR))
+
+
+def load_fault_injection_default() -> frozenset[Fault]:
+    return load_fault_injection(os.environ)
 
 
 def load_master_key(env: Mapping[str, str]) -> bytes:
