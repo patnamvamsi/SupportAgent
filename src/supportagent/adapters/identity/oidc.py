@@ -139,6 +139,10 @@ class OIDCClient:
             raise AuthenticationFailed(f"id token rejected: {exc}") from exc  # noqa: TRY003
         return dict(token.claims)
 
+    def discover(self) -> str:
+        """Fetch (or reuse) the discovery document; the verified issuer (``doctor`` oidc)."""
+        return str(self._discovery()["issuer"])
+
     def _discovery(self) -> dict[str, Any]:
         if self._metadata is None:
             url = self._issuer.rstrip("/") + "/.well-known/openid-configuration"

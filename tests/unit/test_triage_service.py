@@ -94,6 +94,7 @@ def _catalog() -> Catalog:
                 resources=["payments-api"],
                 owners=["team-payments"],
                 depends_on=[],
+                paging_integration="pagerduty:payments",
             ),
         ],
     )
@@ -139,19 +140,20 @@ class _Wired:
     fake: LLMProvider
 
 
-def _wire(
+def _wire(  # noqa: PLR0913, PLR0917
     uow: SqlUnitOfWork,
     clock: Any,
     ids: Any,
     aead: Any,
     fake: LLMProvider,
+    catalog: Catalog | None = None,
 ) -> _Wired:
     # ``aead`` (the fixture) is built over the SAME ``uow`` instance, so its
     # internal ``SqlKeyStore`` and this sink's writes share one active
     # connection inside ``TriageService``'s ``with uow:`` block.
     events = SqlEventSink(uow=uow, cipher=aead)
     case_repo = CaseRepo(uow)
-    catalog = _catalog()
+    catalog = catalog if catalog is not None else _catalog()
     llm_client = LLMClient(
         provider=fake,
         redactor=Redactor(detectors=built_in_detectors()),

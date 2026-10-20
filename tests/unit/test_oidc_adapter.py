@@ -183,3 +183,14 @@ def test_token_endpoint_error_is_authentication_failure(clock: Any) -> None:
     start = client.begin_login()
     with pytest.raises(AuthenticationFailed, match="token endpoint"):
         client.complete_login(code="bad", pending=start)
+
+
+def test_discover_returns_the_verified_issuer(client: OIDCClient) -> None:
+    # doctor oidc (02 §4.1).
+    assert client.discover() == ISSUER
+
+
+def test_discover_rejects_a_mismatched_issuer(client: OIDCClient, idp: _IdP) -> None:
+    idp.issuer_in_discovery = "https://evil.test"
+    with pytest.raises(AuthenticationFailed, match="issuer"):
+        client.discover()

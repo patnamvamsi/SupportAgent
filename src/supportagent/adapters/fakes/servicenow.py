@@ -321,7 +321,11 @@ class FakeServiceNowHTTP:
         self._journal: list[dict[str, Any]] = []
         self._faults: deque[tuple[int, dict[str, str], dict[str, Any] | None]] = deque()
         self._patch_count = 0  # number of successful PATCH writes (idempotency seam)
+        self._headers: dict[str, str] = {}  # sent on every table-list response
+        self._forbidden: set[str] = set()  # tables answering 403 (doctor ACL probes)
+        self.token_requests = 0  # OAuth client-credentials token fetches
         self._routes = [
+            Route("/oauth_token.do", self._token, methods=["POST"]),
             Route("/api/now/table/sys_audit", self._list_audit, methods=["GET"]),
             Route("/api/now/table/sys_journal_field", self._list_journal, methods=["GET"]),
             Route("/api/now/table/{table}/{sys_id}", self._record, methods=["GET", "PATCH"]),
@@ -340,6 +344,23 @@ class FakeServiceNowHTTP:
     ) -> None:
         """Queue a raw HTTP response (FIFO) returned before the real one."""
         self._faults.append((status, dict(headers or {}), body))
+
+    def seed_row(self, table: str, row: Mapping[str, object]) -> None:
+        """Any Table API row (``sys_user``, ``sys_security_acl``, …) keyed by its ``sys_id``."""
+        with self._lock:
+            values = {k: None if v is None else str(v) for k, v in row.items()}
+            key = values.get("sys_id") or f"row{len(self._rows.get(table, {}))}"
+            self._rows.setdefault(table, {})[key] = values
+
+    def set_response_headers(self, headers: Mapping[str, str]) -> None:
+        """Headers on every list response (e.g. ``X-RateLimit-Limit``)."""
+        with self._lock:
+            self._headers = dict(headers)
+
+    def forbid(self, table: str) -> None:
+        """Answer 403 for ``table`` (an integration user without read on it)."""
+        with self._lock:
+            self._forbidden.add(table)
 
     def seed_record(  # noqa: PLR0913
         self,
@@ -441,9 +462,22 @@ class FakeServiceNowHTTP:
         limit = int(request.query_params.get("sysparm_limit", "1000"))
         offset = int(request.query_params.get("sysparm_offset", "0"))
         with self._lock:
+            if table in self._forbidden:
+                return JSONResponse({"error": {"message": "forbidden"}}, status_code=403)
             rows = list(self._rows.get(table, {}).values())
+            headers = dict(self._headers)
         rows = self._filter(rows, query)[offset : offset + limit]
-        return JSONResponse({"result": rows, "count": len(rows)})
+        return JSONResponse({"result": rows, "count": len(rows)}, headers=headers)
+
+    async def _token(self, request: Request) -> JSONResponse:
+        """02 §6 OAuth token: any client-credentials form gets a 30-minute token."""
+        form = (await request.body()).decode()
+        if "grant_type=client_credentials" not in form:
+            return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+        with self._lock:
+            self.token_requests += 1
+        token = {"access_token": "fake-access-token", "token_type": "Bearer"}  # nosec B105 — fake
+        return JSONResponse({**token, "expires_in": 1800})
 
     async def _record(self, request: Request) -> JSONResponse:
         fault = self._fault_response()
@@ -530,11 +564,16 @@ class FakeServiceNowHTTP:
             if clause.startswith("ORDERBY"):
                 orderby.append(clause[len("ORDERBY") :].strip())
                 continue
-            for op in (">=", ">", "LIKE", "="):
-                idx = clause.find(op)
-                if idx > 0:
-                    conditions.append((op, clause[:idx].strip(), clause[idx + len(op) :].strip()))
-                    break
+            # The leftmost operator wins (``number=INC1`` is ``=``, not ``IN``);
+            # at the same position the longer one (``>=`` over ``>``).
+            found = [
+                (idx, -len(op), op)
+                for op in ("IN", ">=", ">", "LIKE", "=")
+                if (idx := clause.find(op)) > 0
+            ]
+            if found:
+                idx, _, op = min(found)
+                conditions.append((op, clause[:idx].strip(), clause[idx + len(op) :].strip()))
         return conditions, orderby
 
     @staticmethod
@@ -550,6 +589,8 @@ class FakeServiceNowHTTP:
             return a > expected
         if op == "=":
             return a == expected
+        if op == "IN":
+            return a in expected.split(",")
         return expected in a  # LIKE
 
     def _filter(self, rows: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:

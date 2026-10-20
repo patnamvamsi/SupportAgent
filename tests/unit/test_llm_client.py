@@ -96,3 +96,23 @@ def test_structured_returns_model_on_valid_payload(structured_llm: Any, events: 
     assert result.severity is Severity.P2
     llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
     assert llm_events and llm_events[0].status == "ok"
+
+
+def test_probe_sends_one_token_and_returns_the_resolved_model(
+    structured_llm: Any, fake_llm: Any, events: Any
+) -> None:
+    # doctor llm (02 §4.1): a 1-token call; no event, no trace.
+    resolved = structured_llm.probe("claude-sonnet-4-5-20250929")
+    (request,) = fake_llm.captured
+    assert request.model_id == "claude-sonnet-4-5-20250929"
+    assert request.max_output_tokens == 1
+    assert resolved  # whatever the provider reports, verbatim
+    assert events.appended == []
+
+
+def test_probe_propagates_provider_errors(structured_llm: Any, fake_llm: Any) -> None:
+    import pytest  # noqa: PLC0415
+
+    fake_llm.fail_with(LLMTimeout("deadline"))
+    with pytest.raises(LLMTimeout):
+        structured_llm.probe("claude-sonnet-4-5-20250929")

@@ -21,6 +21,10 @@ class FakeOIDC:
     def __init__(self) -> None:
         self._codes: dict[str, tuple[str, IdentityClaims]] = {}
 
+    def discover(self) -> str:
+        """The fake issuer is always reachable."""
+        return "https://fake-idp.test"
+
     def begin_login(self) -> LoginRequest:
         state = secrets.token_urlsafe(16)
         nonce = secrets.token_urlsafe(16)

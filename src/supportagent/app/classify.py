@@ -4,6 +4,9 @@
 pseudo-code order, each safe default named after its ARCH reason code:
 
 1. ``unresolved-service``  — the catalog couldn't resolve the case's service.
+   (``no-paging-integration`` — the service has no paging integration — is
+   decided by ``TriageService`` just after, before the classifier runs:
+   ARCH §14, ADR-0006.)
 2. ``llm-failure``         — the structured LLM returned no usable answer.
 3. ``classifier-conflict`` — pre-classifier and LLM disagree on the domain.
 4. ``low-calibrated-score``— the calibrated score is below the configured floor.
@@ -37,6 +40,7 @@ _DecideReason = Literal[
     "low-calibrated-score",
     "unconfirmed-high-severity",
     "unresolved-service",
+    "no-paging-integration",
     "spend-breaker",
     "routed",
 ]
@@ -63,7 +67,7 @@ class Classifier:
     def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision:
         # 1. unresolved-service: checked first, before the LLM is consulted.
         if case.service is None:
-            return _safe_default("unresolved-service")
+            return safe_default("unresolved-service")
 
         label = self.rule_set.classify(evt)
 
@@ -77,11 +81,11 @@ class Classifier:
         if llmres is None:
             # The pre-classifier ran: keep its label so abstain/conflict rates
             # (ARCH §4.2) are not skewed by LLM failures.
-            return _safe_default("llm-failure", preclass_label=label)
+            return safe_default("llm-failure", preclass_label=label)
 
         # 3. classifier-conflict: the pre-classifier and the LLM disagree on domain.
         if label is not None and not prefix_match(label, llmres.classification):
-            return _safe_default(
+            return safe_default(
                 "classifier-conflict",
                 classification=llmres.classification,
                 severity=llmres.severity,
@@ -92,7 +96,7 @@ class Classifier:
         agrees = label is not None and prefix_match(label, llmres.classification)
         score = calibrated_score(self.calibration, llmres.classification, agrees)
         if score < self.min_score:
-            return _safe_default(
+            return safe_default(
                 "low-calibrated-score",
                 classification=llmres.classification,
                 severity=llmres.severity,
@@ -103,7 +107,7 @@ class Classifier:
         # 5. unconfirmed-high-severity: LLM asserts P1/P2 without a pre-classifier
         #    label — cap it to a safe default carrying the LLM result as a suggestion.
         if label is None and llmres.severity in (Severity.P1, Severity.P2):
-            return _safe_default(
+            return safe_default(
                 "unconfirmed-high-severity",
                 classification=llmres.classification,
                 severity=llmres.severity,
@@ -125,7 +129,7 @@ class Classifier:
         )
 
 
-def _safe_default(  # noqa: PLR0913 — one optional field per ARCH §4 branch
+def safe_default(  # noqa: PLR0913 — one optional field per ARCH §4 branch
     reason: _DecideReason,
     *,
     classification: str | None = None,

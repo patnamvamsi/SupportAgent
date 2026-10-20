@@ -49,6 +49,10 @@ class SlotSpec:
     max_output_tokens: int
 
 
+_PROBE_SYSTEM = "Connectivity check. Reply with {}."
+_PROBE_USER = "{}"
+
+
 class LLMClient:
     """Render → redact → call → parse, recording events and never raising (01 §6)."""
 
@@ -169,6 +173,27 @@ class LLMClient:
             None,
         )
         return model
+
+    def probe(self, model_id: str) -> str:
+        """``doctor`` llm (02 §4.1): a 1-token call; returns the provider's resolved model.
+
+        The prompt is a fixed literal, still passed through the redactor so no
+        request reaches a provider unredacted (INV-06). It writes no event:
+        ``doctor`` runs outside any trace. Provider errors propagate, typed.
+        """
+        system = self._redactor.redact(_PROBE_SYSTEM).text
+        user = self._redactor.redact(_PROBE_USER).text
+        response = self._provider.complete_json(
+            ProviderRequest(
+                model_id=model_id,
+                system=system,
+                user=user,
+                json_schema={"type": "object"},
+                max_output_tokens=1,
+                timeout_s=10.0,
+            )
+        )
+        return response.resolved_model
 
     @staticmethod
     def _aggregate(system_result: RedactionResult, user_result: RedactionResult) -> dict[str, int]:

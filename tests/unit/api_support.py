@@ -38,6 +38,7 @@ def service(name: str) -> ServiceEntry:
         resources=[f"{name}-api"],
         owners=[f"team-{name}"],
         depends_on=[],
+        paging_integration=f"pagerduty:{name}",
     )
 
 

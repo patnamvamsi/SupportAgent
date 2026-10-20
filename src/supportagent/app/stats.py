@@ -16,8 +16,8 @@ Metrics, each with its denominator stated:
   proposed; a safe default never proposes and is not a latency sample.
 - **safe defaults**: count per reason, and safe defaults / decided cases.
 - **abstain rate**: pre-classifier abstentions / cases that reached the
-  pre-classifier (every decided case except ``unresolved-service`` and
-  ``spend-breaker``, which stop before it).
+  pre-classifier (every decided case except ``unresolved-service``,
+  ``no-paging-integration`` and ``spend-breaker``, which stop before it).
 - **conflict rate**: ``classifier-conflict`` / reached cases where the
   pre-classifier produced a label (conflict is only possible then).
 
@@ -44,7 +44,7 @@ from supportagent.ports.clock import Clock
 Mode = Literal["shadow", "assisted"]
 
 #: Reasons decided before the pre-classifier runs (ARCH §4 branch order).
-_BEFORE_PRECLASS = frozenset({"unresolved-service", "spend-breaker"})
+_BEFORE_PRECLASS = frozenset({"unresolved-service", "no-paging-integration", "spend-breaker"})
 _HIGH_BAND = frozenset({"P1", "P2"})
 
 

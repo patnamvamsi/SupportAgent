@@ -27,6 +27,7 @@ from typing import Protocol, Self
 
 from ulid import ULID
 
+from supportagent.app.classify import safe_default
 from supportagent.app.propose import build_action_specs
 from supportagent.domain.events import EventKind
 from supportagent.domain.fingerprint import fingerprint
@@ -159,6 +160,7 @@ class TriageService:
         self._classifier = classifier
         self._gate = gate
         self._catalog = catalog
+        self._unpaged = frozenset(catalog.unpaged_services())
         #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
         #: fingerprint (01 §7.2 step 5) so per-tenant literals don't split cases.
         self._tenant_constants = tuple(tenant_constants)
@@ -218,9 +220,14 @@ class TriageService:
 
             service = self._resolve_service(evt)
             self._emit(root, EventKind.PRECLASS, _span("preclass"), {"v": 1, "service": service})
-            decision = self._classifier.decide(
-                evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
-            )
+            if service is not None and service in self._unpaged:
+                # ARCH §14 / ADR-0006: paging stays with the customer's own
+                # tooling, so a service without it is never triaged.
+                decision = safe_default("no-paging-integration")
+            else:
+                decision = self._classifier.decide(
+                    evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
+                )
             severity_value = decision.severity.value if decision.severity is not None else None
             self._emit(
                 root,

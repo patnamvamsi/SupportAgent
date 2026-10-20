@@ -9,6 +9,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | 0003 | Provisional thresholds from the v0.0 shadow run | expected at the end of v0.0 (WP-016) |
 | [0004](0004-yaml-parsing-dependency.md) | PyYAML as the explicit runtime dependency for config parsing | accepted |
 | [0005](0005-t1-grant-scope-per-service.md) | T1 actions are scoped to the catalog service | accepted |
+| [0006](0006-no-paging-integration-safe-default.md) | A service without a paging integration safe-defaults as `no-paging-integration` | accepted |
 
 ## Naming
 

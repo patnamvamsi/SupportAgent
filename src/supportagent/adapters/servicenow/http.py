@@ -112,13 +112,16 @@ class ServiceNowHTTP:
                     f"{method} {path} -> {resp.status_code}",
                     retryable=True,
                     retry_after_s=retry_after,
+                    status=resp.status_code,
                 )
                 if is_last:
                     break
                 self._sleep(self._wait_s(attempt, retry_after))
                 continue
             # A non-retryable 4xx (400/401/403/404/...): fail fast (02 §5).
-            raise ServiceNowError(f"{method} {path} -> {resp.status_code}", retryable=False)  # noqa: TRY003
+            raise ServiceNowError(  # noqa: TRY003
+                f"{method} {path} -> {resp.status_code}", retryable=False, status=resp.status_code
+            )
         if last is None:  # pragma: no cover — the loop runs at least once
             raise ServiceNowError(f"{method} {path}: no attempt made", retryable=True)  # noqa: TRY003
         raise last
