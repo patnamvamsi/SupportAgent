@@ -8,11 +8,17 @@ Approve, exactly as 02 §2 specifies, within one UoW: load the proposal (must be
 
 ``GateService`` and ``OutboxWriter`` open their own ``with`` blocks on the same
 UoW; nested blocks join this one, so nothing commits until all of it succeeds.
+
+RBAC (11-wp WP-103): the decider's role grants must give ``DECIDE_PROPOSAL``
+over the proposal's case service. An approver scoped to ``service:payments``
+can't decide a ``search`` proposal. The check runs here, so the API and the
+UI forms share it.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Protocol, Self
@@ -20,10 +26,11 @@ from typing import Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.outbox import Authorization
-from supportagent.domain.errors import DomainValidationError, NotFound
+from supportagent.domain.errors import AuthorizationDenied, DomainValidationError, NotFound
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.outbox import OutboxRow
+from supportagent.domain.rbac import Permission, RoleGrant, can, service_role_scope
 from supportagent.domain.trace import TraceContext
 
 
@@ -75,10 +82,17 @@ class ApprovalService:
         self._tenant = tenant_id
 
     def approve(
-        self, proposal_id: str, approver_id: str, *, seen_hash: str, reason: str | None = None
+        self,
+        proposal_id: str,
+        approver_id: str,
+        *,
+        seen_hash: str,
+        grants: Collection[RoleGrant],
+        reason: str | None = None,
     ) -> Approved:
         with self._uow:
             spec, case_id, trace_id = self._spec_for(proposal_id)
+            _require_scope(grants, spec.target.service)
             approval_id = self._gate.approve(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason
             )
@@ -91,12 +105,21 @@ class ApprovalService:
             self._uow.commit()
         return Approved(approval_id=approval_id, outbox_id=row.id)
 
-    def reject(self, proposal_id: str, approver_id: str, *, seen_hash: str, reason: str) -> str:
+    def reject(
+        self,
+        proposal_id: str,
+        approver_id: str,
+        *,
+        seen_hash: str,
+        reason: str,
+        grants: Collection[RoleGrant],
+    ) -> str:
         """Reject with a required reason (02 §2: the reason is the feedback, ARCH §8.3)."""
         if not reason.strip():
             raise DomainValidationError("a rejection requires a reason")  # noqa: TRY003
         with self._uow:
-            self._spec_for(proposal_id)  # tenant-scoped existence check
+            spec, _, _ = self._spec_for(proposal_id)  # tenant-scoped existence check
+            _require_scope(grants, spec.target.service)
             approval_id = self._gate.reject(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason.strip()
             )
@@ -122,7 +145,7 @@ class ApprovalService:
         spec = ActionSpec(
             kind=ActionKind(row["action_kind"]),
             target=TargetRef(
-                service=str(row["service"]),
+                service=str(row["service"] or ""),
                 system="servicenow",
                 ref=str(row["external_id"]),
             ),
@@ -130,6 +153,14 @@ class ApprovalService:
             payload=json.loads(row["payload_json"]),
         )
         return spec, str(row["case_id"]), str(row["trace_id"])
+
+
+def _require_scope(grants: Collection[RoleGrant], service: str) -> None:
+    if not can(grants, Permission.DECIDE_PROPOSAL, service_role_scope(service or None)):
+        raise AuthorizationDenied(  # noqa: TRY003
+            f"your approver role doesn't cover service {service or '(unresolved)'!r}",
+            code="rbac",
+        )
 
 
 __all__ = ["ApprovalService", "Approved"]

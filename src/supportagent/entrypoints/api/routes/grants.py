@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from supportagent.app.setup import SessionUser
-from supportagent.domain.roles import Role
+from supportagent.domain.rbac import Permission
 from supportagent.entrypoints.api.context import ApiContext
-from supportagent.entrypoints.api.deps import context, require_role
+from supportagent.entrypoints.api.deps import context, require_permission
 
 router = APIRouter(prefix="/api/v1/grants")
-_admin = require_role(Role.ADMIN)
+_admin = require_permission(Permission.ADMINISTER)
 
 
 class ApproveGrant(BaseModel):

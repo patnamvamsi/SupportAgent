@@ -38,6 +38,7 @@ from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
     ConfigError,
+    DomainValidationError,
     NotFound,
 )
 from supportagent.domain.events import EventKind
@@ -45,6 +46,7 @@ from supportagent.domain.ids import IdPrefix
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.event import Event
+from supportagent.domain.rbac import Permission, RoleGrant, can, validate_scope
 from supportagent.domain.roles import Role, satisfies
 from supportagent.domain.scopes import DEFAULT_T1_KINDS, service_scope
 from supportagent.ports.clock import Clock
@@ -91,6 +93,10 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
+_ADMINS = "SELECT user_id FROM role_assignments WHERE tenant_id = :tenant AND role = 'admin'"
+_ADMINS_FOR_UPDATE = _ADMINS + " FOR UPDATE"
+
+
 @dataclass(frozen=True, slots=True)
 class SessionUser:
     """An authenticated, active user and the roles they hold in this tenant."""
@@ -100,10 +106,17 @@ class SessionUser:
     email: str
     name: str
     roles: frozenset[Role]
+    grants: frozenset[RoleGrant] = frozenset()
 
     def has_role(self, role: Role) -> bool:
         """True when a held role ranks at or above ``role`` (02 §2)."""
         return satisfies(self.roles, role)
+
+    def can(
+        self, permission: Permission, scope: str | None = None, *, anywhere: bool = False
+    ) -> bool:
+        """The WP-103 permission check over this user's scoped role grants."""
+        return can(self.grants, permission, scope, anywhere=anywhere)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,24 +265,39 @@ class SetupService:
         with self._uow:
             return self._load_user(self._uow.connection, user_id)
 
-    def assign_role(self, *, actor_id: str, user_id: str, role: Role) -> None:
-        """Grant ``role`` to ``user_id``; only an admin may (03 §2.1)."""
+    def assign_role(self, *, actor_id: str, user_id: str, role: Role, scope: str = "*") -> None:
+        """Grant ``role`` over ``scope`` to ``user_id``; only an admin may (03 §2.1).
+
+        Re-assigning a held role changes its scope. Service scopes must name a
+        catalog service.
+        """
+        validate_scope(role, scope)
+        if scope != "*" and scope.removeprefix("service:") not in {
+            s.name for s in self._catalog.services
+        }:
+            raise DomainValidationError(f"unknown service in scope {scope!r}")  # noqa: TRY003
         now = self._clock.now()
         with self._uow:
             conn = self._uow.connection
             self._require_admin(conn, actor_id)
             if self._load_user(conn, user_id) is None:
                 raise NotFound(f"user not found: {user_id!r}")  # noqa: TRY003
+            if role is not Role.ADMIN:
+                self._guard_last_admin(conn, user_id, losing=role)
             conn.execute(
                 sa.text(
                     "INSERT INTO role_assignments "
                     "(user_id, tenant_id, role, scope, granted_by, granted_ts) "
-                    "VALUES (:uid, :tenant, :role, '*', :actor, :now) ON CONFLICT DO NOTHING"
+                    "VALUES (:uid, :tenant, :role, :scope, :actor, :now) "
+                    "ON CONFLICT (user_id, tenant_id, role) DO UPDATE "
+                    "SET scope = excluded.scope, granted_by = excluded.granted_by, "
+                    "granted_ts = excluded.granted_ts"
                 ),
                 {
                     "uid": user_id,
                     "tenant": self._tenant,
                     "role": role.value,
+                    "scope": scope,
                     "actor": actor_id,
                     "now": int(now.timestamp()),
                 },
@@ -281,10 +309,61 @@ class SetupService:
                     "transition": "role_assigned",
                     "user_id": user_id,
                     "role": role.value,
+                    "scope": scope,
                 },
                 ts=now,
             )
             self._uow.commit()
+
+    def revoke_role(self, *, actor_id: str, user_id: str, role: Role) -> None:
+        """Remove ``role`` from ``user_id``; the tenant's last admin can't be removed."""
+        now = self._clock.now()
+        with self._uow:
+            conn = self._uow.connection
+            self._require_admin(conn, actor_id)
+            if role is Role.ADMIN:
+                self._guard_last_admin(conn, user_id, losing=role)
+            deleted = conn.execute(
+                sa.text(
+                    "DELETE FROM role_assignments "
+                    "WHERE user_id = :uid AND tenant_id = :tenant AND role = :role"
+                ),
+                {"uid": user_id, "tenant": self._tenant, "role": role.value},
+            ).rowcount
+            if not deleted:
+                raise NotFound(  # noqa: TRY003
+                    f"user {user_id!r} does not hold the {role.value} role"
+                )
+            self._emit(
+                actor=actor_id,
+                payload={
+                    "v": 1,
+                    "transition": "role_revoked",
+                    "user_id": user_id,
+                    "role": role.value,
+                },
+                ts=now,
+            )
+            self._uow.commit()
+
+    def _guard_last_admin(self, conn: sa.Connection, user_id: str, *, losing: Role) -> None:
+        """Refuse a change that would leave the tenant with no admin (11-wp WP-103).
+
+        On Postgres the admin rows are locked first, so two admins removing
+        each other concurrently can't both succeed; SQLite serializes writers.
+        """
+        if losing is not Role.ADMIN:
+            return
+        sql = _ADMINS_FOR_UPDATE if conn.dialect.name == "postgresql" else _ADMINS
+        admins = set(conn.execute(sa.text(sql), {"tenant": self._tenant}).scalars())
+        if admins == {user_id}:
+            raise DomainValidationError(  # noqa: TRY003
+                "the last admin can't be removed; make someone else admin first"
+            )
+
+    def service_names(self) -> list[str]:
+        """The catalog's services: the scopes a role can be limited to."""
+        return sorted(s.name for s in self._catalog.services)
 
     # --- setup grants -------------------------------------------------------
 
@@ -504,18 +583,23 @@ class SetupService:
         )
         if row is None:
             return None
-        roles = conn.execute(
-            sa.text(
-                "SELECT role FROM role_assignments WHERE user_id = :id AND tenant_id = :tenant"
-            ),
-            {"id": user_id, "tenant": self._tenant},
-        ).scalars()
+        grants = frozenset(
+            RoleGrant(Role(role), str(scope))
+            for role, scope in conn.execute(
+                sa.text(
+                    "SELECT role, scope FROM role_assignments "
+                    "WHERE user_id = :id AND tenant_id = :tenant"
+                ),
+                {"id": user_id, "tenant": self._tenant},
+            )
+        )
         return SessionUser(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
             email=str(row["email"]),
             name=str(row["name"]),
-            roles=frozenset(Role(r) for r in roles),
+            roles=frozenset(g.role for g in grants),
+            grants=grants,
         )
 
     def _default_grant(
