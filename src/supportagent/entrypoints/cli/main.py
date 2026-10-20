@@ -1,6 +1,7 @@
 """``supportagent`` CLI (typer). v0.0 surface: ``--version`` (WP-000),
-``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012). Commands for triage, doctor,
-evals and run land with their WPs (10-wp).
+``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012),
+``serve`` (WP-013). Commands for doctor, evals and the rest land with their
+WPs (10-wp).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import supportagent
 from supportagent.entrypoints.cli import grants as grants_command
 from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
+from supportagent.entrypoints.cli import serve as serve_command
 
 
 def _print_version(value: bool) -> None:
@@ -30,6 +32,8 @@ app = typer.Typer(
 app.command("migrate")(migrate_command.migrate)
 # 02 §4: ``supportagent replay <trace-id> [--json]`` (WP-004).
 app.command("replay")(replay_command.replay)
+# 02 §4: ``supportagent serve`` — the API + admin UI (WP-013).
+app.command("serve")(serve_command.serve)
 # 02 §4: ``supportagent grants request --from config`` (WP-012).
 app.add_typer(grants_command.app, name="grants")
 

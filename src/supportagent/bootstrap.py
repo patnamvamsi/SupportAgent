@@ -16,12 +16,14 @@ import hashlib
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import anthropic
 import httpx
 import openai
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from supportagent.adapters.crypto.aead import Aead
@@ -29,6 +31,7 @@ from supportagent.adapters.db.engine import make_engine
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
+from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
@@ -40,8 +43,11 @@ from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
 from supportagent.adapters.system.clock import SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
+from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.gate import GateService
+from supportagent.app.outbox import OutboxWriter
+from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.triage import TriageService
@@ -229,26 +235,67 @@ def config_marker(config: AppConfig) -> str:
     return f"config:{digest[:12]}"
 
 
-def _setup_factory(
-    config: AppConfig, master_key: bytes, clock: Clock, ids: IdGenerator
-) -> Callable[[], SetupService]:
-    """One ``SetupService`` (own UoW, key store, event sink) per call, one engine."""
-    engine = make_engine(config.database.url.get_secret_value())
-    catalog = _build_catalog(config)
+def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable for tests
+    engine: Engine,
+    *,
+    tenant_id: str,
+    catalog: Catalog,
+    master_key: bytes,
+    clock: Clock,
+    ids: IdGenerator,
+    identity: IdentityProvider,
+    session_secret: str,
+    secure_cookies: bool,
+    config_marker: str,
+    proposal_ttl: timedelta = timedelta(hours=24),
+    idp_label: str = "your identity provider",
+) -> ApiContext:
+    """The API's per-request factories over one engine (10-wp WP-012/013).
 
-    def make() -> SetupService:
+    Each factory call builds a fresh UoW with its own key store and event sink,
+    so concurrent requests never share a connection.
+    """
+
+    def _ports() -> tuple[SqlUnitOfWork, SqlEventSink]:
         uow = SqlUnitOfWork(engine)
         aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
+        return uow, SqlEventSink(uow=uow, cipher=aead)
+
+    def setup() -> SetupService:
+        uow, events = _ports()
         return SetupService(
-            uow=uow,
-            clock=clock,
-            ids=ids,
-            events=SqlEventSink(uow=uow, cipher=aead),
-            catalog=catalog,
-            tenant_id=config.tenant.id,
+            uow=uow, clock=clock, ids=ids, events=events, catalog=catalog, tenant_id=tenant_id
         )
 
-    return make
+    def approvals() -> ApprovalService:
+        uow, events = _ports()
+        gate = GateService(
+            uow=uow, clock=clock, ids=ids, events=events, catalog=catalog, ttl=proposal_ttl
+        )
+        writer = OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids)
+        return ApprovalService(uow=uow, gate=gate, outbox=writer, tenant_id=tenant_id)
+
+    def queries() -> AdminQueries:
+        return AdminQueries(uow=SqlUnitOfWork(engine), tenant_id=tenant_id)
+
+    def replay(trace_id: str) -> ReplayView:
+        uow, events = _ports()
+        with uow:  # read-only: never commits
+            return ReplayService(repo=events).replay(trace_id)
+
+    return ApiContext(
+        setup=setup,
+        approvals=approvals,
+        queries=queries,
+        replay=replay,
+        tenant_id=tenant_id,
+        identity=identity,
+        session_secret=session_secret,
+        secure_cookies=secure_cookies,
+        config_marker=config_marker,
+        clock=clock,
+        idp_label=idp_label,
+    )
 
 
 def build_api_context(
@@ -257,9 +304,8 @@ def build_api_context(
     identity: IdentityProvider | None = None,
     master_key: bytes | None = None,
 ) -> ApiContext:
-    """The API's wiring (10-wp WP-012). ``identity`` overrides the OIDC client (FakeOIDC)."""
+    """The API's wiring from config (10-wp WP-012). ``identity`` overrides OIDC (FakeOIDC)."""
     clock = SystemClock()
-    ids = UlidIdGenerator()
     key = master_key if master_key is not None else load_master_key_default()
     provider: IdentityProvider = identity or OIDCClient(
         issuer=config.identity.oidc_issuer,
@@ -269,22 +315,43 @@ def build_api_context(
         http=httpx.Client(timeout=10.0),
         clock=clock,
     )
-    return ApiContext(
-        setup=_setup_factory(config, key, clock, ids),
+    return api_context_for(
+        make_engine(config.database.url.get_secret_value()),
+        tenant_id=config.tenant.id,
+        catalog=_build_catalog(config),
+        master_key=key,
+        clock=clock,
+        ids=UlidIdGenerator(),
         identity=provider,
         session_secret=config.identity.session_secret.get_secret_value(),
         secure_cookies=config.identity.redirect_url.startswith("https://"),
         config_marker=config_marker(config),
-        clock=clock,
+        proposal_ttl=timedelta(hours=config.proposals.ttl_hours),
+        idp_label=urlparse(config.identity.oidc_issuer).hostname or "your identity provider",
     )
 
 
 def request_grants_from_config(config: AppConfig, *, master_key: bytes | None = None) -> list[str]:
     """``grants request --from config``: expand patterns, write ``requested`` rows (ARCH §6.4)."""
     key = master_key if master_key is not None else load_master_key_default()
-    make = _setup_factory(config, key, SystemClock(), UlidIdGenerator())
-    literals = expand_grant_requests(config.grants_request, _build_catalog(config))
-    return make().request_grants(literals, requested_by=config_marker(config))
+    catalog = _build_catalog(config)
+    engine = make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(engine)
+        clock = SystemClock()
+        aead = Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock)
+        setup = SetupService(
+            uow=uow,
+            clock=clock,
+            ids=UlidIdGenerator(),
+            events=SqlEventSink(uow=uow, cipher=aead),
+            catalog=catalog,
+            tenant_id=config.tenant.id,
+        )
+        literals = expand_grant_requests(config.grants_request, catalog)
+        return setup.request_grants(literals, requested_by=config_marker(config))
+    finally:
+        engine.dispose()
 
 
 def _migrations_root() -> Path:

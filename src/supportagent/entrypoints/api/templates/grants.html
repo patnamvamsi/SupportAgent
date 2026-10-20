@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block title %}Grants{% endblock %}
+{% block content %}
+<h1>Policy grants</h1>
+{% for status in ("requested", "approved", "revoked") %}
+<h2>{{ status | capitalize }}</h2>
+{% set rows = grants | selectattr("status", "equalto", status) | list %}
+{% if rows %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Scope</th><th>Kind</th><th>Requested by</th><th>Granted by</th><th>Valid to</th><th></th></tr></thead>
+  <tbody>{% for g in rows %}
+  <tr>
+    <td><code>{{ g.scope }}</code></td><td>{{ g.action_kind }}</td><td>{{ g.requested_by }}</td>
+    <td>{{ g.granted_by or "—" }}</td><td>{{ g.valid_to_ts | date }}</td>
+    <td>
+      {% if g.status == "requested" %}
+      <form class="inline" method="post" action="/ui/grants/{{ g.id }}/approve">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="valid_days" value="365">
+        <button type="submit">Approve</button>
+      </form>
+      {% endif %}
+      {% if g.status in ("requested", "approved") %}
+      <form class="inline" method="post" action="/ui/grants/{{ g.id }}/revoke">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Revoke</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">None.</p>{% endif %}
+{% endfor %}
+{% endblock %}

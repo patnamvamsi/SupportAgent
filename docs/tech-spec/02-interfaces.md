@@ -105,6 +105,8 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | POST | `/api/v1/cases/{id}/hand-back` | analyst | v0.1 | `human_owned → in_progress` |
 | GET/POST | `/api/v1/comms-plans/{id}[/approve]` | approver | v0.1 | Plan approval (`payload_hash = plan_hash`) |
 | GET | `/api/v1/stats?mode=shadow&window=30d` | viewer | v0.0 | Stats report (mode-separated) |
+| GET | `/api/v1/users` | admin | v0.0 | Users and their roles (added in WP-013) |
+| POST | `/api/v1/users/{id}/roles` | admin | v0.0 | Body `{role}`: grant a role. Every role change after the first admin is made by an admin (03 §2.1) |
 | POST | `/api/v1/webhooks/{source}` | HMAC | v0.1 | Generic webhook (`X-SA-Signature: sha256=<hex>`, `X-SA-Timestamp`, `X-SA-Nonce`) |
 
 **Approve semantics (exact):** within one UoW, load the proposal (must be `pending_approval`) and compare `body.payload_hash` with `proposal.payload_hash` (409 `stale_proposal` if they differ). Insert the approval; the DB trigger rejects self-approval and the API maps that to 403. Transition the proposal to `approved` and enqueue the outbox row with `approval_id`, then commit. The executor sends asynchronously.

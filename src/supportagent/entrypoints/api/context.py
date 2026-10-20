@@ -6,6 +6,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
+from supportagent.app.approvals import ApprovalService
+from supportagent.app.queries import AdminQueries
+from supportagent.app.replay import ReplayView
 from supportagent.app.setup import SetupService
 from supportagent.ports.clock import Clock
 from supportagent.ports.identity import IdentityProvider
@@ -13,9 +16,13 @@ from supportagent.ports.identity import IdentityProvider
 
 @dataclass(frozen=True)
 class ApiContext:
-    """Per-process wiring. ``setup`` is a factory: one service (and UoW) per request."""
+    """Per-process wiring. Services are factories: one service (and UoW) per call."""
 
     setup: Callable[[], SetupService]
+    approvals: Callable[[], ApprovalService]
+    queries: Callable[[], AdminQueries]
+    replay: Callable[[str], ReplayView]
+    tenant_id: str
     identity: IdentityProvider
     session_secret: str
     secure_cookies: bool
@@ -23,3 +30,4 @@ class ApiContext:
     clock: Clock
     session_ttl: timedelta = timedelta(hours=12)
     login_ttl: timedelta = timedelta(minutes=10)
+    idp_label: str = "your identity provider"

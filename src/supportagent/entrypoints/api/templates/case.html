@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}Case {{ c.case.id }}{% endblock %}
+{% block content %}
+<h1>Case {{ c.case.id }}</h1>
+<div class="grid">
+  <span class="muted">Status</span><span>{{ c.case.status }}</span>
+  <span class="muted">Service</span><span>{{ c.case.service or "unresolved" }}</span>
+  <span class="muted">Severity</span><span class="sev-{{ c.case.severity }}">{{ c.case.severity or "—" }}</span>
+  <span class="muted">Classification</span><span>{{ c.case.classification or "—" }}</span>
+  <span class="muted">Record</span><span>{{ c.case.external_table or "" }} {{ c.case.external_id or "" }}</span>
+  <span class="muted">Duplicates</span><span>{{ c.case.duplicate_count }}</span>
+  <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ c.case.trace_id }}">{{ c.case.trace_id }}</a></span>
+</div>
+
+<h2>Decision</h2>
+{% if c.decision %}
+<p>{{ c.decision.outcome }} · reason <strong>{{ c.decision.reason }}</strong>
+{% if c.decision.route_id %} · route {{ c.decision.route_id }}{% endif %}</p>
+{% if c.decision.llm_suggestion %}
+<p class="warn">LLM suggestion (not acted on):</p>
+<pre>{{ c.decision.llm_suggestion | tojson(indent=2) }}</pre>
+{% endif %}
+{% else %}<p class="muted">Not decided yet.</p>{% endif %}
+
+<h2>Proposals</h2>
+{% if c.proposals %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Proposal</th><th>Kind</th><th>Status</th><th>Scope</th></tr></thead>
+  <tbody>{% for p in c.proposals %}
+  <tr><td><a href="/ui/proposals/{{ p.id }}">{{ p.id }}</a></td><td>{{ p.action_kind }}</td><td>{{ p.status }}</td><td><code>{{ p.scope }}</code></td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No proposals.</p>{% endif %}
+
+<h2>Sends</h2>
+{% if c.outbox %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Outbox</th><th>Kind</th><th>Status</th><th>Attempts</th><th>External ref</th></tr></thead>
+  <tbody>{% for o in c.outbox %}
+  <tr><td>{{ o.id }}</td><td>{{ o.action_kind }}</td><td>{{ o.status }}</td><td>{{ o.attempts }}</td><td>{{ o.external_ref or "—" }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">Nothing sent.</p>{% endif %}
+
+<h2>Timeline</h2>
+<p>{% for kind, n in c.event_counts.items() %}<code>{{ kind }}</code> × {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+<p><a href="/api/v1/traces/{{ c.case.trace_id }}">Full replay</a></p>
+{% endblock %}

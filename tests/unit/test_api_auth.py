@@ -14,18 +14,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from supportagent.adapters.crypto.aead import Aead
-from supportagent.adapters.db.repos.blobs import SqlKeyStore
-from supportagent.adapters.db.repos.events import SqlEventSink
-from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.oidc import FakeOIDC
-from supportagent.app.setup import SetupService
-from supportagent.entrypoints.api.app import ApiContext, create_app
-from supportagent.ports.identity import IdentityClaims
-from tests.unit.test_setup_service import ADA, BOB, _catalog
-
-MARKER = "config:abc123def456"
-SECRET = "s" * 32
+from tests.unit.api_support import ADA, BOB, csrf, login, make_client
 
 
 @pytest.fixture
@@ -35,45 +25,7 @@ def oidc() -> FakeOIDC:
 
 @pytest.fixture
 def client(db: Any, clock: Any, ids: Any, master_key: bytes, oidc: FakeOIDC) -> TestClient:
-    def make_setup() -> SetupService:
-        # One UoW per request, as bootstrap wires it.
-        uow = SqlUnitOfWork(db)
-        aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
-        return SetupService(
-            uow=uow,
-            clock=clock,
-            ids=ids,
-            events=SqlEventSink(uow=uow, cipher=aead),
-            catalog=_catalog("payments"),
-            tenant_id="acme",
-        )
-
-    app = create_app(
-        ApiContext(
-            setup=make_setup,
-            identity=oidc,
-            session_secret=SECRET,
-            secure_cookies=False,
-            config_marker=MARKER,
-            clock=clock,
-        )
-    )
-    return TestClient(app)
-
-
-def login(client: TestClient, oidc: FakeOIDC, claims: IdentityClaims) -> None:
-    start = client.get("/auth/login", follow_redirects=False)
-    assert start.status_code == 302
-    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
-    code = oidc.authorize(state, claims)
-    done = client.get(f"/auth/callback?code={code}&state={state}", follow_redirects=False)
-    assert done.status_code == 303, done.text
-
-
-def csrf(client: TestClient) -> dict[str, str]:
-    token = client.cookies.get("sa_csrf")
-    assert token, "login sets the double-submit CSRF cookie"
-    return {"X-CSRF-Token": token}
+    return make_client(db, clock, ids, master_key, oidc)
 
 
 def test_oidc_login_creates_user(client: TestClient, oidc: FakeOIDC, db: Any) -> None:

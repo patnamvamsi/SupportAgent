@@ -190,7 +190,7 @@ class GateService:
         *,
         seen_hash: str,
         reason: str | None = None,
-    ) -> None:
+    ) -> str:
         """Record a human approval of a ``pending_approval`` proposal (01 §7.10).
 
         The approval is only valid against the payload hash the approver
@@ -230,7 +230,8 @@ class GateService:
                 )
             if seen_hash != stored_hash:
                 raise AuthorizationDenied(  # noqa: TRY003 — a stale hash cannot be signed
-                    f"payload hash mismatch for proposal {proposal_id!r}"
+                    f"payload hash mismatch for proposal {proposal_id!r}",
+                    code="stale_proposal",
                 )
 
             approved = next_status(current, ProposalEvent.APPROVED)
@@ -239,7 +240,7 @@ class GateService:
                 sa.text("UPDATE proposals SET status = :status WHERE id = :id"),
                 {"status": approved.value, "id": proposal_id},
             )
-            self._uow.connection.execute(
+            self._insert_approval(
                 sa.text(
                     "INSERT INTO approvals "
                     "(id, tenant_id, proposal_id, approver_id, status, payload_hash, "
@@ -270,6 +271,7 @@ class GateService:
                 ts=now,
             )
             self._uow.commit()
+        return approval_id
 
     # --- reject -------------------------------------------------------------
 
@@ -280,7 +282,7 @@ class GateService:
         *,
         seen_hash: str,
         reason: str | None = None,
-    ) -> None:
+    ) -> str:
         """Record a human rejection of a ``pending_approval`` proposal (01 §7.10).
 
         Mirrors ``approve``: the decision is only valid against the payload
@@ -325,7 +327,8 @@ class GateService:
                 )
             if seen_hash != stored_hash:
                 raise AuthorizationDenied(  # noqa: TRY003 — a stale hash cannot be decided
-                    f"payload hash mismatch for proposal {proposal_id!r}"
+                    f"payload hash mismatch for proposal {proposal_id!r}",
+                    code="stale_proposal",
                 )
 
             rejected = next_status(current, ProposalEvent.REJECTED)
@@ -334,7 +337,7 @@ class GateService:
                 sa.text("UPDATE proposals SET status = :status WHERE id = :id"),
                 {"status": rejected.value, "id": proposal_id},
             )
-            self._uow.connection.execute(
+            self._insert_approval(
                 sa.text(
                     "INSERT INTO approvals "
                     "(id, tenant_id, proposal_id, approver_id, status, payload_hash, "
@@ -365,6 +368,7 @@ class GateService:
                 ts=now,
             )
             self._uow.commit()
+        return approval_id
 
     # --- expire -------------------------------------------------------------
 
@@ -409,6 +413,22 @@ class GateService:
         return len(rows)
 
     # --- helpers ------------------------------------------------------------
+
+    def _insert_approval(self, statement: sa.TextClause, params: dict[str, object]) -> None:
+        """Insert an ``approvals`` row; ``trg_no_self_approval`` → ``AuthorizationDenied``.
+
+        The trigger (03 §2.3) is the enforcement; SQLite raises it as an
+        IntegrityError and Postgres as a raised exception, so match its message.
+        """
+        try:
+            self._uow.connection.execute(statement, params)
+        except sa.exc.DBAPIError as exc:
+            if "self-approval" in str(exc.orig):
+                raise AuthorizationDenied(  # noqa: TRY003
+                    f"approver {params['approver_id']!r} created this proposal",
+                    code="self_approval",
+                ) from exc
+            raise
 
     def _grant_covers(self, tenant_id: str, kind: ActionKind, scope: str, now_ts: int) -> bool:
         """True when an approved, in-scope, unexpired policy grant covers the

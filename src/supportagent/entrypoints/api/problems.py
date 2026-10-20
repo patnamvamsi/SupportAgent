@@ -41,7 +41,9 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(AuthorizationDenied)
     async def _forbidden(request: Request, exc: AuthorizationDenied) -> JSONResponse:
-        return problem(request, 403, exc.code, str(exc))
+        # 02 §2: a hash that differs from the current one is a 409, not a 403.
+        status = 409 if exc.code == "stale_proposal" else 403
+        return problem(request, status, exc.code, str(exc))
 
     @app.exception_handler(NotFound)
     async def _not_found(request: Request, exc: NotFound) -> JSONResponse:

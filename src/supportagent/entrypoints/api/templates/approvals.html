@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}Approvals{% endblock %}
+{% block content %}
+<h1>Pending approvals</h1>
+{% if proposals %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Severity</th><th>Kind</th><th>Target</th><th>Case</th><th>Age</th><th>Expires in</th></tr></thead>
+  <tbody>
+  {% for p in proposals %}
+  <tr>
+    <td class="sev-{{ p.severity }}">{{ p.severity or "—" }}</td>
+    <td><a href="/ui/proposals/{{ p.id }}">{{ p.action_kind }}</a><br><span class="muted">{{ p.id }}</span></td>
+    <td>{{ p.target_ref or "—" }}<br><span class="muted">{{ p.scope }}</span></td>
+    <td><a href="/ui/cases/{{ p.case_id }}">{{ p.case_id }}</a></td>
+    <td>{{ p.created_at_ts | age(now_ts) }}</td>
+    <td>{{ p.expires_ts | ttl(now_ts) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="muted">Nothing is waiting for approval.</p>
+{% endif %}
+{% endblock %}

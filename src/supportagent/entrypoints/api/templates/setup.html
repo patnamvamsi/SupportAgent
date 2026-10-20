@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+{% block title %}First-run setup{% endblock %}
+{% block content %}
+<h1>First-run setup</h1>
+<p>Default T1 grants: one per catalog service and internal T1 action. Until they are approved, every T1 action waits for a human approval.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Scope</th><th>Kind</th><th>Status</th></tr></thead>
+  <tbody>{% for g in state.default_grants %}
+  <tr><td><code>{{ g.scope }}</code></td><td>{{ g.kind.value }}</td><td class="{{ 'ok' if g.status == 'approved' else 'muted' }}">{{ g.status }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+<form method="post" action="/ui/setup/approve">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p><button class="primary" type="submit">Approve all default grants</button></p>
+</form>
+<p class="muted">Environment checks (<code>supportagent doctor</code>) appear here once doctor lands.</p>
+{% endblock %}
