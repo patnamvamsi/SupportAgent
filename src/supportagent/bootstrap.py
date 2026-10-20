@@ -13,6 +13,8 @@ app service) and returns the ``ReplayView``.
 from __future__ import annotations
 
 import hashlib
+import os
+import socket
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -31,8 +33,10 @@ from supportagent.adapters.db.engine import make_engine
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
+from supportagent.adapters.db.repos.leases import SqlLease
 from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.repos.shadow import ShadowRepo
+from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
@@ -42,7 +46,15 @@ from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_clie
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
+from supportagent.adapters.servicenow.auth import (
+    BasicAuth,
+    OAuthClientCredentials,
+    ServiceNowAuth,
+)
 from supportagent.adapters.servicenow.export import read_export
+from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
+from supportagent.adapters.servicenow.mapping import record_to_alert
+from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.app.approvals import ApprovalService
@@ -52,11 +64,13 @@ from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.setup import SetupService, expand_grant_requests
-from supportagent.app.shadow import ShadowRunner, import_history
+from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
 from supportagent.app.stats import StatsService
+from supportagent.app.sync import SyncService
 from supportagent.app.triage import TriageService
 from supportagent.config.loader import load_master_key_default
 from supportagent.config.schema import AppConfig, RoutingRow
+from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog
@@ -65,10 +79,14 @@ from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
+from supportagent.entrypoints.worker.jobs import JobResult, sync_poll, sync_poll_lease
+from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
+from supportagent.ports.llm import LLMProvider
+from supportagent.ports.tickets import SnTable
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -129,13 +147,39 @@ def _build_ruleset(config: AppConfig) -> RuleSet:
     return load_preclass_rules(Path(config.paths.taxonomy).parent / "preclass_rules.yaml")
 
 
+def _classify_slots(config: AppConfig) -> dict[SlotName, SlotSpec]:
+    slot = config.llm.slots[SlotName.CLASSIFY.value]
+    return {
+        SlotName.CLASSIFY: SlotSpec(
+            model_id=slot.model_id,
+            timeout_s=slot.timeout_s,
+            max_output_tokens=slot.max_output_tokens,
+        )
+    }
+
+
 def _build_llm(
     config: AppConfig,
     events: EventSink,
     ids: IdGenerator,
     clock: Clock,
+    provider_override: LLMProvider | None = None,
 ) -> LLMClient:
-    """The redacting LLM client for the configured provider (01 §5, INV-06)."""
+    """The redacting LLM client for the configured provider (01 §5, INV-06).
+
+    ``provider_override`` is the test seam (a scripted provider); it is still
+    wrapped in ``LLMClient``, so redaction and the ``llm`` event apply.
+    """
+    if provider_override is not None:
+        return LLMClient(
+            provider=provider_override,
+            redactor=Redactor(detectors=built_in_detectors()),
+            prompts=PromptRegistry(root=Path(config.paths.prompts)),
+            events=events,
+            ids=ids,
+            clock=clock,
+            slots=_classify_slots(config),
+        )
     provider = config.llm.provider
     api_key = config.llm.api_key
     sdk_client: anthropic.Anthropic | openai.OpenAI
@@ -151,7 +195,6 @@ def _build_llm(
         raise ConfigError(  # noqa: TRY003 — the v0.0 container wires only the two cloud providers
             f"container LLM wiring supports anthropic/openai; got '{provider}' (01 §5)"
         )
-    slot = config.llm.slots[SlotName.CLASSIFY.value]
     return build_llm_client(
         provider_name=provider,
         sdk_client=sdk_client,
@@ -160,23 +203,21 @@ def _build_llm(
         events=events,
         ids=ids,
         clock=clock,
-        slots={
-            SlotName.CLASSIFY: SlotSpec(
-                model_id=slot.model_id,
-                timeout_s=slot.timeout_s,
-                max_output_tokens=slot.max_output_tokens,
-            )
-        },
+        slots=_classify_slots(config),
     )
 
 
 def _build_classifier(
-    config: AppConfig, events: EventSink, ids: IdGenerator, clock: Clock
+    config: AppConfig,
+    events: EventSink,
+    ids: IdGenerator,
+    clock: Clock,
+    provider_override: LLMProvider | None = None,
 ) -> Classifier:
     """The ARCH §4 classifier: shipped pre-classifier rules, LLM, calibration, routing."""
     return Classifier(
         rule_set=_build_ruleset(config),
-        llm=_build_llm(config, events, ids, clock),
+        llm=_build_llm(config, events, ids, clock, provider_override),
         calibration=_build_calibration(config),
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
@@ -212,26 +253,132 @@ def _build_triage(config: AppConfig) -> TriageService:
     )
 
 
-def _build_shadow_runner(
-    config: AppConfig, *, clock: Clock, master_key: bytes | None = None
+def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
+    config: AppConfig,
+    *,
+    clock: Clock,
+    master_key: bytes | None = None,
+    uow: SqlUnitOfWork | None = None,
+    ids: IdGenerator | None = None,
+    llm_provider: LLMProvider | None = None,
 ) -> ShadowRunner:
     """Loop A without side effects (10-wp WP-014): the shadow-mode triage entry point."""
-    uow = _build_uow(config)
-    ids = UlidIdGenerator()
-    key = master_key if master_key is not None else load_master_key_default()
-    aead = Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock)
-    events = SqlEventSink(uow=uow, cipher=aead)
+    uow = uow if uow is not None else _build_uow(config)
+    ids = ids if ids is not None else UlidIdGenerator()
+    events = _event_sink(uow, master_key, clock)
     return ShadowRunner(
         uow=uow,
         clock=clock,
         ids=ids,
         events=events,
         case_repo=CaseRepo(uow),
-        classifier=_build_classifier(config, events, ids, clock),
+        classifier=_build_classifier(config, events, ids, clock, llm_provider),
         catalog=_build_catalog(config),
         repo=ShadowRepo(uow),
         tenant_constants=config.redaction.tenant_constants,
     )
+
+
+def _event_sink(uow: SqlUnitOfWork, master_key: bytes | None, clock: Clock) -> SqlEventSink:
+    key = master_key if master_key is not None else load_master_key_default()
+    return SqlEventSink(uow=uow, cipher=Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock))
+
+
+def _build_servicenow_source(
+    config: AppConfig, *, clock: Clock, transport: httpx.BaseTransport | None = None
+) -> ServiceNowSource:
+    """The read side of ServiceNow only (02 §6): shadow mode never builds a sink."""
+    sn = config.servicenow
+    auth: ServiceNowAuth
+    if isinstance(sn.auth, BasicAuthConfig):
+        auth = BasicAuth(
+            user=sn.auth.user.get_secret_value(), password=sn.auth.password.get_secret_value()
+        )
+    else:
+        auth = OAuthClientCredentials(
+            http=httpx.Client(transport=transport, timeout=10.0),
+            token_url=f"{sn.instance_url.rstrip('/')}/oauth_token.do",
+            client_id=sn.auth.client_id.get_secret_value(),
+            client_secret=sn.auth.client_secret.get_secret_value(),
+            clock=clock,
+        )
+    http = ServiceNowHTTP(http=build_client(sn.instance_url, transport=transport), auth=auth)
+    return ServiceNowSource(http=http)
+
+
+def _worker_owner() -> str:
+    """The lease owner for this process (03 §2.5): host and pid."""
+    return f"worker:{socket.gethostname()}:{os.getpid()}"
+
+
+def build_worker(  # noqa: PLR0913 — config plus the test seams
+    config: AppConfig,
+    *,
+    master_key: bytes | None = None,
+    clock: Clock | None = None,
+    ids: IdGenerator | None = None,
+    transport: httpx.BaseTransport | None = None,
+    llm_provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+) -> Worker:
+    """The shadow worker (02 §7, 10-wp WP-008/014): one ``sync.poll.<table>`` per table.
+
+    Each poll feeds ``ShadowInbound``: a new record runs through the shadow
+    runner, a change to a known record writes one ``sync`` event. v0.0 is
+    shadow-only (02 §1), so no ``TicketSink`` and no ``outbox.execute`` job is
+    built: nothing can reach ServiceNow except the read-only poll.
+    ``transport`` / ``llm_provider`` / ``engine`` are test seams.
+    """
+    if config.mode != "shadow":
+        raise ConfigError(  # noqa: TRY003 — the config mode gate already enforces this (02 §1)
+            f"v0.0 accepts only mode 'shadow'; got '{config.mode}' (02 §1, CAP §4.7)"
+        )
+    clock = clock if clock is not None else SystemClock()
+    ids = ids if ids is not None else UlidIdGenerator()
+    engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    key = master_key if master_key is not None else load_master_key_default()
+    runner_uow = SqlUnitOfWork(engine)
+    runner = _build_shadow_runner(
+        config, clock=clock, master_key=key, uow=runner_uow, ids=ids, llm_provider=llm_provider
+    )
+    inbound = ShadowInbound(
+        runner=runner,
+        uow=runner_uow,
+        cases=CaseRepo(runner_uow),
+        events=_event_sink(runner_uow, key, clock),
+        ids=ids,
+        clock=clock,
+        tenant_id=config.tenant.id,
+    )
+    sync_uow = SqlUnitOfWork(engine)
+    sn = config.servicenow
+    sync = SyncService(
+        tenant_id=config.tenant.id,
+        uow=sync_uow,
+        repo=SyncRepo(sync_uow),
+        source=_build_servicenow_source(config, clock=clock, transport=transport),
+        handler=inbound,
+        clock=clock,
+        integration_user=sn.integration_user,
+        to_alert=record_to_alert,
+        page_size=sn.page_size,
+        overlap_s=sn.overlap_s,
+    )
+    lease = SqlLease(SqlUnitOfWork(engine), clock)
+    owner = _worker_owner()
+
+    def poll(table: SnTable) -> Callable[[], JobResult]:
+        return lambda: sync_poll(poller=sync, table=table, lease=lease, owner=owner)
+
+    jobs = [
+        ScheduledJob(
+            name=sync_poll_lease(SnTable(name)),
+            interval_s=float(sn.poll_interval_s),
+            run=poll(SnTable(name)),
+        )
+        for name in sn.tables
+    ]
+    return Worker(jobs)
 
 
 def build_stats(config: AppConfig) -> StatsService:
@@ -269,6 +416,8 @@ def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
         # same Classifier and build_action_specs, no gate submit, no outbox.
         "ShadowRunner": lambda: _build_shadow_runner(config, clock=SystemClock()),
         "StatsService": lambda: build_stats(config),
+        # The shadow worker (02 §7): read-only ServiceNow poll → ShadowInbound.
+        "Worker": lambda: build_worker(config),
     }
 
 

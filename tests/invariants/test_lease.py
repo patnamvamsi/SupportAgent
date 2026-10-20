@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
-from supportagent.adapters.db.repos.leases import LeaseRepo
+from supportagent.adapters.db.repos.leases import LeaseRepo, SqlLease
 from supportagent.adapters.db.tables import leases
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.clock import FrozenClock
@@ -80,3 +80,16 @@ def test_lease_release(db: Engine, uow: SqlUnitOfWork, clock: FrozenClock) -> No
 
     owner, _ = _lease(db, "worker")
     assert owner == "b"
+
+
+def test_sql_lease_commits_each_call(db: Engine, clock: FrozenClock) -> None:
+    """``SqlLease`` (the worker's Lease port) is visible to other replicas at once."""
+    a = SqlLease(SqlUnitOfWork(db), clock)
+    b = SqlLease(SqlUnitOfWork(db), clock)
+    assert a.acquire(name="sync.poll.incident", owner="a", ttl_s=60) is True
+    assert _lease(db, "sync.poll.incident")[0] == "a"  # committed, seen on a new connection
+    assert b.acquire(name="sync.poll.incident", owner="b", ttl_s=60) is False
+    b.release(name="sync.poll.incident", owner="b")  # not the holder: a no-op
+    assert _lease(db, "sync.poll.incident")[0] == "a"
+    a.release(name="sync.poll.incident", owner="a")
+    assert b.acquire(name="sync.poll.incident", owner="b", ttl_s=60) is True

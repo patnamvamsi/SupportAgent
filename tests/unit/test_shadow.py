@@ -245,3 +245,40 @@ def test_shadow_container_swaps_in_the_shadow_runner() -> None:
     assert "ShadowRunner" in container and "StatsService" in container
     assert "TriageService" not in container
     assert "TicketSink" not in container
+
+
+def test_shadow_inbound_change_without_a_case_gets_its_own_trace(
+    uow: Any, clock: Any, ids: Any, aead: Any
+) -> None:
+    from supportagent.adapters.db.repos.cases import CaseRepo  # noqa: PLC0415
+    from supportagent.adapters.db.repos.events import SqlEventSink  # noqa: PLC0415
+    from supportagent.app.shadow import ShadowInbound  # noqa: PLC0415
+    from supportagent.domain.model.external import ExternalCaseRef  # noqa: PLC0415
+    from supportagent.domain.model.ticket import ChangeRecord  # noqa: PLC0415
+
+    captured: list[Any] = []
+
+    class _Capture:
+        def append(self, event: Any) -> None:
+            captured.append(event)
+            SqlEventSink(uow=uow, cipher=aead).append(event)
+
+    inbound = ShadowInbound(
+        runner=None,  # type: ignore[arg-type]  # on_changes never reaches the runner
+        uow=uow,
+        cases=CaseRepo(uow),
+        events=_Capture(),
+        ids=ids,
+        clock=clock,
+        tenant_id="acme",
+    )
+    change = ChangeRecord(
+        source="audit", user="bob", ts=clock.now(), fieldname="state", newvalue="6"
+    )
+    inbound.on_changes(ExternalCaseRef(table="incident", sys_id="unknown"), [change, change])
+    (event,) = captured
+    assert event.kind is EventKind.SYNC
+    assert event.trace_id == f"tr_{event.id}"
+    assert event.payload["case_id"] is None
+    assert (event.payload["rows"], event.payload["fields"]) == (2, ["state"])
+    assert "6" not in json.dumps(dict(event.payload)), "values stay in ServiceNow"

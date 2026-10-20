@@ -1,7 +1,7 @@
 # CI pipeline — 04-test-strategy §6 (jobs and gates; hard = merge blocked).
 #
 #   Parallel:  lint | typecheck | architecture | unit+property | contract | invariants[sqlite|postgres] | security
-#   Chain:     unit+property ─┬─► integration ─► e2e ─┬─► eval  (PRs touching prompts/taxonomy/config, 04 §6)
+#   Chain:     unit+property ─┬─► integration[sqlite|postgres] ─► e2e ─┬─► eval  (PRs touching prompts/taxonomy/config, 04 §6)
 #             invariants  ────┘                        └─► image (also needs security; --version must print 0.0.0)
 #
 # Suites that have not landed yet (contract/invariants/integration/e2e) are
@@ -132,6 +132,12 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     needs: [unit, invariants]
+    # Both engines, like the invariants (BL-027: a Postgres-only bug once
+    # passed a SQLite-only integration run).
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -141,13 +147,13 @@ jobs:
       - run: uv sync --frozen
       # Integration runs the app against a real DB (testcontainers) with
       # fake externals (04 §1): Docker socket + localhost, no other network.
-      - name: integration
+      - name: integration --db=${{ matrix.db }}
         run: |
           if [ ! -d tests/integration ]; then
             echo "tests/integration does not exist yet — it lands red-first with its WP (05 §2)"
             exit 0
           fi
-          uv run pytest -m integration \
+          uv run pytest -m integration --db=${{ matrix.db }} \
             --allow-unix-socket --allow-hosts=127.0.0.1,localhost
 
   e2e:
