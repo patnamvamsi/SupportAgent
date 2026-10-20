@@ -89,6 +89,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
+from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
 from supportagent.app.lifecycle import LifecycleService
@@ -585,6 +586,14 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         ids=ids,
         clock=clock,
         tenant_id=config.tenant.id,
+        feedback=FeedbackService(
+            uow=runner_uow,
+            clock=clock,
+            ids=ids,
+            events=inbound_events,
+            tenant_id=config.tenant.id,
+            integration_user=config.servicenow.integration_user,
+        ),
         lifecycle=LifecycleService(
             uow=runner_uow,
             clock=clock,
@@ -1011,7 +1020,15 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
             uow=uow, clock=clock, ids=ids, events=events, catalog=catalog, ttl=proposal_ttl
         )
         writer = OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids)
-        return ApprovalService(uow=uow, gate=gate, outbox=writer, tenant_id=tenant_id)
+        return ApprovalService(
+            uow=uow,
+            gate=gate,
+            outbox=writer,
+            tenant_id=tenant_id,
+            feedback=FeedbackService(
+                uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id
+            ),
+        )
 
     def queries() -> AdminQueries:
         return AdminQueries(uow=SqlUnitOfWork(engine), tenant_id=tenant_id)

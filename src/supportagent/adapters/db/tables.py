@@ -364,6 +364,20 @@ automation_actors = sa.Table(
     sa.Column("confirmed_ts", sa.Integer),
 )
 
+# 0010 (WP-109): the three feedback moments (ARCH §8.3).
+feedback = sa.Table(
+    "feedback",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("payload", sa.Text, nullable=False),
+    sa.Column("ts", sa.BigInteger, nullable=False),
+    sa.CheckConstraint("kind IN ('approval','diff','outcome')", name="ck_feedback_kind"),
+    sa.Index("ix_feedback_case", "tenant_id", "case_id", "kind"),
+)
+
 # 0009 (WP-113): webhook replay protection and the encrypted inbox.
 webhook_nonces = sa.Table(
     "webhook_nonces",

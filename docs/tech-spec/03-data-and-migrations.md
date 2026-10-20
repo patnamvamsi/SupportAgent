@@ -204,7 +204,7 @@ Alembic revisions live in `migrations/versions/`, named `NNNN_<slug>.py`, with l
 | 0008 | case_source | WP-111 | v0.1 | `cases.source` (storm grouping rule c) |
 | 0009 | webhooks | WP-113 | v0.1 | `webhook_nonces`, `webhook_inbox` (encrypted) |
 | 0101 | memory | WP-108 | v0.1 | `nodes`, `edges`, `kb_fts` / `kb_docs` |
-| 0102 | feedback | WP-109 | v0.1 | `feedback` |
+| 0010 | feedback | WP-109 | v0.1 | `feedback` (planned as 0102; v0.1 migrations continue the sequence) |
 | 0103 | rca | WP-110 | v0.1 | `rca_artifacts` |
 | 0201 | lineage | WP-205 | v0.2 | `versions` |
 | 0202 | two_person | WP-206 | v0.2 | `approvals` multi-approver support + trigger update |

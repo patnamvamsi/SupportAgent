@@ -60,6 +60,12 @@ class _Gate(Protocol):
     ) -> str: ...
 
 
+class _Feedback(Protocol):
+    def record_approval(
+        self, proposal_id: str, *, approver_id: str, decision: str, reason: str | None
+    ) -> None: ...
+
+
 class _Writer(Protocol):
     def enqueue(
         self, authorization: Authorization, spec: ActionSpec, case_id: str, trace: TraceContext
@@ -76,11 +82,29 @@ class Approved:
 class ApprovalService:
     """Human decisions on proposals; an approval enqueues its outbox row atomically."""
 
-    def __init__(self, *, uow: _UoW, gate: _Gate, outbox: _Writer, tenant_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        uow: _UoW,
+        gate: _Gate,
+        outbox: _Writer,
+        tenant_id: str,
+        feedback: _Feedback | None = None,
+    ) -> None:
         self._uow = uow
         self._gate = gate
         self._outbox = outbox
         self._tenant = tenant_id
+        self._feedback = feedback
+
+    def _record(
+        self, proposal_id: str, approver_id: str, decision: str, reason: str | None
+    ) -> None:
+        if self._feedback is not None:
+            # ARCH §8.3 ``approval`` moment, in this same UoW (WP-109).
+            self._feedback.record_approval(
+                proposal_id, approver_id=approver_id, decision=decision, reason=reason
+            )
 
     def approve(
         self,
@@ -97,6 +121,7 @@ class ApprovalService:
             approval_id = self._gate.approve(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason
             )
+            self._record(proposal_id, approver_id, "approved", reason)
             if spec.kind is ActionKind.COMMS_PLAN:
                 # ARCH §6.3: the approval *is* the plan's authorization; each
                 # cadence send is its own outbox row on the plan path (WP-102).
@@ -130,6 +155,7 @@ class ApprovalService:
             approval_id = self._gate.reject(
                 proposal_id, approver_id, seen_hash=seen_hash, reason=reason.strip()
             )
+            self._record(proposal_id, approver_id, "rejected", reason.strip())
             if spec.kind is ActionKind.COMMS_PLAN:
                 self._set_plan(proposal_id, status="rejected", approval_id=None)
             self._uow.commit()

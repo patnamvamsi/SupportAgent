@@ -60,6 +60,8 @@ EXPECTED_TABLES = frozenset(
         # WP-113 webhooks (0009).
         "webhook_nonces",
         "webhook_inbox",
+        # WP-109 feedback (0010).
+        "feedback",
         "alembic_version",
     }
 )
