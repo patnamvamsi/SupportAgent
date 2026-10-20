@@ -25,6 +25,7 @@ from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.providers import make_llm_provider
 from supportagent.adapters.llm.providers.fixture import FixtureAnswer, FixtureLLMProvider
 from supportagent.adapters.llm.redact import RedactionResult, Redactor
+from supportagent.adapters.llm.retirement import RetiredModelGuard
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
 from supportagent.domain.ids import IdPrefix
@@ -50,6 +51,7 @@ class SlotSpec:
     max_output_tokens: int
 
 
+_DEGRADED_ERRORS = frozenset({"LLMCircuitOpen", "LLMModelRetired"})
 _PROBE_SYSTEM = "Connectivity check. Reply with {}."
 _PROBE_USER = "{}"
 
@@ -238,6 +240,10 @@ class LLMClient:
         }
         if error is not None:
             payload["error"] = error
+            if error in _DEGRADED_ERRORS:
+                # 11-wp WP-106: the call was refused locally (breaker open or
+                # model retired), so the system is running degraded.
+                payload["degraded"] = True
         self._events.append(
             self._build_event(
                 kind=EventKind.LLM,
@@ -322,4 +328,12 @@ def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus th
 # The fixture provider is a scripted test double (ARCH §9): re-exported here so
 # composition code reaches it through the client module, and only ever passes
 # it *into* an ``LLMClient`` (redaction still runs; llm-providers-private).
-__all__ = ["FixtureAnswer", "FixtureLLMProvider", "LLMClient", "SlotSpec", "build_llm_client"]
+__all__ = [
+    "FaultInjectingLLMProvider",
+    "FixtureAnswer",
+    "FixtureLLMProvider",
+    "LLMClient",
+    "RetiredModelGuard",
+    "SlotSpec",
+    "build_llm_client",
+]

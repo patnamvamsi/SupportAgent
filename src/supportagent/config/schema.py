@@ -107,6 +107,8 @@ class LLM(DomainModel):
     base_url: str | None = None
     slots: dict[str, LLMSlot] = Field(min_length=1)
     daily_budget_tokens: int = Field(gt=0)
+    #: The provider's model deprecation feed (11-wp WP-106; ARCH §9 runbook).
+    deprecation_feed: str | None = None
 
     @model_validator(mode="after")
     def _provider_api_key_consistency(self) -> LLM:
