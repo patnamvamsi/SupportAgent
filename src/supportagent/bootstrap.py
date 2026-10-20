@@ -51,6 +51,7 @@ from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
+from supportagent.adapters.files.gates_loader import load_promotion_gate
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
@@ -126,6 +127,7 @@ from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
+from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
@@ -1013,6 +1015,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     proposal_ttl: timedelta = timedelta(hours=24),
     idp_label: str = "your identity provider",
     webhook_sources: Mapping[str, WebhookSource] | None = None,
+    promotion_gate: PromotionGate | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -1090,6 +1093,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         lifecycle=lifecycle,
         comms_plans=comms_plans,
         webhooks=webhooks,
+        promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
         session_secret=session_secret,
@@ -1131,7 +1135,14 @@ def build_api_context(
         proposal_ttl=timedelta(hours=config.proposals.ttl_hours),
         idp_label=urlparse(config.identity.oidc_issuer).hostname or "your identity provider",
         webhook_sources=_webhook_sources(config),
+        promotion_gate=_promotion_gate(config),
     )
+
+
+def _promotion_gate(config: AppConfig) -> PromotionGate:
+    """``paths.gates`` when present; otherwise the CAP §4.7 provisional defaults."""
+    path = Path(config.paths.gates)
+    return load_promotion_gate(path) if path.is_file() else PromotionGate()
 
 
 def _webhook_sources(config: AppConfig) -> dict[str, WebhookSource]:

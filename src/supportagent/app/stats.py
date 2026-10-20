@@ -38,6 +38,7 @@ from typing import Literal, Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.domain.errors import DomainValidationError
+from supportagent.domain.promotion import PromotionGate, PromotionResult, evaluate
 from supportagent.domain.stats import wilson_lower_bound
 from supportagent.ports.clock import Clock
 
@@ -84,6 +85,25 @@ class LatencyStat:
     n: int
     p50: int | None
     p95: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class FatigueStat:
+    """Approval fatigue (CAP §4.1, 11-wp WP-115): measured, not assumed.
+
+    ``approve_time_s`` is from proposal creation to the human approval
+    (median and p90, nearest-rank). ``one_click_rate`` is the share of human
+    approvals with no reason given, the rubber-stamp proxy.
+    """
+
+    approvals: int
+    rejections: int
+    approve_time_p50_s: int | None
+    approve_time_p90_s: int | None
+    one_click_rate: float | None
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +189,34 @@ class StatsService:
             conflict_rate=_rate(conflicts, len(with_label)),
         )
 
+    def promotion(self, gate: PromotionGate, *, window: timedelta | None = None) -> PromotionResult:
+        """CAP §4.7: the shadow promotion gate on the agreement lower bounds."""
+        report = self.report(window=window, mode="shadow")
+        bands = {k: (v.agreed, v.n) for k, v in report.agreement_by_band.items()}
+        return evaluate((report.agreement.agreed, report.agreement.n), bands, gate)
+
+    def fatigue(self, *, window: timedelta | None = None) -> FatigueStat:
+        """Approval fatigue over human decisions on proposals (excludes grant auto-approvals)."""
+        since = None if window is None else int((self._clock.now() - window).timestamp())
+        sql = (
+            "SELECT a.status, a.reason, a.approved_at_ts - p.created_at_ts AS wait "
+            "FROM approvals a JOIN proposals p ON p.id = a.proposal_id "
+            "WHERE a.tenant_id = :tenant"
+        )
+        if since is not None:
+            sql += " AND a.approved_at_ts >= :since"
+        rows = self._fetch(sql, since)
+        approved = [r for r in rows if r["status"] == "approved"]
+        waits = [max(0, int(r["wait"])) for r in approved]
+        one_click = sum(1 for r in approved if not (r["reason"] or "").strip())
+        return FatigueStat(
+            approvals=len(approved),
+            rejections=sum(1 for r in rows if r["status"] == "rejected"),
+            approve_time_p50_s=percentile(waits, 0.50),
+            approve_time_p90_s=percentile(waits, 0.90),
+            one_click_rate=_rate(one_click, len(approved)),
+        )
+
     def _shadow_rows(self, since: int | None) -> list[sa.RowMapping]:
         sql = (
             "SELECT s.alert_received_ts AS received, s.first_proposal_ts AS first, "
@@ -202,6 +250,7 @@ class StatsService:
 
 __all__ = [
     "AgreementStat",
+    "FatigueStat",
     "LatencyStat",
     "StatsReport",
     "StatsService",

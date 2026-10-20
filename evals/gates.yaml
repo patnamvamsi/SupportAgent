@@ -1,0 +1,9 @@
+# Release and promotion gates (ARCH §11, CAP §4.7). Every number is
+# PROVISIONAL until ADR-0003 sets it from the v0.0 shadow run on the
+# partner's last 50 incidents; flip `provisional` to false then.
+version: 1
+promotion:                 # shadow -> assisted (WP-115); the partner still decides
+  provisional: true
+  overall: {min_lower_bound: 0.75, min_cases: 60}
+  bands:
+    P1-P2: {min_lower_bound: 0.75, min_cases: 20}
