@@ -139,6 +139,9 @@ def test_promotion_api(db: Any, clock: Any, ids: Any, master_key: bytes) -> None
 # --- quickstart -------------------------------------------------------------
 
 _BLOCK = re.compile(r"```bash\n(.*?)```", re.DOTALL)
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+#: Plain, wide help output on every terminal (CI renders Rich colour otherwise).
+_PLAIN = {"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200", "FORCE_COLOR": ""}
 
 
 def _commands() -> list[list[str]]:
@@ -168,9 +171,9 @@ def test_quickstart_commands_valid() -> None:
         path = [a for a in args if not a.startswith("-")]
         # Walk to the deepest subcommand that exists (positional args follow it).
         depth = len(path)
-        while depth and runner.invoke(app, [*path[:depth], "--help"]).exit_code != 0:
+        while depth and runner.invoke(app, [*path[:depth], "--help"], env=_PLAIN).exit_code:
             depth -= 1
         assert depth, f"unknown command: supportagent {' '.join(args)}"
-        help_text = runner.invoke(app, [*path[:depth], "--help"]).output
+        help_text = _ANSI.sub("", runner.invoke(app, [*path[:depth], "--help"], env=_PLAIN).output)
         for flag in (a.split("=", 1)[0] for a in args if a.startswith("--")):
             assert flag in help_text, f"supportagent {' '.join(path[:depth])}: no {flag}"
