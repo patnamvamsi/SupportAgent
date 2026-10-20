@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field
 
 from supportagent.domain.errors import DomainValidationError
+from supportagent.domain.hashing import payload_hash
 from supportagent.domain.model.base import DomainModel
 
 
@@ -46,3 +47,33 @@ class CalibrationTable(DomainModel):
     snapshot_id: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
     labels: dict[str, CalibrationLabelRow]
+    #: WP-105: the eval report that produced the counts, and the checksum that binds them.
+    report_id: str | None = None
+    signature: str | None = None
+
+    def computed_signature(self) -> str:
+        """sha256 over the counts and the report id (WP-105).
+
+        A checksum against hand edits, not a cryptographic signature: the eval
+        runner holds no key. Editing a count, the grade, the model or the
+        report id changes it.
+        """
+        body = {
+            "version": self.version,
+            "grade": self.grade,
+            "snapshot_id": self.snapshot_id,
+            "model_id": self.model_id,
+            "report_id": self.report_id,
+            "labels": {
+                label: {
+                    side: None if count is None else {"n": count.n, "correct": count.correct}
+                    for side, count in (("agree", row.agree), ("abstain", row.abstain))
+                }
+                for label, row in sorted(self.labels.items())
+            },
+        }
+        return payload_hash(body)
+
+    def signed(self, report_id: str) -> CalibrationTable:
+        unsigned = self.model_copy(update={"report_id": report_id, "signature": None})
+        return unsigned.model_copy(update={"signature": unsigned.computed_signature()})

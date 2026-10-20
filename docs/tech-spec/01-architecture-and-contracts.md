@@ -429,12 +429,14 @@ Golden tests: `(35, 35) ≥ 0.900`, `(49, 50) ≈ 0.895`, `(24, 30) ≈ 0.627`, 
 
 ### 7.7 `calibrated_score(label, preclass_agrees)`
 
-Reads `evals/artifacts/calibration.json`, which the quality suite produces (WP-105):
+Reads `evals/artifacts/calibration.json`, which the quality suite produces (WP-105). A `holdout` table must carry `report_id` and `signature` (sha256 over version, grade, snapshot, model, report id and counts); the loader rejects a missing or mismatched signature, so hand-edited counts never load. This is a checksum against edits, not a cryptographic signature:
 
 ```json
 {"version": 3, "grade": "holdout", "snapshot_id": "snap-2026-11-02", "model_id": "...",
  "labels": {"database/saturation": {"agree": {"n": 41, "correct": 39},
-                                     "abstain": {"n": 18, "correct": 15}}}}
+                                     "abstain": {"n": 18, "correct": 15}}},
+ "report_id": "20261102T0900Z-quality-live",
+ "signature": "<sha256 of the counts + report_id>"}
 ```
 
 `score = wilson_lower_bound(correct, n)` for the row that applies (`agree` if the pre-classifier agrees, `abstain` if it abstained). The score is **0.0** if the label is missing, if that row is missing, or if `n < 10` (prov.). This is the fail-closed rule in ARCH §4.2, made precise in [ADR-0002](../adr/0002-calibrated-score-definition.md).

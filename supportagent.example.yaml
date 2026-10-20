@@ -43,7 +43,7 @@ redaction:
   tenant_constants: []               # tenant-specific literals to redact
 calibration:
   path: evals/artifacts/calibration.json
-  min_grade: smoke                   # smoke (v0.0) | holdout (v0.1+)
+  min_grade: smoke                   # smoke (v0.0); holdout for the v0.1 release, once the partner holdout exists (BL-037)
   min_score: 0.80
 paths:
   taxonomy: taxonomy/classification.yaml

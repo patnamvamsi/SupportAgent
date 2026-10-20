@@ -13,7 +13,8 @@ are LLM failures, which have no prediction.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Literal
 
 from supportagent.domain.classification import prefix_match
 from supportagent.domain.model.calibration import (
@@ -21,12 +22,17 @@ from supportagent.domain.model.calibration import (
     CalibrationLabelRow,
     CalibrationTable,
 )
+from supportagent.domain.quality import CaseOutcome
 from supportagent.evals.cases import EvalCase
 from supportagent.evals.scoring import CaseRun
 
 
 def build_calibration(
-    pairs: Sequence[tuple[EvalCase, CaseRun]], *, model_id: str, snapshot_id: str
+    pairs: Sequence[tuple[EvalCase, CaseRun]],
+    *,
+    model_id: str,
+    snapshot_id: str,
+    report_id: str | None = None,
 ) -> CalibrationTable:
     counts: dict[str, dict[str, list[int]]] = defaultdict(
         lambda: {"agree": [0, 0], "abstain": [0, 0]}
@@ -46,6 +52,52 @@ def build_calibration(
         cell = counts[predicted][row]
         cell[0] += 1
         cell[1] += int(prefix_match(truth, predicted))
+    table = _table(counts, grade="smoke", model_id=model_id, snapshot_id=snapshot_id)
+    return table.signed(report_id) if report_id else table
+
+
+def build_holdout_calibration(
+    outcomes: Sequence[CaseOutcome],
+    preclass: Mapping[str, str | None],
+    *,
+    model_id: str,
+    snapshot_id: str,
+    report_id: str,
+) -> CalibrationTable:
+    """WP-105: ``grade: holdout`` counts from the quality suite, signed with its report id.
+
+    One observation per **case** (its majority prediction), keyed the same way
+    as the smoke table: the predicted label's ``agree`` row (the
+    pre-classifier's label matched it) or ``abstain`` row (it abstained).
+    """
+    counts: dict[str, dict[str, list[int]]] = defaultdict(
+        lambda: {"agree": [0, 0], "abstain": [0, 0]}
+    )
+    for outcome in outcomes:
+        predicted = outcome.classification
+        if predicted is None:
+            continue
+        label = preclass.get(outcome.case_id)
+        if label is None:
+            row = "abstain"
+        elif prefix_match(label, predicted):
+            row = "agree"
+        else:
+            continue  # conflict: never routes, not evidence
+        cell = counts[predicted][row]
+        cell[0] += 1
+        cell[1] += int(outcome.classification_correct)
+    table = _table(counts, grade="holdout", model_id=model_id, snapshot_id=snapshot_id)
+    return table.signed(report_id)
+
+
+def _table(
+    counts: Mapping[str, Mapping[str, list[int]]],
+    *,
+    grade: Literal["smoke", "holdout"],
+    model_id: str,
+    snapshot_id: str,
+) -> CalibrationTable:
     labels = {
         label: CalibrationLabelRow(
             agree=CalibrationCountRow(n=rows["agree"][0], correct=rows["agree"][1])
@@ -58,8 +110,8 @@ def build_calibration(
         for label, rows in sorted(counts.items())
     }
     return CalibrationTable(
-        version=1, grade="smoke", snapshot_id=snapshot_id, model_id=model_id, labels=labels
+        version=1, grade=grade, snapshot_id=snapshot_id, model_id=model_id, labels=labels
     )
 
 
-__all__ = ["build_calibration"]
+__all__ = ["build_calibration", "build_holdout_calibration"]

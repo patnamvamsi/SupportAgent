@@ -46,4 +46,15 @@ def load_calibration(
         raise ConfigError(  # noqa: TRY003 — message is the pinned load API (ADR-0002)
             f"calibration {path}: grade {table.grade!r} is below the required {min_grade!r}"
         )
+    # WP-105: a holdout table must carry its signature; any signed table is verified.
+    if table.grade == "holdout" and (table.signature is None or table.report_id is None):
+        raise ConfigError(  # noqa: TRY003
+            f"calibration {path}: a holdout table must be signed (report_id + signature); "
+            "write it with `eval run --suite quality --live --write-calibration`"
+        )
+    if table.signature is not None and table.signature != table.computed_signature():
+        raise ConfigError(  # noqa: TRY003
+            f"calibration {path}: signature mismatch; the counts were edited after the eval "
+            "run that produced them. Re-run the suite instead."
+        )
     return table

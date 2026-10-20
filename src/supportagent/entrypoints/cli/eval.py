@@ -30,7 +30,7 @@ from supportagent.bootstrap import (
 from supportagent.config.loader import load_config_offline
 from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError
-from supportagent.evals.calibration import build_calibration
+from supportagent.evals.calibration import build_calibration, build_holdout_calibration
 from supportagent.evals.cases import EvalCase
 from supportagent.evals.harness import Manifest, run_suite, select, write_report
 from supportagent.evals.quality import baseline_from, run_quality, write_quality_report
@@ -90,6 +90,7 @@ def run(  # noqa: PLR0913, PLR0917 — one option per 02 §4 flag
             root=manifest.parent,
             out_dir=out_dir,
             as_json=as_json,
+            write_calibration=write_calibration,
         )
         return
     with tempfile.TemporaryDirectory() as workdir:
@@ -102,7 +103,10 @@ def run(  # noqa: PLR0913, PLR0917 — one option per 02 §4 flag
     report = write_report(out_dir, result, manifest=spec, model_id=pipeline.model_id, now=now)
     if write_calibration:
         table = build_calibration(
-            result.pairs, model_id=pipeline.model_id, snapshot_id=spec.snapshot_id
+            result.pairs,
+            model_id=pipeline.model_id,
+            snapshot_id=spec.snapshot_id,
+            report_id=report.parent.name,
         )
         target = out_dir / "calibration.json"
         target.write_text(table.model_dump_json(indent=2) + "\n", encoding="utf-8")
@@ -133,6 +137,7 @@ def _quality(  # noqa: PLR0913 — the quality run's inputs
     root: Path,
     out_dir: Path,
     as_json: bool,
+    write_calibration: bool = False,
 ) -> None:
     """ARCH §11 quality suite: N samples, per-case majority, LB over cases, gates."""
     snapshot_id = snapshot or spec.snapshot_id
@@ -156,6 +161,21 @@ def _quality(  # noqa: PLR0913 — the quality run's inputs
         recall=detector_recall(heldout) if heldout.is_file() else None,
     )
     path = write_quality_report(out_dir, report, now=wall_clock().now())
+    if write_calibration:
+        indexes = {c.id: i for i, c in enumerate(cases)}
+        table = build_holdout_calibration(
+            report.outcomes,
+            {
+                o.case_id: sampler.preclass(cases[indexes[o.case_id]], indexes[o.case_id])
+                for o in report.outcomes
+            },
+            model_id=sampler.model_id,
+            snapshot_id=snapshot_id,
+            report_id=path.parent.name,
+        )
+        target = out_dir / "calibration.json"
+        target.write_text(table.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        typer.echo(f"calibration written: {target} ({len(table.labels)} labels, grade holdout)")
     hits, misses = sampler.cache_stats
     if as_json:
         typer.echo(json.dumps(report.as_dict(), indent=2))
