@@ -17,7 +17,8 @@ invalid ones impossible to persist.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from types import TracebackType
+from typing import Protocol, Self
 
 import sqlalchemy as sa
 
@@ -59,13 +60,19 @@ class _UoW(Protocol):
     explicit ``commit`` (commit is explicit, never implicit — 10-wp).
     """
 
-    connection: Any
+    @property
+    def connection(self) -> sa.Connection: ...
 
     def commit(self) -> None: ...
 
-    def __enter__(self) -> _UoW: ...
+    def __enter__(self) -> Self: ...
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...
 
 
 class GateService:

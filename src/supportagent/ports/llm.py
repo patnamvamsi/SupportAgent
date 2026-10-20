@@ -20,10 +20,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
+from supportagent.domain.model.base import DomainModel
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
 
-TModel = TypeVar("TModel")
+# Bound to ``DomainModel`` so the application-facing seam and the concrete
+# ``LLMClient`` (which needs the pydantic bound to call ``model_json_schema``)
+# are structurally compatible; the ports layer still names only domain types.
+TModel = TypeVar("TModel", bound=DomainModel)
 
 
 @dataclass(frozen=True, slots=True)
