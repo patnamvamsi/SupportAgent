@@ -142,7 +142,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | `supportagent stats [--mode shadow\|assisted] [--window 30d] [--json]` | v0.0 | Mode-separated report | |
 | `supportagent eval run --suite smoke\|invariants\|quality [--snapshot ID] [--samples N] [--write-calibration]` | v0.0 smoke / v0.1 quality | Runs the suite; writes `evals/artifacts/<run>/report.json` | 0 pass, 1 gate fail |
 | `supportagent grants request --from config` | v0.0 | Writes `requested` grants from `grants_request` (patterns expanded via catalog) | |
-| `supportagent shadow import <export.jsonl>` | v0.0 | Replays partner historical tickets through the shadow runner | |
+| `supportagent shadow import <export.jsonl>` | v0.0 | Replays partner historical tickets through the shadow runner. One JSON object per line: `{"table"?, "record": {Table API fields incl. opened_at}, "human": {classification, severity, first_action_at}}` (`adapters/servicenow/export.py`) | |
 
 ### 4.1 `doctor` checks
 

@@ -32,6 +32,7 @@ from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
 from supportagent.adapters.db.repos.outbox import OutboxRepo
+from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
@@ -41,7 +42,8 @@ from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_clie
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
-from supportagent.adapters.system.clock import SystemClock
+from supportagent.adapters.servicenow.export import read_export
+from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
@@ -50,6 +52,8 @@ from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.setup import SetupService, expand_grant_requests
+from supportagent.app.shadow import ShadowRunner, import_history
+from supportagent.app.stats import StatsService
 from supportagent.app.triage import TriageService
 from supportagent.config.loader import load_master_key_default
 from supportagent.config.schema import AppConfig, RoutingRow
@@ -58,6 +62,7 @@ from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
+from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.slots import SlotName
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.ports.clock import Clock
@@ -165,23 +170,27 @@ def _build_llm(
     )
 
 
-def _build_triage(config: AppConfig) -> TriageService:
-    """The full triage graph on one shared unit of work (10-wp WP-011)."""
-    uow = _build_uow(config)
-    clock = SystemClock()
-    ids = UlidIdGenerator()
-    master_key = load_master_key_default()
-    aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
-    events = SqlEventSink(uow=uow, cipher=aead)
-    case_repo = CaseRepo(uow)
-    catalog = _build_catalog(config)
-    classifier = Classifier(
+def _build_classifier(
+    config: AppConfig, events: EventSink, ids: IdGenerator, clock: Clock
+) -> Classifier:
+    """The ARCH §4 classifier: shipped pre-classifier rules, LLM, calibration, routing."""
+    return Classifier(
         rule_set=_build_ruleset(config),
         llm=_build_llm(config, events, ids, clock),
         calibration=_build_calibration(config),
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
     )
+
+
+def _build_triage(config: AppConfig) -> TriageService:
+    """The live triage graph on one shared unit of work (10-wp WP-011; assisted mode)."""
+    uow = _build_uow(config)
+    clock = SystemClock()
+    ids = UlidIdGenerator()
+    aead = Aead(master_key=load_master_key_default(), keys=SqlKeyStore(uow), clock=clock)
+    events = SqlEventSink(uow=uow, cipher=aead)
+    catalog = _build_catalog(config)
     gate = GateService(
         uow=uow,
         clock=clock,
@@ -195,12 +204,47 @@ def _build_triage(config: AppConfig) -> TriageService:
         clock=clock,
         ids=ids,
         events=events,
-        case_repo=case_repo,
-        classifier=classifier,
+        case_repo=CaseRepo(uow),
+        classifier=_build_classifier(config, events, ids, clock),
         gate=gate,
         catalog=catalog,
         tenant_constants=config.redaction.tenant_constants,
     )
+
+
+def _build_shadow_runner(
+    config: AppConfig, *, clock: Clock, master_key: bytes | None = None
+) -> ShadowRunner:
+    """Loop A without side effects (10-wp WP-014): the shadow-mode triage entry point."""
+    uow = _build_uow(config)
+    ids = UlidIdGenerator()
+    key = master_key if master_key is not None else load_master_key_default()
+    aead = Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock)
+    events = SqlEventSink(uow=uow, cipher=aead)
+    return ShadowRunner(
+        uow=uow,
+        clock=clock,
+        ids=ids,
+        events=events,
+        case_repo=CaseRepo(uow),
+        classifier=_build_classifier(config, events, ids, clock),
+        catalog=_build_catalog(config),
+        repo=ShadowRepo(uow),
+        tenant_constants=config.redaction.tenant_constants,
+    )
+
+
+def build_stats(config: AppConfig) -> StatsService:
+    """``StatsService`` on the configured database (10-wp WP-014)."""
+    return StatsService(uow=_build_uow(config), clock=SystemClock(), tenant_id=config.tenant.id)
+
+
+def shadow_import(config: AppConfig, export: Path) -> list[ShadowRecord]:
+    """``shadow import``: replay a partner export through shadow at each ``opened_at``."""
+    clock = ReplayClock()
+    runner = _build_shadow_runner(config, clock=clock)
+    incidents = read_export(export, tenant_id=config.tenant.id)
+    return import_history(incidents, runner=runner, clock=clock)
 
 
 def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
@@ -221,7 +265,10 @@ def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
         "Catalog": lambda: _build_catalog(config),
         "RoutingTable": lambda: _build_routing(config),
         "CalibrationTable": lambda: _build_calibration(config),
-        "TriageService": lambda: _build_triage(config),
+        # Shadow mode swaps the ShadowRunner in for TriageService (10-wp WP-011):
+        # same Classifier and build_action_specs, no gate submit, no outbox.
+        "ShadowRunner": lambda: _build_shadow_runner(config, clock=SystemClock()),
+        "StatsService": lambda: build_stats(config),
     }
 
 
@@ -278,6 +325,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def queries() -> AdminQueries:
         return AdminQueries(uow=SqlUnitOfWork(engine), tenant_id=tenant_id)
 
+    def stats() -> StatsService:
+        return StatsService(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     def replay(trace_id: str) -> ReplayView:
         uow, events = _ports()
         with uow:  # read-only: never commits
@@ -287,6 +337,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         setup=setup,
         approvals=approvals,
         queries=queries,
+        stats=stats,
         replay=replay,
         tenant_id=tenant_id,
         identity=identity,

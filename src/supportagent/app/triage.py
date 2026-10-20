@@ -84,7 +84,7 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
-class _CaseRepo(Protocol):
+class TriageCaseRepo(Protocol):
     """The case repository ``TriageService`` reads and updates (01 §7)."""
 
     def get(self, case_id: str) -> dict[str, object] | None: ...
@@ -116,7 +116,7 @@ class _CaseRepo(Protocol):
     ) -> None: ...
 
 
-class _Classifier(Protocol):
+class TriageClassifier(Protocol):
     """The classifier ``TriageService`` delegates the decision to (ARCH §4)."""
 
     routing: RoutingTable
@@ -145,8 +145,8 @@ class TriageService:
         clock: Clock,
         ids: IdGenerator,
         events: EventSink,
-        case_repo: _CaseRepo,
-        classifier: _Classifier,
+        case_repo: TriageCaseRepo,
+        classifier: TriageClassifier,
         gate: _Gate,
         catalog: Catalog,
         tenant_constants: Sequence[str] = (),
@@ -335,4 +335,4 @@ class TriageService:
         )
 
 
-__all__ = ["TriageService"]
+__all__ = ["TriageCaseRepo", "TriageClassifier", "TriageService"]

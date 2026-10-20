@@ -75,7 +75,9 @@ class Classifier:
             trace,
         )
         if llmres is None:
-            return _safe_default("llm-failure")
+            # The pre-classifier ran: keep its label so abstain/conflict rates
+            # (ARCH §4.2) are not skewed by LLM failures.
+            return _safe_default("llm-failure", preclass_label=label)
 
         # 3. classifier-conflict: the pre-classifier and the LLM disagree on domain.
         if label is not None and not prefix_match(label, llmres.classification):

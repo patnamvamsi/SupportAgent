@@ -19,6 +19,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
 from supportagent.app.setup import SessionUser
+from supportagent.app.stats import Mode as StatsMode
+from supportagent.app.stats import parse_window
 from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
@@ -60,7 +62,17 @@ _ENV = Environment(
     autoescape=select_autoescape(["html"]),
     auto_reload=False,
 )
-_ENV.filters.update(age=_age, ttl=_ttl, date=_date)
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{value * 100:.1f}%"
+
+
+def _secs(value: int | None) -> str:
+    return "—" if value is None else f"{value}s"
+
+
+_ENV.filters.update(age=_age, ttl=_ttl, date=_date, pct=_pct, secs=_secs)
 
 _STATUS_TITLES = {403: "Forbidden", 404: "Not found", 409: "Conflict", 422: "Invalid"}
 
@@ -228,6 +240,21 @@ def grants_page(request: Request, ctx: ApiContext = Depends(context)) -> Respons
         return _render(request, ctx, "grants.html", user, grants=ctx.queries().grants())
 
     return _page(request, ctx, Role.ADMIN, build)
+
+
+@router.get("/ui/stats")
+def stats_page(
+    request: Request,
+    mode: str = "shadow",
+    window: str = "30d",
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def build(user: SessionUser) -> Response:
+        chosen: StatsMode = "assisted" if mode == "assisted" else "shadow"
+        report = ctx.stats().report(window=parse_window(window), mode=chosen)
+        return _render(request, ctx, "stats.html", user, r=report, window=window)
+
+    return _page(request, ctx, Role.VIEWER, build)
 
 
 # --- form posts -------------------------------------------------------------

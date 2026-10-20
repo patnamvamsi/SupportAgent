@@ -10,6 +10,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayView
 from supportagent.app.setup import SetupService
+from supportagent.app.stats import StatsService
 from supportagent.ports.clock import Clock
 from supportagent.ports.identity import IdentityProvider
 
@@ -21,6 +22,7 @@ class ApiContext:
     setup: Callable[[], SetupService]
     approvals: Callable[[], ApprovalService]
     queries: Callable[[], AdminQueries]
+    stats: Callable[[], StatsService]
     replay: Callable[[str], ReplayView]
     tenant_id: str
     identity: IdentityProvider

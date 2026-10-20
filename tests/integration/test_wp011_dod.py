@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 
 from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
@@ -198,20 +199,28 @@ def _evt(**overrides: object) -> AlertEvent:
 def _seed_grant(db: Any, *, scope: str = _SCOPE, grant_id: str = _GRANT_ID) -> None:
     """An approved, in-scope, unexpired policy grant (trigger path 2)."""
     with db.begin() as conn:
-        conn.exec_driver_sql(
-            "INSERT INTO users (id, tenant_id, email, name, is_active, created_ts) "
-            "VALUES ('user_ada', 'acme', 'ada@acme.test', 'Ada', 1, 0)"
+        conn.execute(
+            text(
+                "INSERT INTO users (id, tenant_id, email, name, is_active, created_ts) "
+                "VALUES ('user_ada', 'acme', 'ada@acme.test', 'Ada', 1, 0)"
+            )
         )
-        conn.exec_driver_sql(
-            "INSERT INTO users (id, tenant_id, email, name, is_active, created_ts) "
-            "VALUES ('user_bo', 'acme', 'bo@acme.test', 'Bo', 1, 0)"
+        conn.execute(
+            text(
+                "INSERT INTO users (id, tenant_id, email, name, is_active, created_ts) "
+                "VALUES ('user_bo', 'acme', 'bo@acme.test', 'Bo', 1, 0)"
+            )
         )
-        conn.exec_driver_sql(
-            "INSERT INTO policy_grants "
-            "(id, tenant_id, action_kind, scope, status, requested_by, requested_at_ts, "
-            "granted_by, granted_at_ts, valid_to_ts) "
-            "VALUES (:id, 'acme', 'work_note', :scope, 'approved', 'user_ada', 0, "
-            "'user_bo', 0, 9999999999)",
+        # text(): named parameters bind on both engines (exec_driver_sql would
+        # pass ":id" straight to psycopg, which only knows "%(id)s").
+        conn.execute(
+            text(
+                "INSERT INTO policy_grants "
+                "(id, tenant_id, action_kind, scope, status, requested_by, requested_at_ts, "
+                "granted_by, granted_at_ts, valid_to_ts) "
+                "VALUES (:id, 'acme', 'work_note', :scope, 'approved', 'user_ada', 0, "
+                "'user_bo', 0, 9999999999)"
+            ),
             {"id": grant_id, "scope": scope},
         )
 
