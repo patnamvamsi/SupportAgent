@@ -19,8 +19,8 @@ records the human's final labels and the agreement.
 
 ``ShadowInbound`` is the ``InboundHandler`` the shadow worker binds to
 ``SyncService`` (02 §7 ``sync.poll.<table>``): a new record goes through the
-runner; changes to a known record only record a ``sync`` event (10-wp
-WP-008 — lifecycle effects arrive in WP-101).
+runner; changes to a known record record a ``sync`` event and go through
+``LifecycleService`` (WP-101: takeover, resolve, reopen, hand-back).
 """
 
 from __future__ import annotations
@@ -86,6 +86,10 @@ class _CaseLookup(Protocol):
     def by_external(
         self, tenant_id: str, table: str, external_id: str
     ) -> Mapping[str, object] | None: ...
+
+
+class _Lifecycle(Protocol):
+    def apply(self, case_id: str, changes: Sequence[ChangeRecord]) -> object: ...
 
 
 class SettableClock(Clock, Protocol):
@@ -252,7 +256,9 @@ class ShadowInbound:
         ids: IdGenerator,
         clock: Clock,
         tenant_id: str,
+        lifecycle: _Lifecycle | None = None,
     ) -> None:
+        self._lifecycle = lifecycle
         self._runner = runner
         self._uow = uow
         self._cases = cases
@@ -291,6 +297,9 @@ class ShadowInbound:
                     ts=self._clock.now(),
                 )
             )
+            if case is not None and self._lifecycle is not None:
+                # WP-101: takeover / resolve / reopen / hand-back, in this same UoW.
+                self._lifecycle.apply(str(case["id"]), changes)
             self._uow.commit()
 
 

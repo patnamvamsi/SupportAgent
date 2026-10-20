@@ -17,6 +17,7 @@ from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.app.gate import GateService
 from supportagent.app.outbox import OutboxWriter
 from supportagent.domain.kinds import ActionKind
+from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.proposal_state import ProposalStatus
 from tests.invariants.test_inv01_gate import (
     CASE_ID,
@@ -50,6 +51,7 @@ def test_grant_authorized_proposal_is_enqueued_and_executed(
     proposal = _gate(uow, clock, ids, events, writer).submit(
         CASE_ID, _spec(ActionKind.WORK_NOTE, scope="scope:A"), _trace()
     )
+    assert isinstance(proposal, Proposal)
     assert proposal.status is ProposalStatus.EXECUTED
     assert _scalar(db, "SELECT status FROM proposals WHERE id = :i", i=proposal.id) == "executed"
     assert _scalar(db, "SELECT COUNT(*) FROM outbox") == 1
@@ -65,6 +67,7 @@ def test_ungranted_proposal_waits_for_approval_and_is_not_enqueued(
     proposal = _gate(uow, clock, ids, events, writer).submit(
         CASE_ID, _spec(ActionKind.WORK_NOTE, scope="scope:A"), _trace()
     )
+    assert isinstance(proposal, Proposal)
     assert proposal.status is ProposalStatus.PENDING_APPROVAL
     assert _scalar(db, "SELECT COUNT(*) FROM outbox") == 0
 

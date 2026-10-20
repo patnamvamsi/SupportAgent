@@ -58,6 +58,7 @@ from supportagent.domain.kinds import (
 )
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
+from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.trace import TraceContext
 
@@ -489,6 +490,7 @@ def test_gate_submit_grant_path_auto_approves_internal_kind(
     gate = _gate(db, uow, clock, ids, events)
     spec = _spec(ActionKind.WORK_NOTE, scope="scope:A")
     proposal = gate.submit(CASE_ID, spec, _trace())
+    assert isinstance(proposal, Proposal)
     assert proposal.status is ProposalStatus.APPROVED
     assert int(_scalar(db, "SELECT COUNT(*) FROM approvals")) == 0
 
@@ -501,6 +503,7 @@ def test_gate_submit_customer_kind_never_grant_path(
     gate = _gate(db, uow, clock, ids, events)
     spec = _spec(ActionKind.CUSTOMER_COMMENT, scope="scope:B")
     proposal = gate.submit(CASE_ID, spec, _trace())
+    assert isinstance(proposal, Proposal)
     assert proposal.status is ProposalStatus.PENDING_APPROVAL
 
 

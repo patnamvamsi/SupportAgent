@@ -226,15 +226,41 @@ def case_page(
     ctx: ApiContext = Depends(context),  # noqa: B008
 ) -> Response:
     def build(user: SessionUser) -> Response:
-        return _render(request, ctx, "case.html", user, c=ctx.queries().case(case_id))
+        view = ctx.queries().case(case_id)
+        service = view.case.get("service")
+        can_hand_back = view.case.get("status") == "human_owned" and user.can(
+            Permission.HAND_BACK, service_role_scope(str(service) if service else None)
+        )
+        return _render(request, ctx, "case.html", user, c=view, can_hand_back=can_hand_back)
 
     return _page(request, ctx, Permission.VIEW, build)
+
+
+@router.post("/ui/cases/{case_id}/hand-back")
+async def hand_back_form(
+    case_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
+        ctx.lifecycle().hand_back(case_id, user.id, grants=user.grants)
+        return RedirectResponse(f"/ui/cases/{case_id}", status_code=303)
+
+    return await _post(request, ctx, Permission.HAND_BACK, act)
 
 
 @router.get("/ui/setup")
 def setup_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
     def build(user: SessionUser) -> Response:
-        return _render(request, ctx, "setup.html", user, state=ctx.setup().state())
+        setup = ctx.setup()
+        return _render(
+            request,
+            ctx,
+            "setup.html",
+            user,
+            state=setup.state(),
+            automation=setup.automation_actors(),
+        )
 
     return _page(request, ctx, Permission.ADMINISTER, build)
 
@@ -392,5 +418,23 @@ async def role_revoke_form(
     def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
         ctx.setup().revoke_role(actor_id=user.id, user_id=user_id, role=role)
         return RedirectResponse("/ui/users", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)
+
+
+@router.post("/ui/setup/automation/{sys_user}")
+async def automation_form(
+    sys_user: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        decision = form.get("decision", "")
+        if decision not in ("automation", "human"):
+            raise DomainValidationError("decision must be 'automation' or 'human'")  # noqa: TRY003
+        ctx.setup().decide_automation_actor(
+            actor_id=user.id, sys_user=sys_user, automation=decision == "automation"
+        )
+        return RedirectResponse("/ui/setup", status_code=303)
 
     return await _post(request, ctx, Permission.ADMINISTER, act)
