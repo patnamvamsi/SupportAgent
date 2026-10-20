@@ -24,3 +24,18 @@ def stats(
     ctx: ApiContext = Depends(context),  # noqa: B008
 ) -> dict[str, object]:
     return ctx.stats().report(window=parse_window(window), mode=mode).as_dict()
+
+
+@router.get("/promotion")
+def promotion(
+    window: str = "all",
+    _user: SessionUser = Depends(_viewer),  # noqa: B008
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> dict[str, object]:
+    """CAP §4.7 promotion gate plus approval fatigue (11-wp WP-115)."""
+    stats = ctx.stats()
+    span = parse_window(window)
+    return {
+        "promotion": stats.promotion(ctx.promotion_gate, window=span).as_dict(),
+        "approval_fatigue": stats.fatigue(window=span).as_dict(),
+    }

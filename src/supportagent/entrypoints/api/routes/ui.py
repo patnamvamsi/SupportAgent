@@ -282,8 +282,19 @@ def stats_page(
 ) -> Response:
     def build(user: SessionUser) -> Response:
         chosen: StatsMode = "assisted" if mode == "assisted" else "shadow"
-        report = ctx.stats().report(window=parse_window(window), mode=chosen)
-        return _render(request, ctx, "stats.html", user, r=report, window=window)
+        stats = ctx.stats()
+        span = parse_window(window)
+        report = stats.report(window=span, mode=chosen)
+        return _render(
+            request,
+            ctx,
+            "stats.html",
+            user,
+            r=report,
+            window=window,
+            gate=stats.promotion(ctx.promotion_gate, window=span) if chosen == "shadow" else None,
+            fatigue=stats.fatigue(window=span),
+        )
 
     return _page(request, ctx, Permission.VIEW, build)
 

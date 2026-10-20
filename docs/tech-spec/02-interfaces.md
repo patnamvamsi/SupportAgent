@@ -119,6 +119,7 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | POST | `/api/v1/cases/{id}/hand-back` | analyst | v0.1 | `human_owned → in_progress` |
 | GET/POST | `/api/v1/comms-plans/{id}[/approve]` | approver | v0.1 | Plan approval (`payload_hash = plan_hash`) |
 | GET | `/api/v1/stats?mode=shadow&window=30d` | viewer | v0.0 | Stats report (mode-separated) |
+| GET | `/api/v1/stats/promotion?window=all` | viewer | v0.1 | Promotion gate (Wilson LB per band vs `evals/gates.yaml`) + approval fatigue (WP-115) |
 | GET | `/api/v1/users` | admin | v0.0 | Users and their roles (added in WP-013) |
 | POST | `/api/v1/users/{id}/roles` | admin | v0.0 | Body `{role, scope?}` (`*` or `service:<name>`, v0.1): grant a role. Every role change after the first admin is made by an admin (03 §2.1) |
 | DELETE | `/api/v1/users/{id}/roles/{role}` | admin | v0.1 | Revoke a role; 422 when it would remove the last admin (WP-103) |

@@ -160,6 +160,8 @@ class Paths(DomainModel):
     runbooks: str = Field(min_length=1)
     #: v0.1 (WP-102): comms plan templates and message bodies.
     comms: str = "templates/comms/"
+    #: v0.1 (WP-115): release and promotion gate thresholds.
+    gates: str = "evals/gates.yaml"
 
 
 class RoutingMatch(DomainModel):

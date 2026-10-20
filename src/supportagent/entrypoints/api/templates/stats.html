@@ -34,4 +34,23 @@
   <tbody>{% for reason, n in r.safe_default_by_reason.items() %}<tr><td>{{ reason }}</td><td>{{ n }}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% endif %}
+{% if gate %}
+<h2>Promotion gate (shadow → assisted)</h2>
+<p>{% if gate.passed %}<strong class="ok">Passes</strong>{% else %}<strong class="warn">Not yet</strong>{% endif %}
+  — every check uses the Wilson 95% lower bound, never the raw rate{% if gate.provisional %} · <em>thresholds provisional until ADR-0003</em>{% endif %}. Promotion is the partner's decision.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Check</th><th>Labelled</th><th>Agreed</th><th>Lower bound</th><th>Result</th></tr></thead>
+  <tbody>{% for c in gate.checks %}
+  <tr><td>{{ c.name }}</td><td>{{ c.n }}</td><td>{{ c.agreed }}</td><td>{{ c.lower_bound | pct }}</td>
+      <td class="{{ 'ok' if c.passed else 'warn' }}">{{ c.reason }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+<h2>Approval fatigue</h2>
+<div class="grid">
+  <span class="muted">Human approvals</span><span>{{ fatigue.approvals }} ({{ fatigue.rejections }} rejected)</span>
+  <span class="muted">Approve time p50 / p90</span><span>{{ fatigue.approve_time_p50_s | secs }} / {{ fatigue.approve_time_p90_s | secs }}</span>
+  <span class="muted">One-click rate (no reason given)</span><span>{{ fatigue.one_click_rate | pct }}</span>
+</div>
 {% endblock %}
