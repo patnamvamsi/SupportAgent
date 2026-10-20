@@ -13,6 +13,7 @@ import pytest
 
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.domain.errors import ConfigError
+from supportagent.domain.model.calibration import CalibrationTable
 
 _MODEL = "claude-sonnet-4-5-20250929"
 
@@ -64,6 +65,11 @@ def test_calibration_loads_spec_example_with_version(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    # WP-105: a holdout table must be signed; the spec example is, once its run signs it.
+    with pytest.raises(ConfigError, match="must be signed"):
+        load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")
+    signed = CalibrationTable.model_validate_json(path.read_text()).signed("run-2026-11-02")
+    path.write_text(signed.model_dump_json(), encoding="utf-8")
     table = load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")
     assert table.version == 3
 

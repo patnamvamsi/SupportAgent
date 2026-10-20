@@ -148,7 +148,7 @@ class Redaction(DomainModel):
 
 class Calibration(DomainModel):
     path: str = Field(min_length=1)
-    min_grade: Literal["smoke"]  # smoke (v0.0) | holdout (v0.1+)
+    min_grade: Literal["smoke", "holdout"]  # smoke (v0.0) | holdout (v0.1+, WP-105)
     min_score: float = Field(ge=0.0, le=1.0)
 
 

@@ -1018,6 +1018,10 @@ class QualityPipeline:
     def cache_stats(self) -> tuple[int, int]:
         return (self._cache.hits, self._cache.misses) if self._cache else (0, 0)
 
+    def preclass(self, case: EvalCase, index: int) -> str | None:
+        """The deterministic pre-classifier's label (agree vs abstain row, WP-105)."""
+        return self._classifier.rule_set.classify(case.alert(index))
+
     def sample(self, case: EvalCase, index: int, sample: int) -> tuple[str | None, str | None]:
         if self._fixture is not None:
             self._fixture.load([_fixture_answer(case.fixture_answer())])
