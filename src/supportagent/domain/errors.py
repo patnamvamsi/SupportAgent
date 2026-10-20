@@ -75,6 +75,13 @@ class AuthorizationDenied(SupportAgentError):
         self.code = code
 
 
+class AuthenticationFailed(SupportAgentError):
+    """The caller's identity could not be established (OIDC login, session; 02 §2).
+
+    Distinct from ``AuthorizationDenied``: the API maps this to 401, that to 403.
+    """
+
+
 class ExternalServiceError(SupportAgentError):
     """An external dependency failed; retryability is typed, not guessed."""
 

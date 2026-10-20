@@ -12,11 +12,13 @@ app service) and returns the ``ReplayView``.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
 import anthropic
+import httpx
 import openai
 from alembic import command
 from alembic.config import Config
@@ -31,6 +33,7 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
+from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import LLMClient, SlotSpec, build_llm_client
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
@@ -40,6 +43,7 @@ from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.app.classify import Classifier
 from supportagent.app.gate import GateService
 from supportagent.app.replay import ReplayService, ReplayView
+from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.triage import TriageService
 from supportagent.config.loader import load_master_key_default
 from supportagent.config.schema import AppConfig, RoutingRow
@@ -49,8 +53,10 @@ from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.slots import SlotName
+from supportagent.entrypoints.api.context import ApiContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
+from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
@@ -211,6 +217,74 @@ def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
         "CalibrationTable": lambda: _build_calibration(config),
         "TriageService": lambda: _build_triage(config),
     }
+
+
+def config_marker(config: AppConfig) -> str:
+    """``config:<sha>`` — the ``requested_by`` of grants written from config (ARCH §6.4).
+
+    The digest covers the resolved config with secrets masked (pydantic dumps
+    ``SecretStr`` as ``**********``), so it identifies the config, not its keys.
+    """
+    digest = hashlib.sha256(config.model_dump_json().encode()).hexdigest()
+    return f"config:{digest[:12]}"
+
+
+def _setup_factory(
+    config: AppConfig, master_key: bytes, clock: Clock, ids: IdGenerator
+) -> Callable[[], SetupService]:
+    """One ``SetupService`` (own UoW, key store, event sink) per call, one engine."""
+    engine = make_engine(config.database.url.get_secret_value())
+    catalog = _build_catalog(config)
+
+    def make() -> SetupService:
+        uow = SqlUnitOfWork(engine)
+        aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
+        return SetupService(
+            uow=uow,
+            clock=clock,
+            ids=ids,
+            events=SqlEventSink(uow=uow, cipher=aead),
+            catalog=catalog,
+            tenant_id=config.tenant.id,
+        )
+
+    return make
+
+
+def build_api_context(
+    config: AppConfig,
+    *,
+    identity: IdentityProvider | None = None,
+    master_key: bytes | None = None,
+) -> ApiContext:
+    """The API's wiring (10-wp WP-012). ``identity`` overrides the OIDC client (FakeOIDC)."""
+    clock = SystemClock()
+    ids = UlidIdGenerator()
+    key = master_key if master_key is not None else load_master_key_default()
+    provider: IdentityProvider = identity or OIDCClient(
+        issuer=config.identity.oidc_issuer,
+        client_id=config.identity.client_id.get_secret_value(),
+        client_secret=config.identity.client_secret.get_secret_value(),
+        redirect_url=config.identity.redirect_url,
+        http=httpx.Client(timeout=10.0),
+        clock=clock,
+    )
+    return ApiContext(
+        setup=_setup_factory(config, key, clock, ids),
+        identity=provider,
+        session_secret=config.identity.session_secret.get_secret_value(),
+        secure_cookies=config.identity.redirect_url.startswith("https://"),
+        config_marker=config_marker(config),
+        clock=clock,
+    )
+
+
+def request_grants_from_config(config: AppConfig, *, master_key: bytes | None = None) -> list[str]:
+    """``grants request --from config``: expand patterns, write ``requested`` rows (ARCH §6.4)."""
+    key = master_key if master_key is not None else load_master_key_default()
+    make = _setup_factory(config, key, SystemClock(), UlidIdGenerator())
+    literals = expand_grant_requests(config.grants_request, _build_catalog(config))
+    return make().request_grants(literals, requested_by=config_marker(config))
 
 
 def _migrations_root() -> Path:

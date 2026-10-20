@@ -76,7 +76,8 @@ _MODEL = "claude-sonnet-4-5-20250929"
 _LABEL = "payments/api"
 _STRONG = CalibrationCountRow(n=40, correct=40)
 _TTL = timedelta(hours=24)
-_SCOPE = "servicenow:incident:INC0000001:work_note"
+# ADR-0005: T1 kinds are scoped to the catalog service, not the record.
+_SCOPE = "service:payments:work_note"
 
 
 def _catalog() -> Catalog:
