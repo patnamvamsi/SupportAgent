@@ -255,6 +255,31 @@ class Webhook(DomainModel):
         return self
 
 
+class Memory(DomainModel):
+    """Case-memory ranking weights (ARCH §5.2, WP-108; prov.)."""
+
+    weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "signature_match": 0.40,
+            "bm25": 0.20,
+            "structured_match": 0.20,
+            "graph_similarity": 0.10,
+            "recency": 0.10,
+        }
+    )
+
+    @field_validator("weights")
+    @classmethod
+    def _known_components(cls, value: dict[str, float]) -> dict[str, float]:
+        known = {"signature_match", "bm25", "structured_match", "graph_similarity", "recency"}
+        unknown = sorted(set(value) - known)
+        if unknown:
+            raise ValueError(f"unknown memory weight(s): {', '.join(unknown)}")  # noqa: TRY003
+        if any(w < 0 for w in value.values()):
+            raise ValueError("memory weights must be non-negative")  # noqa: TRY003
+        return value
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -273,6 +298,8 @@ class AppConfig(DomainModel):
     proposals: Proposals
     grants_request: list[GrantRequest] = Field(default_factory=list)
     retention: Retention
+    #: v0.1 (WP-108): case-memory ranking weights.
+    memory: Memory = Field(default_factory=Memory)
     #: v0.1 (WP-113): generic webhook sources; none by default.
     webhooks: list[Webhook] = Field(default_factory=list)
 

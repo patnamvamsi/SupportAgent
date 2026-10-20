@@ -131,6 +131,12 @@ class GateService:
                 f"kind '{spec.kind.value}'"
             )
 
+        cited = spec.payload.get("similar_case_id")
+        if cited is not None and not self._case_exists(str(cited), trace.tenant_id):
+            # WP-108: a citation must name a real case of this tenant; never invented.
+            raise DomainValidationError(  # noqa: TRY003 — raised before any DB write
+                f"similar_case_id {cited!r} is not a case of this tenant"
+            )
         if self._case_status(case_id) == "human_owned":
             # 11-wp WP-101 / ARCH §8.2: a human owns the case; the agent stops proposing.
             return Skipped(case_id=case_id, action_kind=spec.kind, reason="human_owned")
@@ -474,6 +480,16 @@ class GateService:
                     code="self_approval",
                 ) from exc
             raise
+
+    def _case_exists(self, case_id: str, tenant_id: str) -> bool:
+        with self._uow:
+            return (
+                self._uow.connection.execute(
+                    sa.text("SELECT 1 FROM cases WHERE id = :id AND tenant_id = :t"),
+                    {"id": case_id, "t": tenant_id},
+                ).first()
+                is not None
+            )
 
     def _case_status(self, case_id: str) -> str | None:
         with self._uow:

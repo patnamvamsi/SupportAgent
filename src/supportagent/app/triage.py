@@ -33,7 +33,9 @@ from supportagent.app.propose import build_action_specs
 from supportagent.domain.events import EventKind
 from supportagent.domain.fingerprint import fingerprint
 from supportagent.domain.ids import IdPrefix
+from supportagent.domain.kinds import ActionKind
 from supportagent.domain.lifecycle import CaseEvent, CaseStatus, next_status
+from supportagent.domain.memory import Citation
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.case import Case
@@ -181,6 +183,22 @@ def _storm_member_decision(
     )
 
 
+class TriageMemory(Protocol):
+    """``CaseMemory`` (WP-108)."""
+
+    def remember(
+        self,
+        case_id: str,
+        evt: AlertEvent,
+        *,
+        service: str | None,
+        classification: str | None,
+        severity: str | None,
+    ) -> None: ...
+
+    def similar(self, case_id: str, *, k: int = 3) -> Sequence[Citation]: ...
+
+
 class _Planner(Protocol):
     """``CommsPlanner``: a route's comms template → a plan proposal (WP-102)."""
 
@@ -210,6 +228,7 @@ class TriageService:
         planner: _Planner | None = None,
         grouping: TriageGrouping | None = None,
         spend: TriageSpend | None = None,
+        memory: TriageMemory | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -221,6 +240,7 @@ class TriageService:
         self._planner = planner
         self._grouping = grouping
         self._spend = spend
+        self._memory = memory
         self._catalog = catalog
         self._unpaged = frozenset(catalog.unpaged_services())
         #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
@@ -282,49 +302,7 @@ class TriageService:
 
             service = self._resolve_service(evt)
             self._emit(root, EventKind.PRECLASS, _span("preclass"), {"v": 1, "service": service})
-            group = (
-                self._grouping.assign(case_id, service=service, source=_upstream(evt), now=now)
-                if self._grouping is not None and upsert.created
-                else None
-            )
-            if group is not None and group.group_id is not None:
-                self._emit(
-                    root,
-                    EventKind.DEDUP,
-                    _span("group"),
-                    {
-                        "v": 1,
-                        "group_id": group.group_id,
-                        "action": group.decision.action,
-                        "rule": group.decision.rule,
-                        "storm": group.decision.storm,
-                    },
-                )
-            if service is not None and service in self._unpaged:
-                # ARCH §14 / ADR-0006: paging stays with the customer's own
-                # tooling, so a service without it is never triaged.
-                decision = safe_default("no-paging-integration")
-            elif group is not None and group.decision.storm_member:
-                # ARCH §4.3 / ADR-0007: one triage per storm group; members
-                # inherit the lead's labels as a suggestion, for a human.
-                decision = _storm_member_decision(group.lead_case_id, group.lead_decision)
-            elif (
-                service is not None
-                and self._spend is not None
-                and not self._spend.allow(evt.tenant_id, now)
-            ):
-                # ARCH §11: over the daily budget, safe-default without the LLM.
-                self._emit(
-                    root,
-                    EventKind.SPEND_BREAKER,
-                    _span("spend"),
-                    {"v": 1, "budget_tokens": self._spend.budget},
-                )
-                decision = safe_default("spend-breaker")
-            else:
-                decision = self._classifier.decide(
-                    evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
-                )
+            decision = self._decide(evt, fp, case_id, service, root, created=upsert.created)
             severity_value = decision.severity.value if decision.severity is not None else None
             self._emit(
                 root,
@@ -356,6 +334,15 @@ class TriageService:
                 trace_id=trace_id,
                 now=self._clock.now(),
             )
+            if self._memory is not None and upsert.created:
+                # WP-108: every new case is remembered; it's retrievable once resolved.
+                self._memory.remember(
+                    case_id,
+                    evt,
+                    service=service,
+                    classification=decision.classification,
+                    severity=decision.severity.value if decision.severity else None,
+                )
 
             result: TriageOutcome
             if not upsert.created:
@@ -367,6 +354,63 @@ class TriageService:
                 result = Triaged(case_id=case_id, decision=decision, proposals=proposals)
             self._uow.commit()
         return result
+
+    def _decide(  # noqa: PLR0913 — the case coordinates each branch needs
+        self,
+        evt: AlertEvent,
+        fp: str,
+        case_id: str,
+        service: str | None,
+        root: TraceContext,
+        *,
+        created: bool,
+    ) -> TriageDecision:
+        """Grouping, then the first branch that applies: paging, storm member, spend, classifier."""
+        now = self._clock.now()
+        group = (
+            self._grouping.assign(case_id, service=service, source=_upstream(evt), now=now)
+            if self._grouping is not None and created
+            else None
+        )
+        if group is not None and group.group_id is not None:
+            self._emit(
+                root,
+                EventKind.DEDUP,
+                _span("group"),
+                {
+                    "v": 1,
+                    "group_id": group.group_id,
+                    "action": group.decision.action,
+                    "rule": group.decision.rule,
+                    "storm": group.decision.storm,
+                },
+            )
+        if service is not None and service in self._unpaged:
+            # ARCH §14 / ADR-0006: paging stays with the customer's own
+            # tooling, so a service without it is never triaged.
+            decision = safe_default("no-paging-integration")
+        elif group is not None and group.decision.storm_member:
+            # ARCH §4.3 / ADR-0007: one triage per storm group; members
+            # inherit the lead's labels as a suggestion, for a human.
+            decision = _storm_member_decision(group.lead_case_id, group.lead_decision)
+        elif (
+            service is not None
+            and self._spend is not None
+            and not self._spend.allow(evt.tenant_id, now)
+        ):
+            # ARCH §11: over the daily budget, safe-default without the LLM.
+            self._emit(
+                root,
+                EventKind.SPEND_BREAKER,
+                _span("spend"),
+                {"v": 1, "budget_tokens": self._spend.budget},
+            )
+            decision = safe_default("spend-breaker")
+        else:
+            decision = self._classifier.decide(
+                evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
+            )
+        return decision
 
     def _propose(  # noqa: PLR0913, PLR0917 — the case coordinates the proposal builder needs
         self,
@@ -386,12 +430,37 @@ class TriageService:
             )
         route = self._classifier.routing.lookup(decision.classification, decision.severity)
         full_case = self._case_for(evt, fp, case_id, service, decision.classification)
-        specs = build_action_specs(route, full_case, self._catalog)
+        specs = self._with_citation(case_id, build_action_specs(route, full_case, self._catalog))
         submitted = [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
         if route.comms and self._planner is not None:
             # WP-102: the route's comms plan is a proposal of its own, in this UoW.
             submitted.append(self._planner.plan(case_id, route.comms, root.child(_span("comms"))))
         return [p for p in submitted if isinstance(p, Proposal)]
+
+    def _with_citation(self, case_id: str, specs: list[ActionSpec]) -> list[ActionSpec]:
+        """A work note cites the most similar resolved case, when one exists (WP-108).
+
+        The citation is an id the gate checks exists. With no match nothing
+        is cited (ARCH §5.2 honesty).
+        """
+        if self._memory is None:
+            return specs
+        cited = self._memory.similar(case_id, k=1)
+        if not cited:
+            return specs
+        top = cited[0].case_id
+        out: list[ActionSpec] = []
+        for spec in specs:
+            if spec.kind is ActionKind.WORK_NOTE and isinstance(spec.payload.get("text"), str):
+                payload = {
+                    **spec.payload,
+                    "text": f"{spec.payload['text']} / similar past case {top}",
+                    "similar_case_id": top,
+                }
+                out.append(spec.model_copy(update={"payload": payload}))
+            else:
+                out.append(spec)
+        return out
 
     # --- helpers ------------------------------------------------------------
 
@@ -447,6 +516,7 @@ __all__ = [
     "TriageCaseRepo",
     "TriageClassifier",
     "TriageGrouping",
+    "TriageMemory",
     "TriageService",
     "TriageSpend",
 ]

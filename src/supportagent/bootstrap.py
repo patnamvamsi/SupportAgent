@@ -93,6 +93,7 @@ from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
 from supportagent.app.lifecycle import LifecycleService
+from supportagent.app.memory import CaseMemory
 from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayService, ReplayView
@@ -384,6 +385,20 @@ def _build_triage(config: AppConfig) -> TriageService:
         ),
         grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
         spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
+        memory=_build_memory(config, uow, clock),
+    )
+
+
+def _build_memory(config: AppConfig, uow: SqlUnitOfWork, clock: Clock) -> CaseMemory:
+    """Case memory (WP-108). Text is redacted with the LLM boundary's detectors."""
+    redactor = Redactor(detectors=built_in_detectors())
+    return CaseMemory(
+        uow=uow,
+        clock=clock,
+        tenant_id=config.tenant.id,
+        redact=lambda text: redactor.redact(text).text,
+        tenant_constants=config.redaction.tenant_constants,
+        weights=config.memory.weights,
     )
 
 
@@ -452,6 +467,7 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
         # the counterfactual (and the LLM bill) match assisted mode.
         grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
         spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
+        memory=_build_memory(config, uow, clock),
     )
 
 
@@ -586,6 +602,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         ids=ids,
         clock=clock,
         tenant_id=config.tenant.id,
+        memory=_build_memory(config, runner_uow, clock),
         feedback=FeedbackService(
             uow=runner_uow,
             clock=clock,

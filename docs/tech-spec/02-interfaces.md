@@ -69,6 +69,8 @@ proposals:
 grants_request:                         # a REQUEST only (CAP §2); `grants request --from config`
   - {action: job_rerun, system: airflow, target: "dag:nightly-sync", requested_expiry_days: 90}   # v0.2
 retention: {events_days: 395, comms_days: 395, alerts_days: 90}
+memory:                                 # v0.1 (WP-108): case-memory ranking weights (prov.)
+  weights: {signature_match: 0.40, bm25: 0.20, structured_match: 0.20, graph_similarity: 0.10, recency: 0.10}
 webhooks:                               # v0.1 (WP-113): generic webhook sources; none by default
   - source: nagios                      # POST /api/v1/webhooks/nagios
     secret_env: SA_WEBHOOK_NAGIOS       # HMAC-SHA256 key, >= 32 bytes

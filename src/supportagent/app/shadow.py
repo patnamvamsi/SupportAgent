@@ -35,6 +35,7 @@ from supportagent.app.triage import (
     TriageCaseRepo,
     TriageClassifier,
     TriageGrouping,
+    TriageMemory,
     TriageService,
     TriageSpend,
 )
@@ -98,6 +99,10 @@ class _CaseLookup(Protocol):
 
 class _Lifecycle(Protocol):
     def apply(self, case_id: str, changes: Sequence[ChangeRecord]) -> Sequence[LifecycleSignal]: ...
+
+
+class _MemoryIndex(Protocol):
+    def index_resolved(self, case_id: str) -> None: ...
 
 
 class _Feedback(Protocol):
@@ -165,6 +170,7 @@ class ShadowRunner:
         tenant_constants: Sequence[str] = (),
         grouping: TriageGrouping | None = None,
         spend: TriageSpend | None = None,
+        memory: TriageMemory | None = None,
     ) -> None:
         self._uow = uow
         self._ids = ids
@@ -182,6 +188,7 @@ class ShadowRunner:
             tenant_constants=tenant_constants,
             grouping=grouping,
             spend=spend,
+            memory=memory,
         )
 
     def run(self, evt: AlertEvent) -> ShadowRecord | None:
@@ -276,8 +283,10 @@ class ShadowInbound:
         tenant_id: str,
         lifecycle: _Lifecycle | None = None,
         feedback: _Feedback | None = None,
+        memory: _MemoryIndex | None = None,
     ) -> None:
         self._lifecycle = lifecycle
+        self._memory = memory
         self._feedback = feedback
         self._runner = runner
         self._uow = uow
@@ -329,6 +338,9 @@ class ShadowInbound:
                     self._feedback.record_outcome(
                         str(case["id"]), resolved_by=resolved[-1].change.user
                     )
+                if resolved and self._memory is not None:
+                    # WP-108: a resolved case becomes a retrievable past case.
+                    self._memory.index_resolved(str(case["id"]))
             self._uow.commit()
 
 

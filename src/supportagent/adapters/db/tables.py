@@ -364,6 +364,40 @@ automation_actors = sa.Table(
     sa.Column("confirmed_ts", sa.Integer),
 )
 
+# 0011 (WP-108): case memory (ARCH §5.2, §5.3).
+nodes = sa.Table(
+    "nodes",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("ref", sa.Text, nullable=False),
+    sa.Column("label", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+    sa.UniqueConstraint("tenant_id", "kind", "ref", name="uq_nodes_ref"),
+)
+
+edges = sa.Table(
+    "edges",
+    metadata,
+    sa.Column("src", sa.Text, sa.ForeignKey("nodes.id"), nullable=False, primary_key=True),
+    sa.Column("dst", sa.Text, sa.ForeignKey("nodes.id"), nullable=False, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False, primary_key=True),
+    sa.Column("weight", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("created_ts", sa.BigInteger, nullable=False),
+    sa.Index("ix_edges_dst", "tenant_id", "dst", "kind"),
+)
+
+kb_docs = sa.Table(
+    "kb_docs",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("ref", sa.Text, nullable=False, primary_key=True),
+    sa.Column("text", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",
