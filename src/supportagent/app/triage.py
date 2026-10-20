@@ -1,0 +1,338 @@
+"""TriageService (10-wp WP-011): one UoW for dedup + decision, gate proposals after.
+
+``TriageService.handle`` runs the ARCH §4 triage for one inbound alert:
+
+1. Ingest and dedup the alert into a case (one unit of work).
+2. Pre-classify, decide (via the injected classifier/LLM), and record the
+   decision on the case (same unit of work).
+3. If the decision is routed, submit the proposals through the ``GateService``
+   inside the same unit of work (its ``with`` block joins the outer one).
+
+A safe default still writes the case, the decision and the events, and proposes
+nothing. Every stage emits its event (``ingest``, ``dedup``, ``preclass``,
+``redact``, ``llm``, ``decision``, ``gate``) so a replay shows the full path
+(10-wp WP-011).
+
+It is application code: it drives a structural UoW protocol (01 §1 layout,
+importlinter — ``app`` may not import ``supportagent.adapters``) and speaks to
+the world through ``ports`` and pure ``domain``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from datetime import datetime
+from types import TracebackType
+from typing import Protocol, Self
+
+from ulid import ULID
+
+from supportagent.app.propose import build_action_specs
+from supportagent.domain.events import EventKind
+from supportagent.domain.fingerprint import fingerprint
+from supportagent.domain.ids import IdPrefix
+from supportagent.domain.lifecycle import CaseEvent, CaseStatus, next_status
+from supportagent.domain.model.action import ActionSpec
+from supportagent.domain.model.alert import AlertEvent
+from supportagent.domain.model.case import Case
+from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.event import Event
+from supportagent.domain.model.proposal import Proposal
+from supportagent.domain.model.triage import (
+    Linked,
+    Retriaged,
+    SafeDefaulted,
+    Triaged,
+    TriageDecision,
+    TriageOutcome,
+)
+from supportagent.domain.model.upsert import UpsertResult
+from supportagent.domain.routing import RoutingTable
+from supportagent.domain.severity import severity_escalated
+from supportagent.domain.trace import TraceContext
+from supportagent.ports.clock import Clock
+from supportagent.ports.events import EventSink
+from supportagent.ports.idgen import IdGenerator
+
+#: Root span of a triage trace (the app mints trace/span ids; 01 §4).
+_ROOT_SPAN = "span_0001"
+
+
+def _span(stage: str) -> str:
+    """A child span id for one triage stage."""
+    return f"span_{stage}"
+
+
+class _UoW(Protocol):
+    """The slice of the SQL unit of work ``TriageService`` drives (01 §3).
+
+    ``app`` may not import ``supportagent.adapters`` (importlinter), so the
+    concrete ``SqlUnitOfWork`` is duck-typed through this structural protocol:
+    an active context manager with an explicit ``commit`` (commit is explicit,
+    never implicit — 10-wp).
+    """
+
+    def commit(self) -> None: ...
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...
+
+
+class _CaseRepo(Protocol):
+    """The case repository ``TriageService`` reads and updates (01 §7)."""
+
+    def get(self, case_id: str) -> dict[str, object] | None: ...
+
+    def upsert_by_fingerprint(  # noqa: PLR0913 — mirrors the 01 §7.3 repo signature
+        self,
+        *,
+        case_id: str,
+        tenant_id: str,
+        fingerprint: str,
+        origin: str,
+        trace_id: str,
+        now: datetime,
+    ) -> UpsertResult: ...
+
+    def update(  # noqa: PLR0913 — the decision field set is the WP-011 contract
+        self,
+        *,
+        case_id: str,
+        service: str | None,
+        severity: str | None,
+        classification: str | None,
+        external_table: str | None,
+        external_id: str | None,
+        status: str,
+        decision_json: str,
+        trace_id: str,
+        now: datetime,
+    ) -> None: ...
+
+
+class _Classifier(Protocol):
+    """The classifier ``TriageService`` delegates the decision to (ARCH §4)."""
+
+    routing: RoutingTable
+
+    def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision: ...
+
+
+class _Gate(Protocol):
+    """The gate ``TriageService`` submits proposals through (INV-01)."""
+
+    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal: ...
+
+
+class TriageService:
+    """Triage one inbound alert: dedup + decision, then gate the proposals.
+
+    Keyword-only ports/config: the UoW, the 4 standard ports (clock, ids,
+    events, case_repo), the decision/propose collaborators (classifier,
+    gate, catalog), and the tenant constants for the fingerprint.
+    """
+
+    def __init__(  # noqa: PLR0913 — the signature is the service's public contract
+        self,
+        *,
+        uow: _UoW,
+        clock: Clock,
+        ids: IdGenerator,
+        events: EventSink,
+        case_repo: _CaseRepo,
+        classifier: _Classifier,
+        gate: _Gate,
+        catalog: Catalog,
+        tenant_constants: Sequence[str] = (),
+    ) -> None:
+        self._uow = uow
+        self._clock = clock
+        self._ids = ids
+        self._events = events
+        self._case_repo = case_repo
+        self._classifier = classifier
+        self._gate = gate
+        self._catalog = catalog
+        #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
+        #: fingerprint (01 §7.2 step 5) so per-tenant literals don't split cases.
+        self._tenant_constants = tuple(tenant_constants)
+
+    # --- handle -------------------------------------------------------------
+
+    def handle(self, evt: AlertEvent) -> TriageOutcome:
+        """Triage ``evt`` and return the outcome (new case, linked, or re-triaged).
+
+        One unit of work covers ingest, dedup, preclass, the decision, the case
+        update and — for a routed decision — the gate proposals (10-wp WP-011),
+        so a routed case never commits without its proposals. A safe default
+        (including ``llm-failure``) still writes the case, the decision and the
+        events, and proposes nothing (INV-05: the human queue). A duplicate
+        either links or, on a severity escalation, re-triages in place.
+        """
+        trace_id = f"tr_{ULID()}"
+        root = TraceContext.new(evt.tenant_id, trace_id, _ROOT_SPAN)
+        fp = fingerprint(evt, self._tenant_constants)
+        now = self._clock.now()
+
+        with self._uow:
+            self._emit(
+                root,
+                EventKind.INGEST,
+                _span("ingest"),
+                {"v": 1, "origin": evt.origin, "source": evt.source},
+            )
+            upsert = self._case_repo.upsert_by_fingerprint(
+                case_id=self._ids.new(IdPrefix.CASE),
+                tenant_id=evt.tenant_id,
+                fingerprint=fp,
+                origin=evt.origin,
+                trace_id=trace_id,
+                now=now,
+            )
+            case_id = upsert.case_id
+            self._emit(
+                root,
+                EventKind.DEDUP,
+                _span("dedup"),
+                {"v": 1, "fingerprint": fp, "first_seen": upsert.created},
+            )
+
+            # A re-triage keeps the case's lifecycle status: severity escalation
+            # re-decides in place and never takes a case back from a human
+            # (01 §7.11 has no re-triage transition).
+            status: str
+            if upsert.created:
+                status = CaseStatus.OPEN.value
+            else:
+                row = self._case_repo.get(case_id)
+                if row is None or not severity_escalated(evt, row):
+                    self._uow.commit()
+                    return Linked(case_id=case_id)
+                status = str(row["status"])
+
+            service = self._resolve_service(evt)
+            self._emit(root, EventKind.PRECLASS, _span("preclass"), {"v": 1, "service": service})
+            decision = self._classifier.decide(
+                evt, self._case_for(evt, fp, case_id, service), root.child(_span("classify"))
+            )
+            severity_value = decision.severity.value if decision.severity is not None else None
+            self._emit(
+                root,
+                EventKind.DECISION,
+                _span("decision"),
+                {
+                    "v": 1,
+                    "outcome": decision.outcome,
+                    "reason": decision.reason,
+                    "classification": decision.classification,
+                    "severity": severity_value,
+                    "route_id": decision.route_id,
+                },
+            )
+            if upsert.created:
+                event = (
+                    CaseEvent.TRIAGED if decision.outcome == "routed" else CaseEvent.SAFE_DEFAULTED
+                )
+                status = next_status(CaseStatus.OPEN, event).value
+            self._case_repo.update(
+                case_id=case_id,
+                service=service,
+                severity=evt.severity_hint.value if evt.severity_hint is not None else None,
+                classification=decision.classification,
+                external_table=evt.table,
+                external_id=evt.external_id,
+                status=status,
+                decision_json=decision.model_dump_json(),
+                trace_id=trace_id,
+                now=self._clock.now(),
+            )
+
+            result: TriageOutcome
+            if not upsert.created:
+                result = Retriaged(case_id=case_id, decision=decision)
+            elif decision.outcome == "safe_default":
+                result = SafeDefaulted(case_id=case_id, decision=decision)
+            else:
+                proposals = self._propose(evt, fp, case_id, service, decision, root)
+                result = Triaged(case_id=case_id, decision=decision, proposals=proposals)
+            self._uow.commit()
+        return result
+
+    def _propose(  # noqa: PLR0913, PLR0917 — the case coordinates the proposal builder needs
+        self,
+        evt: AlertEvent,
+        fp: str,
+        case_id: str,
+        service: str | None,
+        decision: TriageDecision,
+        root: TraceContext,
+    ) -> list[Proposal]:
+        """Submit the routed decision's proposals inside the caller's UoW (INV-01)."""
+        # A routed decision always carries the LLM's classification and severity
+        # (classify.py populates both); the guard is only for mypy's narrowing.
+        if decision.classification is None or decision.severity is None:
+            raise RuntimeError(  # noqa: TRY003 — defensive: a routed decision is fully populated
+                "triage: a routed decision requires classification and severity"
+            )
+        route = self._classifier.routing.lookup(decision.classification, decision.severity)
+        full_case = self._case_for(evt, fp, case_id, service, decision.classification)
+        specs = build_action_specs(route, full_case, self._catalog)
+        return [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
+
+    # --- helpers ------------------------------------------------------------
+
+    def _resolve_service(self, evt: AlertEvent) -> str | None:
+        """Resolve the case's service from the catalog (None ⇒ safe default)."""
+        return self._catalog.resolve_service(resource=evt.resource, cmdb_ci=evt.cmdb_ci)
+
+    def _case_for(
+        self,
+        evt: AlertEvent,
+        fp: str,
+        case_id: str,
+        service: str | None,
+        classification: str | None = None,
+    ) -> Case:
+        """A ``Case`` value for the classifier / proposal builder (01 §7)."""
+        return Case(
+            id=case_id,
+            tenant_id=evt.tenant_id,
+            fingerprint=fp,
+            origin=evt.origin,
+            service=service,
+            external_table=evt.table,
+            external_id=evt.external_id,
+            severity=evt.severity_hint,
+            classification=classification,
+        )
+
+    def _emit(
+        self,
+        root: TraceContext,
+        kind: EventKind,
+        span_id: str,
+        payload: dict[str, object],
+    ) -> None:
+        """Append one triage-stage event to the active trace (01 §4)."""
+        self._events.append(
+            Event(
+                id=self._ids.new(IdPrefix.EVENT),
+                tenant_id=root.tenant_id,
+                trace_id=root.trace_id,
+                span_id=span_id,
+                parent_span_id=root.span_id,
+                kind=kind,
+                actor="agent",
+                payload=payload,
+                ts=self._clock.now(),
+            )
+        )
+
+
+__all__ = ["TriageService"]

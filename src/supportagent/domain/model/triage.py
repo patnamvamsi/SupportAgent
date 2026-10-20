@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field
 
 from supportagent.domain.model.base import DomainModel
+from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.severity import Severity
 
 
@@ -38,3 +39,35 @@ class TriageDecision(DomainModel):
     calibrated_score: float | None
     route_id: str | None
     llm_suggestion: TriageResult | None
+
+
+class Linked(DomainModel):
+    """A duplicate alert linked to an existing case (no re-decision, 10-wp WP-011)."""
+
+    case_id: str
+
+
+class Retriaged(DomainModel):
+    """An existing case re-decided in place (severity escalation); no proposals."""
+
+    case_id: str
+    decision: TriageDecision
+
+
+class Triaged(DomainModel):
+    """A new case routed, with its proposals submitted through the gate."""
+
+    case_id: str
+    decision: TriageDecision
+    proposals: list[Proposal]
+
+
+class SafeDefaulted(DomainModel):
+    """A new case that hit a safe default; the case, decision and events are written,
+    but nothing is proposed (ARCH §4)."""
+
+    case_id: str
+    decision: TriageDecision
+
+
+TriageOutcome = Linked | Retriaged | Triaged | SafeDefaulted

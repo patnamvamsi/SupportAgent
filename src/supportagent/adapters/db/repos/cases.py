@@ -151,3 +151,41 @@ class CaseRepo:
             created=bool(row["created"]),
             duplicate_count=int(row["duplicate_count"]),
         )
+
+    def update(  # noqa: PLR0913 — the decision field set is the 10-wp WP-011 contract
+        self,
+        *,
+        case_id: str,
+        service: str | None,
+        severity: str | None,
+        classification: str | None,
+        external_table: str | None,
+        external_id: str | None,
+        status: str,
+        decision_json: str,
+        trace_id: str,
+        now: datetime,
+    ) -> None:
+        """Persist the triage decision's fields on an existing case row (10-wp WP-011).
+
+        Called inside the caller's UoW after the classifier has decided: stores the
+        resolved ``service``, the event's ``severity`` hint, the LLM
+        ``classification``, the source-system coordinates, the new lifecycle
+        ``status``, the serialized decision, and the current ``trace_id``.
+        ``last_alert_ts`` advances to ``now`` (the case's activity is current).
+        """
+        self._uow.connection.execute(
+            sa.update(cases)
+            .where(cases.c.id == case_id)
+            .values(
+                service=service,
+                severity=severity,
+                classification=classification,
+                external_table=external_table,
+                external_id=external_id,
+                status=status,
+                decision_json=decision_json,
+                trace_id=trace_id,
+                last_alert_ts=int(now.timestamp()),
+            )
+        )

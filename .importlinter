@@ -147,8 +147,11 @@ name = llm-providers-private
 type = forbidden
 # 10-wp WP-007 DoD / INV-06: no module outside adapters/llm imports provider
 # classes, so the only path to a provider is LLMClient (render -> redact ->
-# call). Bootstrap wires through adapters.llm.client.build_llm_client.
+# call). Bootstrap wires through adapters.llm.client.build_llm_client, so the
+# *direct* import of providers is banned but the intended indirect path
+# bootstrap -> client -> providers is allowed (allow_indirect_imports).
 # Other adapters are already covered by adapters-independent.
+allow_indirect_imports = true
 source_modules =
     supportagent.domain
     supportagent.ports
