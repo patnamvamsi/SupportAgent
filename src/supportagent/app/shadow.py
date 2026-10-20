@@ -16,24 +16,33 @@ re-triage returns the case's existing record: the counterfactual
 ``import_history`` replays a partner export through the runner in
 ``opened_at`` order, with the clock set to each incident's ``opened_at``, then
 records the human's final labels and the agreement.
+
+``ShadowInbound`` is the ``InboundHandler`` the shadow worker binds to
+``SyncService`` (02 §7 ``sync.poll.<table>``): a new record goes through the
+runner; changes to a known record only record a ``sync`` event (10-wp
+WP-008 — lifecycle effects arrive in WP-101).
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
 from supportagent.app.triage import TriageCaseRepo, TriageClassifier, TriageService
+from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.event import Event
+from supportagent.domain.model.external import ExternalCaseRef
 from supportagent.domain.model.proposal import Proposal
 from supportagent.domain.model.shadow import HistoricalIncident, ShadowRecord
+from supportagent.domain.model.ticket import ChangeRecord
 from supportagent.domain.model.triage import Linked, Retriaged, TriageDecision
 from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.severity import Severity
@@ -71,6 +80,12 @@ class _ShadowRepo(Protocol):
         first_action_at: datetime | None,
         agreement: bool | None,
     ) -> None: ...
+
+
+class _CaseLookup(Protocol):
+    def by_external(
+        self, tenant_id: str, table: str, external_id: str
+    ) -> Mapping[str, object] | None: ...
 
 
 class SettableClock(Clock, Protocol):
@@ -217,4 +232,66 @@ def import_history(
     return records
 
 
-__all__ = ["SettableClock", "ShadowRunner", "import_history"]
+class ShadowInbound:
+    """The shadow worker's ``InboundHandler`` (02 §6-§7).
+
+    ``on_alert`` runs the record through ``ShadowRunner`` — nothing is
+    proposed or sent. ``on_changes`` records one ``sync`` event on the case's
+    trace (a fresh trace when the record has no case, e.g. it predates the
+    sync cursor). The payload names the changed fields and feeds, never their
+    values: the values stay in ServiceNow.
+    """
+
+    def __init__(  # noqa: PLR0913 — the runner plus the event-write ports
+        self,
+        *,
+        runner: ShadowRunner,
+        uow: _UoW,
+        cases: _CaseLookup,
+        events: EventSink,
+        ids: IdGenerator,
+        clock: Clock,
+        tenant_id: str,
+    ) -> None:
+        self._runner = runner
+        self._uow = uow
+        self._cases = cases
+        self._events = events
+        self._ids = ids
+        self._clock = clock
+        self._tenant = tenant_id
+
+    def on_alert(self, evt: AlertEvent) -> None:
+        self._runner.run(evt)
+
+    def on_changes(self, case_ref: ExternalCaseRef, changes: Sequence[ChangeRecord]) -> None:
+        event_id = self._ids.new(IdPrefix.EVENT)
+        with self._uow:
+            case = self._cases.by_external(self._tenant, case_ref.table, case_ref.sys_id)
+            trace_id = str(case["trace_id"]) if case is not None else f"tr_{event_id}"
+            self._events.append(
+                Event(
+                    id=event_id,
+                    tenant_id=self._tenant,
+                    trace_id=trace_id,
+                    span_id=f"sync_{event_id}",
+                    parent_span_id=None,
+                    kind=EventKind.SYNC,
+                    actor="agent",
+                    payload={
+                        "v": 1,
+                        "table": case_ref.table,
+                        "sys_id": case_ref.sys_id,
+                        "number": case_ref.number,
+                        "case_id": None if case is None else str(case["id"]),
+                        "rows": len(changes),
+                        "fields": sorted({c.fieldname for c in changes if c.fieldname}),
+                        "sources": sorted({c.source for c in changes}),
+                    },
+                    ts=self._clock.now(),
+                )
+            )
+            self._uow.commit()
+
+
+__all__ = ["SettableClock", "ShadowInbound", "ShadowRunner", "import_history"]

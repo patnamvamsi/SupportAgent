@@ -106,6 +106,24 @@ class CaseRepo:
         )
         return dict(row) if row is not None else None
 
+    def by_external(self, tenant_id: str, table: str, external_id: str) -> dict[str, Any] | None:
+        """The most recent case for one external record (``ix_cases_external``), or ``None``."""
+        row = (
+            self._uow.connection.execute(
+                sa.select(cases)
+                .where(
+                    cases.c.tenant_id == tenant_id,
+                    cases.c.external_table == table,
+                    cases.c.external_id == external_id,
+                )
+                .order_by(cases.c.opened_ts.desc(), cases.c.id.desc())
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row is not None else None
+
     def upsert_by_fingerprint(  # noqa: PLR0913 — the 01 §7.3 spec signature
         self,
         *,

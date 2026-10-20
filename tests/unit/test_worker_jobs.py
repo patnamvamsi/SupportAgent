@@ -9,17 +9,22 @@ executor and repositories own the database (entrypoints-thin).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 from supportagent.app.outbox import ExecResult
+from supportagent.app.sync import SyncReport
 from supportagent.entrypoints.worker.jobs import (
     OUTBOX_EXECUTE_LEASE,
+    SYNC_POLL_LEASE_TTL_S,
     JobResult,
     outbox_execute,
+    sync_poll,
+    sync_poll_lease,
 )
+from supportagent.ports.tickets import SnTable
 
 
 class _FakeLease:
@@ -115,3 +120,48 @@ def test_outbox_execute_releases_lease_on_error(clock: Any) -> None:
     with pytest.raises(RuntimeError, match="simulated crash"):
         outbox_execute(executor=executor, lease=lease, clock=clock, owner="owner-1")
     assert lease.released == [(OUTBOX_EXECUTE_LEASE, "owner-1")]
+
+
+class _FakePoller:
+    def __init__(self, *, delivered: int = 0, raise_error: Exception | None = None) -> None:
+        self._delivered = delivered
+        self._raise_error = raise_error
+        self.tables: list[SnTable] = []
+
+    def poll_table(self, table: SnTable) -> SyncReport:
+        self.tables.append(table)
+        if self._raise_error is not None:
+            raise self._raise_error
+        return SyncReport(delivered=self._delivered, final_cursor=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def test_sync_poll_lease_is_named_per_table() -> None:
+    # 10-wp WP-008 / 02 §7: ``sync.poll.<table>``.
+    assert sync_poll_lease(SnTable.INCIDENT) == "sync.poll.incident"
+
+
+def test_sync_poll_runs_under_the_table_lease() -> None:
+    lease = _FakeLease(acquire_result=True)
+    poller = _FakePoller(delivered=3)
+    res = sync_poll(poller=poller, table=SnTable.INCIDENT, lease=lease, owner="w1")
+    assert res == JobResult(name="sync.poll.incident", ran=True, rows=3)
+    assert poller.tables == [SnTable.INCIDENT]
+    assert lease.acquired == [("sync.poll.incident", "w1", SYNC_POLL_LEASE_TTL_S)]
+    assert lease.released == [("sync.poll.incident", "w1")]
+
+
+def test_sync_poll_skips_when_lease_held() -> None:
+    lease = _FakeLease(acquire_result=False)
+    poller = _FakePoller()
+    res = sync_poll(poller=poller, table=SnTable.INCIDENT, lease=lease, owner="w1")
+    assert res == JobResult(name="sync.poll.incident", ran=False)
+    assert poller.tables == []
+    assert lease.released == [], "never release a lease someone else holds"
+
+
+def test_sync_poll_releases_lease_on_error() -> None:
+    lease = _FakeLease(acquire_result=True)
+    poller = _FakePoller(raise_error=RuntimeError("servicenow down"))
+    with pytest.raises(RuntimeError, match="servicenow down"):
+        sync_poll(poller=poller, table=SnTable.INCIDENT, lease=lease, owner="w1")
+    assert lease.released == [("sync.poll.incident", "w1")]

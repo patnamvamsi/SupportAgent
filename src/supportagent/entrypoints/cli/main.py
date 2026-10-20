@@ -1,6 +1,6 @@
 """``supportagent`` CLI (typer). v0.0 surface: ``--version`` (WP-000),
 ``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012),
-``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014). Commands for
+``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014), ``worker`` / ``run``. Commands for
 doctor, evals and the rest land with their
 WPs (10-wp).
 """
@@ -16,6 +16,7 @@ from supportagent.entrypoints.cli import replay as replay_command
 from supportagent.entrypoints.cli import serve as serve_command
 from supportagent.entrypoints.cli import shadow as shadow_command
 from supportagent.entrypoints.cli import stats as stats_command
+from supportagent.entrypoints.cli import worker as worker_command
 
 
 def _print_version(value: bool) -> None:
@@ -37,6 +38,9 @@ app.command("migrate")(migrate_command.migrate)
 app.command("replay")(replay_command.replay)
 # 02 §4: ``supportagent serve`` — the API + admin UI (WP-013).
 app.command("serve")(serve_command.serve)
+# 02 §4: ``supportagent worker`` (jobs only) and ``run`` (API + worker).
+app.command("worker")(worker_command.worker)
+app.command("run")(worker_command.run)
 # 02 §4: ``supportagent stats`` and ``shadow import`` (WP-014).
 app.command("stats")(stats_command.stats)
 app.add_typer(shadow_command.app, name="shadow")

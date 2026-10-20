@@ -47,5 +47,7 @@ COPY migrations ./migrations
 USER supportagent
 EXPOSE 8000
 ENTRYPOINT ["supportagent"]
-# The API + admin UI (WP-013); bind all interfaces inside the container.
-CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
+# Single-container mode (02 §4): the API + admin UI and the worker in one
+# process; bind all interfaces inside the container. Split deployments run
+# `serve` and `worker` as separate containers instead.
+CMD ["run", "--host", "0.0.0.0", "--port", "8000"]

@@ -28,7 +28,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-011 | P1 | **`sync.poll.<table>` lease and worker job.** `SyncService.poll_table` doesn't acquire the lease named in 10-wp WP-008, and no worker job schedules it (02 §7). | WP-008 | shadow worker PR (next, before WP-016) |
 | BL-012 | P2 | **Recorded fixtures** `tests/data/sn/*.json` and the `make record-sn` docs (WP-008 DoD). This needs a ServiceNow developer instance. | WP-008 | before WP-016 |
 | BL-013 | P2 | Journal entries created inside the 2-minute overlap window can reach `on_changes` twice. Harmless while v0.0 only logs `sync` events. Dedup by journal entry `sys_id` (add it to the journal `sysparm_fields`) before lifecycle effects act on changes. | WP-008 | WP-101 |
 
@@ -36,12 +35,12 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-014 | P1 | `bootstrap.py` wires `TriageService` (with `build_llm_client`) since WP-011, but not yet `SyncService` or the worker jobs, and `OutboxExecutor` is deliberately absent in shadow mode. | WP-006 – 008 | shadow worker PR (next, before WP-016) |
 | BL-018 | P2 | **Calibration rejection at startup.** `load_calibration` raises `ConfigError` on a grade/model mismatch, while 01 §7.7 says "rejected at load, and every label then scores 0". Bootstrap must choose: fail startup, or load an empty table (everything safe-defaults) and surface it in `doctor`. Also decide whether `severity_escalated` treating a severity-less case as escalated is intended for case skeletons (WP-009). | WP-010 | WP-011 |
 | BL-019 | P2 | **Re-triage doesn't re-route.** On severity escalation `TriageService` re-decides in place and records the decision, but proposes nothing; ARCH §4.1 says escalation re-runs classification *and routing*. Decide whether a re-triage submits new proposals (and how they relate to pending ones for the same scope). | WP-011 | first assisted-mode WP (v0.1); shadow keeps the first record |
 | BL-020 | P3 | `TriageService` mints `trace_id` with `ULID()` directly instead of the injected `IdGenerator`, so trace ids aren't deterministic under `SequentialIdGenerator` in tests. Add a trace id prefix and use `ids`. | WP-011 | any |
 | BL-023 | P2 | **WP-012 DoD, staging leg:** login against one real IdP in staging. The Authlib/joserfc adapter is covered by a mock IdP (discovery, PKCE, nonce, iss/aud/exp, signature, key rotation); a real IdP run needs staging. | WP-012 | before WP-016 |
 | BL-024 | P1 | **Grant-authorized proposals never reach the outbox.** `GateService.submit` moves a grant-covered proposal straight to `approved`, but nothing enqueues its outbox row (the WP-011 DoD test enqueues by hand). Harmless in shadow mode, which never submits; it must be wired before assisted mode, ideally in the triage UoW like the approval path. | WP-011 / WP-013 | first assisted-mode WP (v0.1) |
 | BL-026 | P3 | The admin UI uses plain HTML forms with no JavaScript, so HTMX is not loaded yet. When in-place updates are wanted (e.g. the TTL countdown), self-host `htmx.min.js` under `/static` so CSP stays `script-src 'self'`. | WP-013 | any |
-| BL-027 | P3 | The CI `integration` job runs on SQLite only. The WP-011 DoD test had a Postgres-only bug (`exec_driver_sql` with `:named` params), fixed in WP-014. Add a Postgres leg, as the invariants job has. | WP-014 | any |
+| BL-028 | P2 | **The other v0.0 worker jobs.** The worker schedules only `sync.poll.<table>`. `proposals.expire` (`GateService.expire_due` exists) has nothing to expire in shadow mode, so it waits for assisted mode. `retention.sweep` needs a design for deleting from the append-only `events` table (03 §2.4: through a dedicated repository method, with a `retention` summary event). Nothing ages out within the first 90 days of a pilot. | shadow worker PR | v0.1, before the first pilot passes 90 days |
+| BL-029 | P3 | The `sync.poll` lease isn't renewed during a run; its 900 s TTL bounds one poll. A slower poll (a large backlog where every record is an LLM call) can overlap the next holder, which `sync_seen` and INV-02 dedup absorb. Renew per page if overlaps show up in the `sync` events. | shadow worker PR | any |
 | BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |

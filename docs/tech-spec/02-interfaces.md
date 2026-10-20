@@ -135,7 +135,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | Command | Release | Behaviour | Exit codes |
 |---|---|---|---|
 | `supportagent run` | v0.0 | API + worker in one process (single-container mode) | 0 on SIGTERM drain |
-| `supportagent serve` / `worker` | v0.0 | API only / worker only | |
+| `supportagent serve` / `worker [--once]` | v0.0 | API only / worker only (`--once`: run each job once, then exit) | 0 on SIGTERM drain |
 | `supportagent migrate [--to head]` | v0.0 | Alembic upgrade; refuses downgrade without `--allow-downgrade` | 0 ok, 2 refused |
 | `supportagent doctor [--setup] [--discover-automation] [--json]` | v0.0 | Checks (§4.1); `--setup` writes default T1 grant requests | 0 all pass, 1 any fail, 3 warnings only |
 | `supportagent replay <trace-id> [--json]` | v0.0 | Ordered event timeline with tokens and latencies | 0, 4 not found |

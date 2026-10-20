@@ -56,3 +56,27 @@ class LeaseRepo:
                 leases.c.owner == owner,
             )
         )
+
+
+class SqlLease:
+    """The ``Lease`` port for worker jobs: each call is its own committed UoW.
+
+    ``LeaseRepo`` runs inside the caller's transaction; a job takes the lease
+    *before* any work, so the acquire must be visible to other replicas at
+    once (03 §2.5) — it commits immediately, and so does the release.
+    """
+
+    def __init__(self, uow: SqlUnitOfWork, clock: Clock) -> None:
+        self._uow = uow
+        self._repo = LeaseRepo(uow, clock)
+
+    def acquire(self, *, name: str, owner: str, ttl_s: int) -> bool:
+        with self._uow:
+            held = self._repo.acquire(name=name, owner=owner, ttl_s=ttl_s)
+            self._uow.commit()
+        return held
+
+    def release(self, *, name: str, owner: str) -> None:
+        with self._uow:
+            self._repo.release(name=name, owner=owner)
+            self._uow.commit()
