@@ -41,6 +41,7 @@ from supportagent.app.triage import (
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
 from supportagent.domain.ids import IdPrefix
+from supportagent.domain.lifecycle import CaseEvent
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.catalog import Catalog
@@ -53,6 +54,7 @@ from supportagent.domain.model.triage import Linked, Retriaged, TriageDecision
 from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.severity import Severity
 from supportagent.domain.shadow import agreement
+from supportagent.domain.takeover import LifecycleSignal
 from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
@@ -95,7 +97,13 @@ class _CaseLookup(Protocol):
 
 
 class _Lifecycle(Protocol):
-    def apply(self, case_id: str, changes: Sequence[ChangeRecord]) -> object: ...
+    def apply(self, case_id: str, changes: Sequence[ChangeRecord]) -> Sequence[LifecycleSignal]: ...
+
+
+class _Feedback(Protocol):
+    def record_changes(self, case_id: str, changes: Sequence[ChangeRecord]) -> int: ...
+
+    def record_outcome(self, case_id: str, *, resolved_by: str) -> None: ...
 
 
 class SettableClock(Clock, Protocol):
@@ -267,8 +275,10 @@ class ShadowInbound:
         clock: Clock,
         tenant_id: str,
         lifecycle: _Lifecycle | None = None,
+        feedback: _Feedback | None = None,
     ) -> None:
         self._lifecycle = lifecycle
+        self._feedback = feedback
         self._runner = runner
         self._uow = uow
         self._cases = cases
@@ -307,9 +317,18 @@ class ShadowInbound:
                     ts=self._clock.now(),
                 )
             )
+            if case is not None and self._feedback is not None:
+                # WP-109: the ``diff`` moment, each human change vs what we proposed.
+                self._feedback.record_changes(str(case["id"]), changes)
             if case is not None and self._lifecycle is not None:
                 # WP-101: takeover / resolve / reopen / hand-back, in this same UoW.
-                self._lifecycle.apply(str(case["id"]), changes)
+                signals = self._lifecycle.apply(str(case["id"]), changes)
+                resolved = [s for s in signals if s.event is CaseEvent.RESOLVED]
+                if resolved and self._feedback is not None:
+                    # WP-109: the ``outcome`` moment; fills the shadow record's labels.
+                    self._feedback.record_outcome(
+                        str(case["id"]), resolved_by=resolved[-1].change.user
+                    )
             self._uow.commit()
 
 
