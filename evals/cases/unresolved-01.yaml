@@ -1,0 +1,17 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: unresolved-01
+source: synthetic
+tags:
+- invariant
+input:
+  resource: svc:unknown-billing
+  alert_type: error_rate
+  error_signature: err:unknown-billing
+  subject: Billing API 5xx
+  body: 5xx on /v2/invoices.
+expect:
+  outcome: safe_default
+  reason: unresolved-service
+  actions: []
+meta:
+  why: 'no catalog service resolves: safe default before the LLM is consulted'

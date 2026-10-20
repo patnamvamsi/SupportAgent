@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-11
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: db-pool-01 metrics exporter connection refused
+  body: The metrics exporter can't connect; pool otherwise healthy.
+  alert_type: connections_exhausted
+  error_signature: conn:db-pool-01:metrics
+  severity_hint: P4
+  resource: db-pool-01
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P4
+  actions:
+  - work_note
+meta:
+  why: database/saturation on nightly-sync (connections_exhausted); the pre-classifier labels it from
+    alert_type

@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-dblatency-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: core-db p99 query time regression
+  body: p99 doubled after the index rebuild; no saturation on pool or disk.
+  alert_type: query_time
+  error_signature: query:core-db:p99
+  severity_hint: P3
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/latency
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: database/latency routes through the generic default row

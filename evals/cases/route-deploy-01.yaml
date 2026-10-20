@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-deploy-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: Deploy of payroll-api 4.2 failed health checks
+  body: New pods crash-looping after the 4.2 rollout; old ReplicaSet still serving.
+  alert_type: deploy_health
+  error_signature: deploy:payroll-api:healthcheck
+  severity_hint: P2
+  resource: svc:payroll-api
+expect:
+  outcome: routed
+  classification: deploy/failure
+  severity: P2
+  actions:
+  - work_note
+meta:
+  why: deploy/failure routes through the generic default row

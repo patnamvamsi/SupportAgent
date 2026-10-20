@@ -1,0 +1,25 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: canary-01
+source: synthetic
+tags:
+- invariant
+- redaction
+input:
+  cmdb_ci: CI2002
+  alert_type: pool_saturation
+  error_signature: pool:core-db:canary
+  subject: core-db pool saturation reported by support+ticket@acme-corp.example
+  body: Caller +14155552671 says checkout fails; card 4242424242424242 was declined.
+  severity_hint: P3
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P3
+  actions:
+  - work_note
+  absent_from_llm:
+  - support+ticket@acme-corp.example
+  - '+14155552671'
+  - '4242424242424242'
+meta:
+  why: 'INV-06: detector-positive values in a ticket never reach the provider'

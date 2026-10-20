@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-02
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: core-db replica rejecting new connections
+  body: 'FATAL: sorry, too many clients already on replica-2.'
+  alert_type: connections_exhausted
+  error_signature: conn:core-db:replica
+  severity_hint: P3
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: database/saturation on core-db (connections_exhausted); the pre-classifier labels it from alert_type

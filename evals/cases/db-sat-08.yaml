@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-08
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: db-pool-01 loader cannot get connections
+  body: Loader tasks timing out waiting for a pooled connection.
+  alert_type: connections_exhausted
+  error_signature: conn:db-pool-01:loader
+  severity_hint: P3
+  resource: db-pool-01
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: database/saturation on nightly-sync (connections_exhausted); the pre-classifier labels it from
+    alert_type

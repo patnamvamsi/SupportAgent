@@ -1,0 +1,22 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: conflict-01
+source: synthetic
+tags:
+- invariant
+modes:
+- fixture
+input:
+  cmdb_ci: CI2002
+  alert_type: availability
+  error_signature: avail:core-db:edge
+  subject: core-db unreachable from payroll-api
+  body: TCP connect timeouts from the payroll subnet.
+fixture:
+  classification: network/outage
+  severity: P2
+expect:
+  outcome: safe_default
+  reason: classifier-conflict
+  actions: []
+meta:
+  why: pre-classifier (database/failure) and a scripted LLM (network/outage) disagree on the domain

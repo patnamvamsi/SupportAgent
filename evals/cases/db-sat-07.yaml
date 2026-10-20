@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-07
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: db-pool-01 writer pool saturated
+  body: Writer pool for nightly-sync at capacity; batches slowing.
+  alert_type: pool_saturation
+  error_signature: pool:db-pool-01:writer
+  severity_hint: P2
+  resource: db-pool-01
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P2
+  actions:
+  - work_note
+meta:
+  why: database/saturation on nightly-sync (pool_saturation); the pre-classifier labels it from alert_type

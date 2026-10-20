@@ -28,3 +28,5 @@ build/
 
 # Eval caches (artifacts like calibration.json ARE committed)
 evals/.cache/
+# Per-run reports (02 §4); calibration.json is committed.
+evals/artifacts/*/

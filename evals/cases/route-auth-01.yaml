@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-auth-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: Token issuance returning 401 for payroll-api
+  body: The IdP token endpoint rejects the client assertion since 06:10.
+  alert_type: error_rate
+  error_signature: auth:payroll-api:issuer
+  severity_hint: P3
+  resource: svc:payroll-api
+expect:
+  outcome: routed
+  classification: auth/failure
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: auth/failure routes through the generic default row

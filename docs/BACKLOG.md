@@ -17,7 +17,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-005 | P1 | **Fixture provider** (`adapters/llm/providers/fixture.py`) is missing. ARCH §9 relies on fixture mode for deterministic code tests, and the WP-016 eval harness runs with `fixture` for wiring. | WP-007 | WP-010 |
 | BL-006 | P2 | **Ollama provider** (`providers/ollama.py`) is missing (air-gap requirement, ARCH §9). | WP-007 | WP-010 |
 | BL-007 | P2 | **`TracingLLMProvider`** decorator (`adapters/llm/tracing.py`) is missing. `LLMClient` emits the `llm` event itself, so decide whether to add the decorator or update the 10-wp deliverable list. | WP-007 | WP-010 |
 | BL-008 | P2 | **Provider-native JSON mode:** `ProviderRequest.json_schema` is built but neither the Anthropic nor the OpenAI provider sends it. JSON output currently depends on the prompt alone. | WP-007 | WP-010 |

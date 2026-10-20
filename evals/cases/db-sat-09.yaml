@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-09
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: db-pool-01 temp tablespace full
+  body: Sort spills filling the temp tablespace.
+  alert_type: disk_saturation
+  error_signature: disk:db-pool-01:temp
+  severity_hint: P3
+  resource: db-pool-01
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: database/saturation on nightly-sync (disk_saturation); the pre-classifier labels it from alert_type

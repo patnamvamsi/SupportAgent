@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from supportagent.adapters.llm.faults import FaultInjectingLLMProvider
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.providers import make_llm_provider
+from supportagent.adapters.llm.providers.fixture import FixtureAnswer, FixtureLLMProvider
 from supportagent.adapters.llm.redact import RedactionResult, Redactor
 from supportagent.domain.events import EventKind
 from supportagent.domain.hashing import payload_hash
@@ -291,17 +292,22 @@ def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus th
     clock: Clock,
     slots: Mapping[SlotName, SlotSpec],
     fault_injection: bool = False,
+    decorate: Callable[[LLMProvider], LLMProvider] | None = None,
 ) -> LLMClient:
     """The one factory that builds a real provider (INV-06, 10-wp WP-007).
 
     Provider classes are importable only inside ``adapters.llm``
     (importlinter ``llm-providers-private``), so a provider reaches the rest of
     the system only wrapped in an ``LLMClient`` that redacts every request.
-    ``fault_injection`` wraps it in ``FaultInjectingLLMProvider`` (04 §1).
+    ``fault_injection`` wraps it in ``FaultInjectingLLMProvider`` (04 §1);
+    ``decorate`` wraps it once more (the eval harness records requests).
     """
     provider: LLMProvider = make_llm_provider(provider_name, sdk_client)
     if fault_injection:
         provider = FaultInjectingLLMProvider(provider)
+    if decorate is not None:
+        # Still inside the client: whatever wraps the provider sees redacted requests only.
+        provider = decorate(provider)
     return LLMClient(
         provider=provider,
         redactor=redactor,
@@ -311,3 +317,9 @@ def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus th
         clock=clock,
         slots=slots,
     )
+
+
+# The fixture provider is a scripted test double (ARCH §9): re-exported here so
+# composition code reaches it through the client module, and only ever passes
+# it *into* an ``LLMClient`` (redaction still runs; llm-providers-private).
+__all__ = ["FixtureAnswer", "FixtureLLMProvider", "LLMClient", "SlotSpec", "build_llm_client"]

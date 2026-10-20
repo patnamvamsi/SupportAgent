@@ -1,0 +1,21 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: db-sat-06
+source: synthetic
+tags:
+- routing
+- database
+input:
+  subject: core-db admin connection slots used up
+  body: superuser_reserved_connections reached; no customer impact yet.
+  alert_type: connections_exhausted
+  error_signature: conn:core-db:admin
+  severity_hint: P4
+  cmdb_ci: CI2002
+expect:
+  outcome: routed
+  classification: database/saturation
+  severity: P4
+  actions:
+  - work_note
+meta:
+  why: database/saturation on core-db (connections_exhausted); the pre-classifier labels it from alert_type

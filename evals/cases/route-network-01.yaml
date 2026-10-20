@@ -1,0 +1,20 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: route-network-01
+source: synthetic
+tags:
+- routing
+input:
+  subject: DNS lookups slow for payroll-api clients
+  body: Resolver p95 at 900 ms from the eu-west office.
+  alert_type: http_latency
+  error_signature: net:payroll-api:dns
+  severity_hint: P3
+  resource: svc:payroll-api
+expect:
+  outcome: routed
+  classification: network/latency
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: network/latency routes through the generic default row

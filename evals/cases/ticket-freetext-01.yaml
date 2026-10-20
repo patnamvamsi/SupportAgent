@@ -1,0 +1,19 @@
+# Eval case (04 §8). Edit only with a meta.why note (ROADMAP §2.1).
+id: ticket-freetext-01
+source: synthetic
+tags:
+- ticket
+input:
+  origin: ticket
+  ticket_number: INC0020001
+  cmdb_ci: CI3003
+  subject: Finance cannot open the payroll export page
+  body: Since this morning the export page shows access denied for the finance group.
+expect:
+  outcome: routed
+  classification: request/access
+  severity: P3
+  actions:
+  - work_note
+meta:
+  why: 'free-text ticket: the pre-classifier abstains, the LLM label routes at P3'
