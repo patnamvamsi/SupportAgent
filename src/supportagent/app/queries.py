@@ -253,6 +253,21 @@ class AdminQueries:
             comms=[{k: v for k, v in c.items() if k != "body_json"} for c in comms],
         )
 
+    def doctor_report(self) -> dict[str, object] | None:
+        """BL-031: the last saved ``doctor`` report for ``/ui/setup``, or ``None``."""
+        with self._uow:
+            row = (
+                self._uow.connection.execute(
+                    sa.text("SELECT report_json, ran_ts FROM doctor_reports WHERE tenant_id = :t"),
+                    {"t": self._tenant},
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        return {**json.loads(str(row["report_json"])), "ran_ts": int(row["ran_ts"])}
+
     def grants(self, *, status: str | None = None) -> list[dict[str, object]]:
         sql = (
             "SELECT id, action_kind, scope, status, requested_by, requested_at_ts, granted_by, "

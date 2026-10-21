@@ -260,6 +260,7 @@ def setup_page(request: Request, ctx: ApiContext = Depends(context)) -> Response
             user,
             state=setup.state(),
             automation=setup.automation_actors(),
+            doctor=ctx.queries().doctor_report(),
         )
 
     return _page(request, ctx, Permission.ADMINISTER, build)

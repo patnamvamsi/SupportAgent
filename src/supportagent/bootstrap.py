@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 import anthropic
 import httpx
 import openai
+import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -42,6 +43,7 @@ from supportagent.adapters.db.probe import SqlSchemaProbe
 from supportagent.adapters.db.repos.automation import SqlAutomationActors
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.cases import CaseRepo
+from supportagent.adapters.db.repos.doctor import SqlDoctorReports
 from supportagent.adapters.db.repos.events import SqlEventSink
 from supportagent.adapters.db.repos.leases import SqlLease
 from supportagent.adapters.db.repos.outbox import OutboxRepo
@@ -1009,6 +1011,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             tenant_id=config.tenant.id,
             integration_user=config.servicenow.integration_user,
             integration_ids=_integration_ids(config, clock=clock, transport=transport),
+            resolved_states=config.servicenow.resolved_states,
         ),
     )
     sync_uow = SqlUnitOfWork(engine)
@@ -1244,9 +1247,32 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
 
 
 def run_doctor(config: AppConfig, *, discover_automation: bool = False) -> DoctorReport:
-    """``supportagent doctor``: every 02 §4.1 check against the configured deployment."""
+    """``supportagent doctor``: every 02 §4.1 check against the configured deployment.
+
+    The report is saved for ``/ui/setup`` (BL-031). A database that can't be
+    reached is itself a failing check, so a save that fails is only logged.
+    """
     ctx = build_doctor_context(config, discover_automation=discover_automation)
-    return Doctor(default_checks()).run(ctx)
+    report = Doctor(default_checks()).run(ctx)
+    save_doctor_report(config, report, clock=ctx.clock)
+    return report
+
+
+def save_doctor_report(
+    config: AppConfig, report: DoctorReport, *, clock: Clock, engine: Engine | None = None
+) -> bool:
+    """Store the last report per tenant (BL-031); ``False`` when the database refused."""
+    try:
+        engine = (
+            engine if engine is not None else make_engine(config.database.url.get_secret_value())
+        )
+        SqlDoctorReports(engine).save(
+            config.tenant.id, report.as_dict(), ran_ts=int(clock.now().timestamp())
+        )
+    except sa.exc.SQLAlchemyError as exc:
+        _log.warning("doctor report not saved for /ui/setup: %s", type(exc).__name__)
+        return False
+    return True
 
 
 def request_default_grants(config: AppConfig, *, master_key: bytes | None = None) -> list[str]:

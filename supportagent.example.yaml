@@ -21,6 +21,7 @@ servicenow:
   overlap_s: 120
   page_size: 200
   qps_limit: 5
+  resolved_states: ["6", "7", "8"]   # BL-032: state values that end a case (incident defaults)
   classification_map: {}             # BL-035: {"Database/Saturation": database/saturation, "Network": network/dns}
 identity:
   oidc_issuer: https://login.microsoftonline.com/acme-tenant-id/v2.0
