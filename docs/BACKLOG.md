@@ -8,7 +8,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-003 | P3 | `FakeServiceNow.find_marker` matches the marker anywhere in the text, not only on the last line (01 §7.5). Its `ExternalRef.system` is the table name rather than `servicenow`. | WP-006 | any |
 | BL-004 | P2 | No `CommsRepository` for the `comms` table (01 §3 lists `uow.comms`). The table exists (migration 0003); nothing reads or writes it yet. | WP-005 | first comms WP (v0.1) |
 
 ## LLM boundary
@@ -16,21 +15,17 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
 | BL-007 | P2 | **`TracingLLMProvider`** decorator (`adapters/llm/tracing.py`) is missing. `LLMClient` emits the `llm` event itself, so decide whether to add the decorator or update the 10-wp deliverable list. | WP-007 | WP-010 |
-| BL-009 | P3 | `PromptRegistry` doesn't validate prompt front matter, and `StrictUndefined` raises at render time rather than at load validation (10-wp WP-007 wording). | WP-007 | WP-010 |
-| BL-010 | P3 | The `llm` event records only `resolved_model`; 10-wp lists both the requested `model` and `resolved_model`. | WP-007 | any |
 
 ## ServiceNow and sync
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
 | BL-012 | P2 | **Recorded fixtures** `tests/data/sn/*.json` and the `make record-sn` docs (WP-008 DoD). This needs a ServiceNow developer instance. | WP-008 | before WP-016 |
-| BL-013 | P3 | Journal entries created inside the 2-minute overlap window can reach `on_changes` twice. Harmless so far: WP-101's lifecycle acts only on `sys_audit` field changes (deduped by checkpoint), and journal entries only add a `sync` event. Dedup by journal entry `sys_id` (add it to the journal `sysparm_fields`) before anything acts on journal changes (WP-102 cadence reads human-actor values from the history). | WP-008 | WP-102 |
 
 ## Wiring, tenancy, housekeeping
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-020 | P3 | `TriageService` mints `trace_id` with `ULID()` directly instead of the injected `IdGenerator`, so trace ids aren't deterministic under `SequentialIdGenerator` in tests. Add a trace id prefix and use `ids`. | WP-011 | any |
 | BL-023 | P2 | **WP-012 DoD, staging leg:** login against one real IdP in staging. The Authlib/joserfc adapter is covered by a mock IdP (discovery, PKCE, nonce, iss/aud/exp, signature, key rotation); a real IdP run needs staging. | WP-012 | before WP-016 |
 | BL-026 | P3 | The admin UI uses plain HTML forms with no JavaScript, so HTMX is not loaded yet. When in-place updates are wanted (e.g. the TTL countdown), self-host `htmx.min.js` under `/static` so CSP stays `script-src 'self'`. | WP-013 | any |
 | BL-029 | P3 | The `sync.poll` lease isn't renewed during a run; its 900 s TTL bounds one poll. A slower poll (a large backlog where every record is an LLM call) can overlap the next holder, which `sync_seen` and INV-02 dedup absorb. Renew per page if overlaps show up in the `sync` events. | shadow worker PR | any |
@@ -44,4 +39,3 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 | BL-039 | P1 | **Citation-faithfulness eval.** RCA-lite (WP-110) runs every claim through the `entail` slot and fails closed, but the checker itself isn't regression-tested yet: ARCH §5.4/§11 want a citation-faithfulness rate in the quality suite over curated claim/evidence pairs (release gate >= 0.95, prov.). Curate the pairs from the partner's incidents (with BL-037), and add `entail` to the quality run. Also: a runbook's `comms_if_supported` (internal) is recorded on the artifact but drafts nothing until internal comms plans exist (BL-033). | WP-110 | with BL-037, before the v0.1 tag |
 | BL-040 | P2 | **Richer `enrich_page` content.** v0.1 attaches a fixed template of case fields (case id, service, severity, classification). ARCH §14 also lists the triage summary, top hypotheses (the RCA-lite artifact, WP-110), suggested actions and who is on call (`oncall.who`). Add them as allowlisted fields, never LLM free text. Also: `enrich_page` executes only once `outbox.execute` is scheduled (BL-034). | WP-112 | with BL-034 |
 | BL-041 | P1 | **Assisted treatment/control split** (ARCH §8.4, C22). v0.1 assisted mode (ADR-0008) applies to every catalog service. The assisted-delta value number needs a treatment set (assisted) and a control set (human-only) agreed with the partner, and `stats` reporting the delta with confidence intervals. | ADR-0008 | v0.2 |
-| BL-015 | P2 | `trace_events` replay filters by `trace_id` only, not tenant. Safe today because trace IDs are globally unique. | WP-004 | WP-305 |

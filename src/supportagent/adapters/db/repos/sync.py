@@ -12,11 +12,12 @@ idempotent upsert because the 2-minute overlap re-fetches rows already present.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from supportagent.adapters.db.tables import sync_cursors, sync_seen
+from supportagent.adapters.db.tables import sync_cursors, sync_journal_seen, sync_seen
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.db.upsert import upsert_stmt
 
@@ -84,6 +85,30 @@ class SyncRepo:
                 {"processed_ts": sync_seen.c.processed_ts},
             )
         )
+
+    def journal_seen(self, tenant_id: str, entry_ids: Collection[str]) -> set[str]:
+        """BL-013: which of these journal entries were already delivered."""
+        if not entry_ids:
+            return set()
+        rows = self._uow.connection.execute(
+            sa.select(sync_journal_seen.c.entry_id).where(
+                sync_journal_seen.c.tenant_id == tenant_id,
+                sync_journal_seen.c.entry_id.in_(list(entry_ids)),
+            )
+        )
+        return {str(r[0]) for r in rows}
+
+    def mark_journal_seen(self, tenant_id: str, entry_ids: Collection[str], *, now_ts: int) -> None:
+        for entry_id in entry_ids:
+            self._uow.connection.execute(
+                upsert_stmt(
+                    self._uow.engine,
+                    sync_journal_seen,
+                    {"tenant_id": tenant_id, "entry_id": entry_id, "processed_ts": now_ts},
+                    ["tenant_id", "entry_id"],
+                    {"processed_ts": sync_journal_seen.c.processed_ts},
+                )
+            )
 
     def max_seen_mod_count(self, tenant_id: str, sys_id: str) -> int | None:
         """The highest ``sys_mod_count`` already processed for this record.

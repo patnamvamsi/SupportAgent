@@ -157,7 +157,7 @@ from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
-from supportagent.domain.slots import SlotName
+from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
@@ -326,7 +326,7 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
         return LLMClient(
             provider=chain(provider_override) if chain else provider_override,
             redactor=Redactor(detectors=built_in_detectors()),
-            prompts=PromptRegistry(root=Path(config.paths.prompts)),
+            prompts=_prompts(config),
             events=events,
             ids=ids,
             clock=clock,
@@ -354,13 +354,20 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
         provider_name=provider,
         sdk_client=sdk_client,
         redactor=Redactor(detectors=built_in_detectors()),
-        prompts=PromptRegistry(root=Path(config.paths.prompts)),
+        prompts=_prompts(config),
         events=events,
         ids=ids,
         clock=clock,
         slots=_classify_slots(config),
         decorate=chain,
     )
+
+
+def _prompts(config: AppConfig) -> PromptRegistry:
+    """The slot prompts, checked against the variables each slot supplies (BL-009)."""
+    registry = PromptRegistry(root=Path(config.paths.prompts))
+    registry.check(SLOT_VARIABLES)
+    return registry
 
 
 def _compose(
@@ -1699,7 +1706,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def replay(trace_id: str) -> ReplayView:
         uow, events = _ports()
         with uow:  # read-only: never commits
-            return ReplayService(repo=events).replay(trace_id)
+            return ReplayService(repo=events, tenant_id=tenant_id).replay(trace_id)
 
     def comms_plans() -> CommsPlans:
         uow, events = _ports()
@@ -1844,7 +1851,7 @@ def replay_trace(config: AppConfig, master_key: bytes, trace_id: str) -> ReplayV
         with uow:
             cipher = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=SystemClock())
             repo = SqlEventSink(uow=uow, cipher=cipher)
-            return ReplayService(repo=repo).replay(trace_id)
+            return ReplayService(repo=repo, tenant_id=config.tenant.id).replay(trace_id)
     finally:
         engine.dispose()
 

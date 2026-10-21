@@ -31,7 +31,6 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from ulid import ULID
 
 from supportagent.domain.errors import (
     AuthenticationFailed,
@@ -693,7 +692,7 @@ class SetupService:
             Event(
                 id=self._ids.new(IdPrefix.EVENT),
                 tenant_id=self._tenant,
-                trace_id=f"tr_{ULID()}",
+                trace_id=self._ids.new(IdPrefix.TRACE),
                 span_id="span_setup",
                 parent_span_id=None,
                 kind=EventKind.GATE,

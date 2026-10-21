@@ -21,6 +21,7 @@ class IdPrefix(StrEnum):
     FEEDBACK = "fb"
     VERSION = "ver"
     RCA = "rca"
+    TRACE = "tr"
 
 
 # Branded ids (05 §6): distinct types at module boundaries. Users are

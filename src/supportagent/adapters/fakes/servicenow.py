@@ -162,6 +162,7 @@ class FakeServiceNow:
                     oldvalue=None,
                     newvalue=value,
                     checkpoint=None,
+                    entry_id=f"jh{sum(len(v) for v in self._journal_hist.values()) + 1:05d}",
                 )
             )
 
@@ -277,7 +278,8 @@ class FakeServiceNow:
         with self._lock:
             for field in _JOURNAL_FIELDS:
                 for text, ref in self._journals.get((table.value, sys_id, field.value), []):
-                    if marker in text:
+                    lines = [line.strip() for line in text.strip().splitlines()]
+                    if lines and lines[-1] == marker:  # 01 §7.5: last line only (BL-003)
                         return ref
         return None
 
@@ -434,6 +436,7 @@ class FakeServiceNowHTTP:
         with self._lock:
             self._journal.append(
                 {
+                    "sys_id": f"j{len(self._journal) + 1:05d}",
                     "name": table,
                     "element_id": sys_id,
                     "element": element,
@@ -545,6 +548,7 @@ class FakeServiceNowHTTP:
             if key in journal_fields:
                 self._journal.append(
                     {
+                        "sys_id": f"j{len(self._journal) + 1:05d}",
                         "name": table,
                         "element_id": sys_id,
                         "element": key,

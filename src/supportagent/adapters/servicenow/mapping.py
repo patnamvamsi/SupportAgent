@@ -113,6 +113,7 @@ def journal_row_to_change(row: Mapping[str, Any]) -> ChangeRecord:
         oldvalue=None,
         newvalue=_opt_str(row.get("value")),
         checkpoint=None,
+        entry_id=_opt_str(row.get("sys_id")),
     )
 
 

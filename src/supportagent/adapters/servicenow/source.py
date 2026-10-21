@@ -29,7 +29,7 @@ POLL_FIELDS = (
     "assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id"
 )
 AUDIT_FIELDS = "fieldname,oldvalue,newvalue,user,sys_created_on,record_checkpoint"
-JOURNAL_FIELDS = "element,value,sys_created_by,sys_created_on"
+JOURNAL_FIELDS = "sys_id,element,value,sys_created_by,sys_created_on"
 
 
 def _format_since(since: datetime) -> str:

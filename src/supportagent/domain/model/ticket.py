@@ -61,6 +61,9 @@ class ChangeRecord(DomainModel):
     oldvalue: str | None = None
     newvalue: str | None = None
     checkpoint: int | None = None
+    #: BL-013: the ``sys_journal_field`` row's ``sys_id``, so a journal entry
+    #: re-read inside the poll overlap window is delivered once.
+    entry_id: str | None = None
 
 
 __all__ = ["ChangeRecord", "TicketRecord"]

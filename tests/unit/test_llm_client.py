@@ -96,6 +96,10 @@ def test_structured_returns_model_on_valid_payload(structured_llm: Any, events: 
     assert result.severity is Severity.P2
     llm_events = [event for event in events.appended if event.kind == EventKind.LLM]
     assert llm_events and llm_events[0].status == "ok"
+    # BL-010: both the pinned model and the one the provider served are recorded.
+    payload = llm_events[0].payload
+    assert payload["model"] and payload["resolved_model"] == "fake-model"
+    assert llm_events[0].model == "fake-model"
 
 
 def test_probe_sends_one_token_and_returns_the_resolved_model(

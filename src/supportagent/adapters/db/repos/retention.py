@@ -23,6 +23,7 @@ from supportagent.adapters.db.tables import (
     comms,
     comms_drafts,
     events,
+    sync_journal_seen,
     webhook_inbox,
 )
 from supportagent.adapters.db.uow import SqlUnitOfWork
@@ -72,6 +73,13 @@ class SqlRetention:
                     comms.c.tenant_id == tenant_id,
                     comms.c.sent_at_ts.is_not(None),
                     comms.c.sent_at_ts < comms_before_ts,
+                )
+            ).rowcount,
+            # BL-013's journal dedup ages out with the event log.
+            "sync_journal_seen": conn.execute(
+                sa.delete(sync_journal_seen).where(
+                    sync_journal_seen.c.tenant_id == tenant_id,
+                    sync_journal_seen.c.processed_ts < events_before_ms // 1000,
                 )
             ).rowcount,
             "comms_drafts": conn.execute(

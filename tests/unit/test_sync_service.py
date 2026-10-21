@@ -264,3 +264,26 @@ def test_sync_pure_self_echo_on_known_record_not_delivered(
     _seed(fake_sn, "id_a", "INC1", later, user=INTEGRATION_USER, mod_count=2)
     assert service.poll_table(TABLE).delivered == 0
     assert handler.changes == []
+
+
+def test_journal_entry_in_the_overlap_is_delivered_once(uow: Any, clock: Any, fake_sn: Any) -> None:
+    """BL-013: a journal entry re-read inside the overlap window reaches ``on_changes`` once."""
+    handler = _RecordingHandler()
+    service = _service(uow, fake_sn, handler, clock)
+    _seed(fake_sn, "id_a", "INC1", T0)
+    service.poll_table(TABLE)  # first sight: an alert
+
+    noted = T0 + timedelta(seconds=10)
+    fake_sn.seed_journal(TABLE, "id_a", user="bob", ts=noted, element="work_notes", value="on it")
+    _seed(fake_sn, "id_a", "INC1", noted, user="bob", mod_count=2)
+    service.poll_table(TABLE)
+
+    edited = T0 + timedelta(seconds=30)  # inside the 120 s overlap: the note is re-read
+    fake_sn.seed_audit(
+        TABLE, "id_a", user="bob", ts=edited, fieldname="priority", newvalue="2", checkpoint=3
+    )
+    _seed(fake_sn, "id_a", "INC1", edited, user="bob", mod_count=3)
+    service.poll_table(TABLE)
+
+    delivered = [(c.source, c.fieldname) for _, changes in handler.changes for c in changes]
+    assert delivered == [("journal", "work_notes"), ("audit", "priority")]

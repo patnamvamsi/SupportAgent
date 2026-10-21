@@ -31,7 +31,7 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.system.clock import SystemClock
 from supportagent.app.replay import ReplayService, summarize
 from supportagent.bootstrap import run_migrations
-from supportagent.domain.errors import DomainValidationError
+from supportagent.domain.errors import DomainValidationError, NotFound
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.event import Event
 from supportagent.domain.trace import TraceContext
@@ -192,3 +192,16 @@ def test_trace_child_span_parent_link() -> None:
     assert child.trace_id == "trace_0001"
     assert child.span_id == "span_0002"
     assert child.parent_span_id == "span_0001"
+
+
+def test_replay_is_tenant_scoped(uow: Any, aead: Any) -> None:
+    """BL-015: a tenant never replays another tenant's events, even with the trace id."""
+    with uow:
+        SqlEventSink(uow=uow, cipher=aead).append(Event(**_event(id="evt_t1", span_id="s1")))
+        uow.commit()
+    with uow:
+        sink = SqlEventSink(uow=uow, cipher=aead)
+        own = ReplayService(repo=sink, tenant_id=_event()["tenant_id"]).replay("trace_0001")
+        assert [e.id for e in own.events] == ["evt_t1"]
+        with pytest.raises(NotFound):
+            ReplayService(repo=sink, tenant_id="other-tenant").replay("trace_0001")

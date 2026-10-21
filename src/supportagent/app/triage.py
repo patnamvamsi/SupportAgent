@@ -26,7 +26,6 @@ from types import TracebackType
 from typing import Protocol, Self
 
 import sqlalchemy as sa
-from ulid import ULID
 
 from supportagent.app.classify import safe_default
 from supportagent.app.grouping import GroupOutcome
@@ -283,7 +282,7 @@ class TriageService:
         events, and proposes nothing (INV-05: the human queue). A duplicate
         either links or, on a severity escalation, re-triages in place.
         """
-        trace_id = f"tr_{ULID()}"
+        trace_id = self._ids.new(IdPrefix.TRACE)  # BL-020: deterministic under test ids
         root = TraceContext.new(evt.tenant_id, trace_id, _ROOT_SPAN)
         fp = fingerprint(evt, self._tenant_constants)
         now = self._clock.now()

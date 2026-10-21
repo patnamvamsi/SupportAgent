@@ -66,6 +66,21 @@ def test_find_marker_finds_appended_marker(sn_env: Any) -> None:
     assert env["sink"].find_marker(SnTable.INCIDENT, "recF", "[sa:does_not_exist_999]") is None
 
 
+def test_find_marker_needs_the_last_line(sn_env: Any) -> None:
+    """BL-003 / 01 §7.5: a marker quoted inside someone's note doesn't reconcile a send."""
+    env = sn_env
+    _seed(env, "recQ")
+    marker = "[sa:contract_quoted]"
+    env["sink"].append_journal(
+        SnTable.INCIDENT, "recQ", JournalField.WORK_NOTES, f"Saw {marker} earlier.\nThanks."
+    )
+    assert env["sink"].find_marker(SnTable.INCIDENT, "recQ", marker) is None
+    env["sink"].append_journal(
+        SnTable.INCIDENT, "recQ", JournalField.WORK_NOTES, f"Agent note.\n{marker}\n"
+    )
+    assert env["sink"].find_marker(SnTable.INCIDENT, "recQ", marker) is not None
+
+
 def test_update_fields_idempotent(sn_env: Any) -> None:
     """``update_fields`` reads then compares (01 §7.5): the first call writes
     once; an identical re-apply is a no-op (no second write), yet the value

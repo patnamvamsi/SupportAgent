@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import jinja2
+import jinja2.meta
 
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.slots import SlotName
@@ -70,6 +71,31 @@ class PromptRegistry:
         system = self._env.from_string(system_template).render(**escaped)
         user = self._env.from_string(user_template).render(**escaped)
         return RenderedPrompt(system=system, user=user, version=version)
+
+    def variables(self, slot: SlotName) -> frozenset[str]:
+        """The variables the latest prompt for ``slot`` references (BL-009)."""
+        version = self._latest_version(slot)
+        text = (self._root / slot.value / f"{version}.md").read_text(encoding="utf-8")
+        found: set[str] = set()
+        for section in self._split_sections(text, slot):
+            found |= jinja2.meta.find_undeclared_variables(self._env.parse(section))
+        return frozenset(found)
+
+    def check(self, expected: Mapping[SlotName, frozenset[str]]) -> None:
+        """BL-009: every prompt present uses exactly its slot's variables, or ``ConfigError``.
+
+        A slot without a prompt directory is skipped: an unconfigured slot fails
+        closed at call time, and ``classify`` is required by config validation.
+        """
+        for slot, supplied in expected.items():
+            if not (self._root / slot.value).is_dir():
+                continue
+            used = self.variables(slot)
+            if used != supplied:
+                raise ConfigError(  # noqa: TRY003
+                    f"prompt {slot.value}: uses {sorted(used - supplied)} not supplied, "
+                    f"ignores {sorted(supplied - used)} (BL-009)"
+                )
 
     def _latest_version(self, slot: SlotName) -> str:
         slot_dir = self._root / slot.value
