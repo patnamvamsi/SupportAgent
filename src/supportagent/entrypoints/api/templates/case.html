@@ -11,6 +11,9 @@
   <span class="muted">Duplicates</span><span>{{ c.case.duplicate_count }}</span>
   <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ c.case.trace_id }}">{{ c.case.trace_id }}</a></span>
 </div>
+{% if c.event_counts.get("page_recommended") %}
+<p class="warn"><strong>Page recommended.</strong> Triage suggests a P1/P2 and no open page was found for this alert. SupportAgent never pages: decide in your own paging tool. The reason is in the work note and the <a href="/api/v1/traces/{{ c.case.trace_id }}">trace</a>.</p>
+{% endif %}
 {% if c.case.status == "human_owned" %}
 <p class="warn">A person owns this case: the agent proposes and sends nothing until it is handed back.</p>
 {% if can_hand_back %}

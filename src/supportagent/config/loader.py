@@ -39,6 +39,8 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (("tools", "github"), "token_env", "token"),
     (("tools", "oncall"), "pagerduty_token_env", "pagerduty_token"),
     (("tools", "oncall"), "opsgenie_token_env", "opsgenie_token"),
+    (("paging", "pagerduty"), "token_env", "token"),
+    (("paging", "opsgenie"), "api_key_env", "api_key"),
 )
 
 # 02 §1: the fixture provider is test/--demo only.

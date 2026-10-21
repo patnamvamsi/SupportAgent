@@ -38,6 +38,7 @@ SECRET_ENV: dict[str, str] = {
     # gitleaks generic-api-key rule in CI.
     "SA_SESSION_SECRET": "test" * 8,
     "ANTHROPIC_API_KEY": "sk-ant-dummy-test-key",
+    "PAGERDUTY_TOKEN": "pd-dummy-test-token",
 }
 
 

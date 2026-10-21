@@ -38,6 +38,7 @@ _ENV = {
     "OIDC_CLIENT_SECRET": "oidc-secret-fake",
     "SA_SESSION_SECRET": "s" * 32,
     "ANTHROPIC_API_KEY": "sk-test-fake",
+    "PAGERDUTY_TOKEN": "pd-token-fake",
 }
 
 

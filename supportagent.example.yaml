@@ -65,6 +65,11 @@ default: {id: generic, actions: [work_note], rca: none}
 proposals:
   ttl_hours: 24
 grants_request: []                   # v0.2: {action, system, target, requested_expiry_days}
+paging:                              # v0.1 (WP-112): attach-only; SupportAgent never creates a page
+  pagerduty:                         # for catalog paging_integration: pagerduty:<service id>
+    token_env: PAGERDUTY_TOKEN       # REST API key: read incidents, add notes
+    from_email: supportagent@acme.example   # PagerDuty's required From header for notes
+  # opsgenie: {api_key_env: OPSGENIE_API_KEY}   # for paging_integration: opsgenie:<team>
 rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
   prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
   freeze: false                      # a change freeze zeroes recent_change_push (logged)

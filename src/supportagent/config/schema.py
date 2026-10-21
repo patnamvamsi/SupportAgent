@@ -309,6 +309,31 @@ class Tools(DomainModel):
     oncall: ToolOnCall | None = None
 
 
+class PagingPagerDuty(DomainModel):
+    base_url: str = "https://api.pagerduty.com"
+    token: SecretStr
+    #: PagerDuty requires a ``From`` header (a valid user's email) to add notes.
+    from_email: str = Field(min_length=3)
+
+
+class PagingOpsgenie(DomainModel):
+    base_url: str = "https://api.opsgenie.com"
+    api_key: SecretStr
+
+
+class Paging(DomainModel):
+    """``enrich_page`` / page lookup (ARCH §14, WP-112). Attach-only: never create a page.
+
+    A catalog ``paging_integration`` of ``pagerduty:<service id>`` or
+    ``opsgenie:<team>`` uses the matching provider here. Without one, the
+    Null Object answers: no page lookups, ``enrich_page`` a no-op, and
+    ``doctor`` warns.
+    """
+
+    pagerduty: PagingPagerDuty | None = None
+    opsgenie: PagingOpsgenie | None = None
+
+
 class Rca(DomainModel):
     """RCA-lite (ARCH §5, §5.4, §5.5; WP-110). Every value is provisional."""
 
@@ -357,6 +382,8 @@ class AppConfig(DomainModel):
     webhooks: list[Webhook] = Field(default_factory=list)
     #: v0.1 (WP-110): RCA-lite budgets, prior and freeze.
     rca: Rca = Field(default_factory=Rca)
+    #: v0.1 (WP-112): paging providers for enrich_page and page lookups.
+    paging: Paging = Field(default_factory=Paging)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

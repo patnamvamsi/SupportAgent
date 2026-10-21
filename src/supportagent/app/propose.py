@@ -24,6 +24,8 @@ from supportagent.domain.scopes import is_service_scoped, record_scope, service_
 
 #: v0.0 work-note template id (fixed; 10-wp WP-011).
 _WORK_NOTE_TEMPLATE_ID = "work_note_v1"
+_ENRICH_PAGE_TEMPLATE_ID = "enrich_page_v1"
+_PAGE_RECOMMENDED_TEMPLATE_ID = "page_recommended_v1"
 
 
 def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[ActionSpec]:
@@ -46,6 +48,7 @@ def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[Actio
             "build_action_specs requires an external_id"
         )
     table = case.external_table or "incident"
+    entry = next(e for e in catalog.services if e.name == service)
     specs: list[ActionSpec] = []
     for kind in route.actions:
         specs.append(
@@ -57,17 +60,52 @@ def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[Actio
                     if is_service_scoped(kind)
                     else record_scope("servicenow", table, external_id, kind)
                 ),
-                payload=_payload_for(kind, case),
+                payload=_payload_for(kind, case, entry.paging_integration),
             )
         )
     return specs
 
 
-def _payload_for(kind: ActionKind, case: Case) -> dict[str, object]:
+def _payload_for(kind: ActionKind, case: Case, integration: str | None) -> dict[str, object]:
     if kind is ActionKind.WORK_NOTE:
         return {"template_id": _WORK_NOTE_TEMPLATE_ID, "text": _work_note_text(case)}
+    if kind is ActionKind.ENRICH_PAGE:
+        # WP-112: attach to the page the customer's monitoring opened for this
+        # alert (matched by its dedup key), with a fixed template of case fields.
+        return {
+            "template_id": _ENRICH_PAGE_TEMPLATE_ID,
+            "integration": integration or "",
+            "source_ref": case.external_id or "",
+            "text": f"SupportAgent case {case.id}: {_work_note_text(case)}",
+        }
     # v0.0 proposes work notes only; other kinds carry an empty (hashable) payload.
     return {}
+
+
+def page_recommended_spec(case: Case, integration: str, why: str) -> ActionSpec:
+    """The ``work_note`` that carries a ``page_recommended`` (ARCH §14): a recommendation.
+
+    The agent never pages. The note tells a person that triage suggests a
+    page and that no open one was found; they decide, in their own tool.
+    """
+    service = case.service or "unresolved"
+    severity = case.severity.value if case.severity is not None else "unknown"
+    provider = integration.split(":", 1)[0]
+    text = (
+        f"Page recommended: {_work_note_text(case)}. No open page was found on {integration} "
+        f"({why}). SupportAgent never pages: a person decides whether to page in {provider}."
+    )
+    return ActionSpec(
+        kind=ActionKind.WORK_NOTE,
+        target=TargetRef(service=service, system="servicenow", ref=case.external_id or ""),
+        scope=service_scope(service, ActionKind.WORK_NOTE),
+        payload={
+            "template_id": _PAGE_RECOMMENDED_TEMPLATE_ID,
+            "text": text,
+            "page_recommended": True,
+            "severity": severity,
+        },
+    )
 
 
 def _work_note_text(case: Case) -> str:
