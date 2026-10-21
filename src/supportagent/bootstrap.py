@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -244,6 +245,32 @@ def _build_calibration(config: AppConfig) -> CalibrationTable:
     )
 
 
+_log = logging.getLogger("supportagent.bootstrap")
+
+#: ``snapshot_id`` of the empty table that replaces a rejected one (BL-018).
+REJECTED_CALIBRATION = "rejected-calibration"
+
+
+def _classifier_calibration(config: AppConfig) -> CalibrationTable:
+    """BL-018 / 01 §7.7: a rejected calibration table means every label scores 0.
+
+    Startup doesn't fail: the worker keeps polling and every case safe-defaults
+    (``low-calibrated-score``, the human queue, INV-05). The rejection is
+    logged as an error, and ``doctor``'s calibration check fails with the
+    reason, since it loads through the strict ``_build_calibration``.
+    """
+    try:
+        return _build_calibration(config)
+    except ConfigError as exc:
+        _log.error("calibration rejected; every label scores 0 until fixed: %s", exc)
+        return CalibrationTable(
+            grade="smoke",
+            snapshot_id=REJECTED_CALIBRATION,
+            model_id=config.llm.slots[SlotName.CLASSIFY.value].model_id,
+            labels={},
+        )
+
+
 def _build_ruleset(config: AppConfig) -> RuleSet:
     """The pre-classifier rules beside the taxonomy (ARCH §4.2, 10-wp WP-010).
 
@@ -416,7 +443,7 @@ def _build_classifier(
     return Classifier(
         rule_set=_build_ruleset(config),
         llm=_build_llm(config, events, ids, clock, provider_override),
-        calibration=_build_calibration(config),
+        calibration=_classifier_calibration(config),
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
     )
