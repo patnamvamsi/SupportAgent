@@ -43,7 +43,7 @@ from supportagent.domain.model.ticket import ChangeRecord
 from supportagent.domain.proposal_state import ProposalEvent, ProposalStatus
 from supportagent.domain.proposal_state import next_status as next_proposal_status
 from supportagent.domain.rbac import Permission, RoleGrant, can, service_role_scope
-from supportagent.domain.takeover import LifecycleSignal, lifecycle_signals
+from supportagent.domain.takeover import RESOLVED_STATES, LifecycleSignal, lifecycle_signals
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
@@ -79,6 +79,7 @@ class LifecycleService:
         tenant_id: str,
         integration_user: str = "",
         integration_ids: Callable[[], Collection[str]] | None = None,
+        resolved_states: Collection[str] | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -87,6 +88,7 @@ class LifecycleService:
         self._tenant = tenant_id
         self._integration_user = integration_user
         self._integration_ids = integration_ids or (lambda: frozenset({integration_user}))
+        self._resolved_states = frozenset(resolved_states or RESOLVED_STATES)
 
     # --- ServiceNow-driven ------------------------------------------------------
 
@@ -100,6 +102,7 @@ class LifecycleService:
                 integration_user=self._integration_user,
                 integration_ids=frozenset(self._integration_ids()) | {self._integration_user},
                 automation_actors=self._automation_actors(),
+                resolved_states=self._resolved_states,
             )
             applied: list[LifecycleSignal] = []
             for signal in signals:

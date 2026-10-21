@@ -353,6 +353,15 @@ sync_seen = sa.Table(
     sa.Column("processed_ts", sa.Integer, nullable=False),
 )
 
+# 0014 (BL-031): the last doctor report per tenant, for /ui/setup.
+doctor_reports = sa.Table(
+    "doctor_reports",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("report_json", sa.Text, nullable=False),
+    sa.Column("ran_ts", sa.BigInteger, nullable=False),
+)
+
 # 0013 (BL-013): journal entries already delivered, by their sys_id.
 sync_journal_seen = sa.Table(
     "sync_journal_seen",

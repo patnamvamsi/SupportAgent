@@ -2,6 +2,16 @@
 {% block title %}First-run setup{% endblock %}
 {% block content %}
 <h1>First-run setup</h1>
+<h2>Doctor</h2>
+{% if doctor %}
+<p>Last <code>supportagent doctor</code> run: exit {{ doctor.exit_code }} ({{ "all checks pass" if doctor.exit_code == 0 else "see below" }}). Run it again after changing the deployment; this page shows the saved report and runs nothing.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+  <tbody>{% for r in doctor.checks %}
+  <tr><td>{{ r.name }}</td><td class="{{ 'ok' if r.status == 'pass' else 'warn' }}">{{ r.status }}</td><td>{{ r.detail }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No doctor report yet: run <code>supportagent doctor</code> against this deployment.</p>{% endif %}
 <p>Default T1 grants: one per catalog service and internal T1 action. Until they are approved, every T1 action waits for a human approval.</p>
 <div class="table-wrap"><table>
   <thead><tr><th>Scope</th><th>Kind</th><th>Status</th></tr></thead>

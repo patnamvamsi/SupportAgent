@@ -73,6 +73,9 @@ class ServiceNow(DomainModel):
     #: -> taxonomy label, for outcome feedback and shadow agreement. Empty: the
     #: lower-cased ``category/subcategory`` is used as the label as-is.
     classification_map: dict[str, str] = Field(default_factory=dict)
+    #: BL-032: ``state`` values that end a case; ServiceNow's incident defaults
+    #: are 6 resolved, 7 closed, 8 canceled. Set it for an instance with custom states.
+    resolved_states: list[str] = Field(default_factory=lambda: ["6", "7", "8"], min_length=1)
 
     @field_validator("classification_map")
     @classmethod

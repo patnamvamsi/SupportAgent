@@ -57,18 +57,21 @@ class LifecycleSignal:
     after: CaseStatus
 
 
-def lifecycle_signals(
+def lifecycle_signals(  # noqa: PLR0913 — the change set plus the actor and state inputs
     changes: Sequence[ChangeRecord],
     status: CaseStatus,
     *,
     integration_user: str,
     integration_ids: Collection[str],
     automation_actors: Collection[str],
+    resolved_states: Collection[str] = RESOLVED_STATES,
 ) -> list[LifecycleSignal]:
     """The legal lifecycle events in ``changes`` (time order), from ``status``.
 
     ``integration_ids`` are the values ``assigned_to`` takes when a ticket is
     assigned to the agent (its ``sys_id``, and its user name).
+    ``resolved_states`` are the ``state`` values that end a case (BL-032:
+    ``servicenow.resolved_states`` for an instance with custom states).
     """
     signals: list[LifecycleSignal] = []
     current = status
@@ -79,6 +82,7 @@ def lifecycle_signals(
             integration_user=integration_user,
             integration_ids=integration_ids,
             automation_actors=automation_actors,
+            resolved_states=resolved_states,
         )
         if event is None:
             continue
@@ -90,19 +94,20 @@ def lifecycle_signals(
     return signals
 
 
-def _event_for(
+def _event_for(  # noqa: PLR0913 — one change plus the actor and state inputs
     change: ChangeRecord,
     current: CaseStatus,
     *,
     integration_user: str,
     integration_ids: Collection[str],
     automation_actors: Collection[str],
+    resolved_states: Collection[str],
 ) -> CaseEvent | None:
     if change.source != "audit" or change.fieldname not in _TAKEOVER_FIELDS:
         return None
     new = change.newvalue or ""
     if change.fieldname == "state":
-        if new in RESOLVED_STATES:
+        if new in resolved_states:
             return CaseEvent.RESOLVED
         if current is CaseStatus.RESOLVED:
             return CaseEvent.REOPENED

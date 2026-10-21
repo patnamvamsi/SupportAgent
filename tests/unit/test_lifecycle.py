@@ -69,8 +69,19 @@ def _signals(changes: list[ChangeRecord], status: CaseStatus, **kw: Any) -> list
             integration_user=_SVC,
             integration_ids=kw.get("ids", {_SVC, "u-svc"}),
             automation_actors=kw.get("automation", set()),
+            **({"resolved_states": kw["resolved"]} if "resolved" in kw else {}),
         )
     ]
+
+
+def test_custom_resolved_states() -> None:
+    """BL-032: an instance whose resolved state is "100" resolves on it, not on "6"."""
+    resolved = _audit("system", "state", "100")
+    assert _signals([resolved], CaseStatus.TRIAGED) == []  # not a resolved state by default
+    assert _signals([resolved], CaseStatus.TRIAGED, resolved={"100"}) == [CaseEvent.RESOLVED]
+    default_six = _audit("system", "state", "6")
+    assert _signals([default_six], CaseStatus.TRIAGED, resolved={"100"}) == []
+    assert _signals([default_six], CaseStatus.TRIAGED) == [CaseEvent.RESOLVED]
 
 
 # --- domain ------------------------------------------------------------------
