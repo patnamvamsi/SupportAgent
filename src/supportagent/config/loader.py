@@ -34,6 +34,11 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (("identity",), "client_secret_env", "client_secret"),
     (("identity",), "session_secret_env", "session_secret"),
     (("llm",), "api_key_env", "api_key"),
+    # 11-wp WP-107: tool credentials (each section optional).
+    (("tools", "airflow"), "token_env", "token"),
+    (("tools", "github"), "token_env", "token"),
+    (("tools", "oncall"), "pagerduty_token_env", "pagerduty_token"),
+    (("tools", "oncall"), "opsgenie_token_env", "opsgenie_token"),
 )
 
 # 02 §1: the fixture provider is test/--demo only.

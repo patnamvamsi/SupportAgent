@@ -282,6 +282,33 @@ class Memory(DomainModel):
         return value
 
 
+class ToolAirflow(DomainModel):
+    base_url: str = Field(min_length=1)
+    token: SecretStr | None = None
+
+
+class ToolGitHub(DomainModel):
+    base_url: str = "https://api.github.com"
+    token: SecretStr | None = None
+
+
+class ToolOnCall(DomainModel):
+    pagerduty_base_url: str = "https://api.pagerduty.com"
+    pagerduty_token: SecretStr | None = None
+    opsgenie_base_url: str = "https://api.opsgenie.com"
+    opsgenie_token: SecretStr | None = None
+
+
+class Tools(DomainModel):
+    """First-party read tools (ARCH §7, WP-107). A tool is registered when configured."""
+
+    logs_root: str | None = None
+    cron_status_dir: str | None = None
+    airflow: ToolAirflow | None = None
+    github: ToolGitHub | None = None
+    oncall: ToolOnCall | None = None
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -300,6 +327,8 @@ class AppConfig(DomainModel):
     proposals: Proposals
     grants_request: list[GrantRequest] = Field(default_factory=list)
     retention: Retention
+    #: v0.1 (WP-107): first-party read tools; none by default.
+    tools: Tools = Field(default_factory=Tools)
     #: v0.1 (WP-108): case-memory ranking weights.
     memory: Memory = Field(default_factory=Memory)
     #: v0.1 (WP-113): generic webhook sources; none by default.

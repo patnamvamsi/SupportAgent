@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 
-from supportagent.domain.errors import ServiceNowError
+from supportagent.domain.errors import ServiceNowError, ToolError
 from supportagent.domain.faults import Fault
 from supportagent.domain.model.external import ExternalRef
 from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tools import Tool, ToolResult
 
 
 class SimulatedCrash(BaseException):
@@ -69,4 +70,19 @@ class FaultInjectingTicketSink:
         return self._inner.find_marker(table, sys_id, marker)
 
 
-__all__ = ["FaultInjectingTicketSink", "SimulatedCrash"]
+class FaultInjectingTool:
+    """``gha_500`` (WP-106/107): the wrapped tool fails as if its API returned 500."""
+
+    def __init__(self, inner: Tool) -> None:
+        self._inner = inner
+        self.name = inner.name
+        self.trust_class = inner.trust_class
+        self.tier = inner.tier
+        self.result_schema = inner.result_schema
+        self.literal_args = inner.literal_args
+
+    def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        raise ToolError(f"injected fault: {self.name} -> 500", retryable=True)  # noqa: TRY003
+
+
+__all__ = ["FaultInjectingTicketSink", "FaultInjectingTool", "SimulatedCrash"]
