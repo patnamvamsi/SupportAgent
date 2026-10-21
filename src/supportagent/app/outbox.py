@@ -35,6 +35,7 @@ import sqlalchemy as sa
 
 from supportagent.app.handlers import JOURNAL_KINDS, Handler, marker
 from supportagent.domain.errors import (
+    ConfigError,
     DomainValidationError,
     ExternalServiceError,
     NotFound,
@@ -59,7 +60,10 @@ from supportagent.ports.tickets import SnTable, TicketSink
 MAX_ATTEMPTS = 5
 
 #: A claim older than this is presumed dead and may be reclaimed (01 §3
-#: ``claim_next(now, lease_s)``). It must exceed the sink's worst-case call time.
+#: ``claim_next(now, lease_s)``). It must exceed the sink's worst-case time for
+#: one claim (reconcile + send); production derives it from the sink's retry
+#: budget (``bootstrap.outbox_claim_budget_s``, BL-001) and passes
+#: ``send_budget_s`` so a too-short lease fails at startup.
 DEFAULT_LEASE_S = 60
 
 #: Exponential backoff (01 §7.5): 0.5 * 2**attempts seconds.
@@ -285,7 +289,14 @@ class OutboxExecutor:
         max_attempts: int = MAX_ATTEMPTS,
         lease_s: int = DEFAULT_LEASE_S,
         crash_hook: Callable[[str], None] | None = None,
+        send_budget_s: float | None = None,
     ) -> None:
+        if send_budget_s is not None and lease_s <= send_budget_s:
+            raise ConfigError(  # noqa: TRY003
+                f"outbox claim lease {lease_s}s must exceed the sink's worst-case "
+                f"reconcile + send time {send_budget_s:.0f}s, or a live send can be "
+                "reclaimed and sent twice (BL-001)"
+            )
         self._uow = uow
         self._repo = repo
         self._clock = clock

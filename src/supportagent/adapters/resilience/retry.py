@@ -49,6 +49,10 @@ class RetryingTicketSink:
         self._max_wait = max_wait_s
         self._sleep = sleep
 
+    def worst_case_s(self, call_s: float) -> float:
+        """The longest one retried operation takes when a single try takes ``call_s`` (BL-001)."""
+        return self._max_tries * call_s + (self._max_tries - 1) * self._max_wait
+
     def _retry(self, fn: Callable[[], T], *, safe: Callable[[ServiceNowError], bool]) -> T:
         for attempt in range(self._max_tries):
             try:
