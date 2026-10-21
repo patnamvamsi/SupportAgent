@@ -27,7 +27,8 @@ _VERSION_COMPONENT = re.compile(r"\d")
 # (e.g. "claude-3-5-sonnet-latest", "gpt-4o-latest").
 _FLOATING_ALIAS = re.compile(r"(^|[-_.:@/])(latest|current|default|stable)$", re.IGNORECASE)
 # 02 §1 / CAP §4.7: v0.0 and v0.1 run shadow only; assisted lands with WP-209 (v0.2).
-_MODES_BEFORE_V02: frozenset[str] = frozenset({"shadow"})
+#: ADR-0008: v0.1 accepts shadow and assisted; standard is v0.2+.
+_MODES_BEFORE_V02: frozenset[str] = frozenset({"shadow", "assisted"})
 # 02 §1: identity.session_secret must be >= 32 bytes.
 MIN_SESSION_SECRET_BYTES = 32
 
@@ -416,6 +417,7 @@ class AppConfig(DomainModel):
         if self.mode not in _MODES_BEFORE_V02:
             raise ValueError(  # noqa: TRY003
                 f"mode '{self.mode}' is not accepted before v0.2 "
-                "(v0.0 accepts only 'shadow'; use --demo for demos); see 02 §1, CAP §4.7"
+                "(v0.1 accepts 'shadow' and 'assisted', ADR-0008; use --demo for demos); "
+                "see 02 §1, CAP §4.7"
             )
         return self

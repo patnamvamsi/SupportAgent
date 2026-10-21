@@ -213,6 +213,20 @@ class _Planner(Protocol):
     def plan(self, case_id: str, plan_template: str, trace: TraceContext) -> Proposal | Skipped: ...
 
 
+class TriageRunner:
+    """Assisted mode's runner for ``ShadowInbound`` (ADR-0008): the real triage.
+
+    Shadow wires ``ShadowRunner`` (Loop A without hands); assisted wires this,
+    so proposals go through the gate and grant-covered ones are enqueued.
+    """
+
+    def __init__(self, triage: TriageService) -> None:
+        self._triage = triage
+
+    def run(self, evt: AlertEvent) -> TriageOutcome:
+        return self._triage.handle(evt)
+
+
 class TriageService:
     """Triage one inbound alert: dedup + decision, then gate the proposals.
 
@@ -624,6 +638,7 @@ __all__ = [
     "TriageClassifier",
     "TriageGrouping",
     "TriageMemory",
+    "TriageRunner",
     "TriageService",
     "TriageSpend",
 ]

@@ -63,4 +63,4 @@ supportagent stats --mode shadow --window 30d
 supportagent shadow import exports/last-50-incidents.jsonl
 ```
 
-`/ui/stats` shows triage agreement with its Wilson lower bound, the promotion gate (CAP §4.7) and approval fatigue. `shadow import` replays a history export, which is how the provisional thresholds get set (ADR-0003). Promotion to assisted mode is your decision.
+`/ui/stats` shows triage agreement with its Wilson lower bound, the promotion gate (CAP §4.7) and approval fatigue. `shadow import` replays a history export, which is how the provisional thresholds get set (ADR-0003). Promotion to assisted mode is your decision: set `mode: assisted` once the gate passes and every automation-actor candidate is decided in `/ui/setup`. The worker then sends approved and grant-covered actions (ADR-0008).

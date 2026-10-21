@@ -462,6 +462,7 @@ class OutboxExecutor:
             ):
                 return self._lost(claim, now)
             self._crash("after_mark_done")
+            self._mark_comms(claim.outbox_id, "sent", now_ts)
             self._emit(
                 claim.row, EventKind.SEND, now, {"phase": status, "external_ref": external_ref}
             )
@@ -514,12 +515,23 @@ class OutboxExecutor:
             ):
                 return self._lost(claim, now)
             self._safe_default(claim.row["case_id"])
+            self._mark_comms(claim.outbox_id, "failed", None)
             self._emit(
                 claim.row, EventKind.SEND, now, {"phase": "failed", "error": error}, status="error"
             )
             self._uow.commit()
         return ExecResult(
             outbox_id=claim.outbox_id, status="failed", attempts=attempts, error=error
+        )
+
+    def _mark_comms(self, outbox_id: str, status: str, sent_at_ts: int | None) -> None:
+        """BL-034: a customer update's ``comms`` row follows its outbox outcome (ARCH §6.3)."""
+        self._uow.connection.execute(
+            sa.text(
+                "UPDATE comms SET status = :s, sent_at_ts = :ts "
+                "WHERE outbox_id = :id AND status = 'queued'"
+            ),
+            {"s": status, "ts": sent_at_ts, "id": outbox_id},
         )
 
     def _lost(self, claim: _Claim, now: datetime) -> ExecResult:

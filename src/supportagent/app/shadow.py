@@ -269,6 +269,12 @@ def import_history(
     return records
 
 
+class _Runner(Protocol):
+    """``ShadowRunner`` in shadow mode; ``TriageRunner`` in assisted mode (ADR-0008)."""
+
+    def run(self, evt: AlertEvent) -> object: ...
+
+
 class ShadowInbound:
     """The shadow worker's ``InboundHandler`` (02 §6-§7).
 
@@ -282,7 +288,7 @@ class ShadowInbound:
     def __init__(  # noqa: PLR0913 — the runner plus the event-write ports
         self,
         *,
-        runner: ShadowRunner,
+        runner: _Runner,
         uow: _UoW,
         cases: _CaseLookup,
         events: EventSink,
