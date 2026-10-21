@@ -11,7 +11,11 @@ behaviour:
 * ``5xx`` — retry with exponential backoff ``0.5s x 2ⁿ``;
 * any other ``4xx`` — fail fast, ``ServiceNowError(retryable=False)``.
 
-Up to ``max_tries`` attempts (default 5). The sleep and the jitter are
+Up to ``max_tries`` attempts (default 5); a wait, ``Retry-After`` included,
+is capped at ``max_wait_s`` so ``worst_case_s`` is a real bound (BL-001).
+The write side (``build_ticket_sink``) uses one attempt: ``RetryingTicketSink``
+owns its retries, because repeating a POST after a 5xx or a timeout can
+duplicate a journal entry. The sleep and the jitter are
 *injected seams* (01 §3): the ``random`` module is banned in ``src`` (05 §6),
 so the ±20% jitter is supplied by the caller, and the sleep is injectable so
 tests never actually wait.
@@ -31,6 +35,9 @@ DEFAULT_MAX_TRIES = 5
 DEFAULT_BACKOFF_BASE_S = 0.5
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_READ_TIMEOUT_S = 30.0
+DEFAULT_MAX_WAIT_S = 30.0
+#: The caller's jitter is ±20%: budget for the top of the range.
+_JITTER_HEADROOM = 1.2
 
 
 def build_client(base_url: str, *, transport: httpx.BaseTransport | None = None) -> httpx.Client:
@@ -64,13 +71,25 @@ class ServiceNowHTTP:
         backoff_base_s: float = DEFAULT_BACKOFF_BASE_S,
         sleep: Callable[[float], None] = _default_sleep,
         jitter: Callable[[float], float] | None = None,
+        max_wait_s: float = DEFAULT_MAX_WAIT_S,
     ) -> None:
         self._http = http
+        self._max_wait_s = max_wait_s
         self._auth = auth
         self._max_tries = max(1, max_tries)
         self._backoff_base_s = backoff_base_s
         self._sleep_fn = sleep
         self._jitter = jitter
+
+    @property
+    def worst_case_s(self) -> float:
+        """The longest one ``request`` can take: every attempt times out, every wait maxed."""
+        timeout = self._http.timeout
+        per_try = (timeout.connect or DEFAULT_CONNECT_TIMEOUT_S) + (
+            timeout.read or DEFAULT_READ_TIMEOUT_S
+        )
+        waits = (self._max_tries - 1) * self._max_wait_s * _JITTER_HEADROOM
+        return self._max_tries * per_try + waits
 
     def request(  # noqa: PLR0913
         self,
@@ -146,8 +165,9 @@ class ServiceNowHTTP:
 
     def _wait_s(self, attempt: int, retry_after_s: float | None) -> float:
         base = retry_after_s if retry_after_s is not None else self._backoff_base_s * (2**attempt)
+        base = min(base, self._max_wait_s)
         if self._jitter is not None:
-            return max(0.0, self._jitter(base))
+            return min(max(0.0, self._jitter(base)), self._max_wait_s * _JITTER_HEADROOM)
         return base
 
     def _sleep(self, seconds: float) -> None:
@@ -159,6 +179,7 @@ __all__ = [
     "DEFAULT_BACKOFF_BASE_S",
     "DEFAULT_CONNECT_TIMEOUT_S",
     "DEFAULT_MAX_TRIES",
+    "DEFAULT_MAX_WAIT_S",
     "DEFAULT_READ_TIMEOUT_S",
     "ServiceNowHTTP",
     "build_client",

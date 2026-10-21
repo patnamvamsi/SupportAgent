@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -360,7 +361,7 @@ def build_ticket_sink(
     never repeats an ambiguous journal append (``RetryingTicketSink``).
     """
     sink: TicketSink = ServiceNowSink(
-        http=_servicenow_http(config, clock=clock, transport=transport)
+        http=_servicenow_http(config, clock=clock, transport=transport, max_tries=1)
     )
     faults = load_fault_injection_default() & SINK_FAULTS
     if faults:
@@ -368,6 +369,32 @@ def build_ticket_sink(
     return CircuitBreakerTicketSink(
         RetryingTicketSink(sink), CircuitBreaker(clock=clock, name="servicenow")
     )
+
+
+#: Seconds of headroom between the worst-case claim and its lease (BL-001).
+_LEASE_MARGIN_S = 60
+#: ``update_fields`` reads the record, then patches it: two requests per try.
+_UPDATE_REQUESTS = 2
+
+
+def outbox_claim_budget_s(config: AppConfig, *, clock: Clock) -> float:
+    """BL-001: the longest one outbox claim can hold its row, for ``build_ticket_sink``.
+
+    One claim reconciles (``find_marker``) and then sends (``append_journal``
+    or ``update_fields``), each through ``RetryingTicketSink`` over a
+    single-attempt HTTP client. Every try timing out and every wait maxed out
+    gives the bound.
+    """
+    http = _servicenow_http(config, clock=clock, max_tries=1).worst_case_s
+    retry = RetryingTicketSink(ServiceNowSink(http=_servicenow_http(config, clock=clock)))
+    reconcile = retry.worst_case_s(http)
+    send = max(retry.worst_case_s(http), retry.worst_case_s(_UPDATE_REQUESTS * http))
+    return reconcile + send
+
+
+def outbox_claim_lease_s(config: AppConfig, *, clock: Clock) -> int:
+    """The claim lease the assisted-mode executor uses: the budget plus a margin."""
+    return math.ceil(outbox_claim_budget_s(config, clock=clock)) + _LEASE_MARGIN_S
 
 
 def _build_classifier(

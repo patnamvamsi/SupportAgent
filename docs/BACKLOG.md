@@ -8,7 +8,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-001 | P1 | **Claim lease shorter than the ServiceNow retry budget.** `DEFAULT_LEASE_S = 60` (`app/outbox.py`), but one `ServiceNowHTTP` call can take ≈ 5 tries × (10 s connect + 30 s read) + backoff ≈ 200 s. A second worker can reclaim a row that is still mid-send, and both may write the journal entry. Derive the claim lease from the sink's worst-case budget, or make it config with a startup check `lease_s > sink budget`. | WP-006 / WP-008 | first assisted-mode WP (v0.1); shadow never builds a sink |
 | BL-002 | P2 | `outbox.execute` job lease TTL is 10 s (`entrypoints/worker/jobs.py`), but a 50-row drain with HTTP calls can run much longer, so a second replica can start draining. Safe (claims are CAS), but wasteful. Renew the lease per row, or size the TTL to the drain budget. | WP-006 | first assisted-mode WP (v0.1) |
 | BL-003 | P3 | `FakeServiceNow.find_marker` matches the marker anywhere in the text, not only on the last line (01 §7.5). Its `ExternalRef.system` is the table name rather than `servicenow`. | WP-006 | any |
 | BL-004 | P2 | No `CommsRepository` for the `comms` table (01 §3 lists `uow.comms`). The table exists (migration 0003); nothing reads or writes it yet. | WP-005 | first comms WP (v0.1) |
