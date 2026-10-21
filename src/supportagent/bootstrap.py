@@ -71,6 +71,9 @@ from supportagent.adapters.llm.client import (
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
+from supportagent.adapters.paging.noop import RoutedPaging
+from supportagent.adapters.paging.opsgenie import OpsgeniePaging
+from supportagent.adapters.paging.pagerduty import PagerDutyPaging
 from supportagent.adapters.resilience.breaker import (
     CircuitBreaker,
     CircuitBreakerLLMProvider,
@@ -418,7 +421,49 @@ def _build_triage(config: AppConfig) -> TriageService:
         grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
         spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
         memory=_build_memory(config, uow, clock),
+        paging=build_paging(config),
     )
+
+
+def build_paging(
+    config: AppConfig, *, transport: httpx.BaseTransport | None = None
+) -> RoutedPaging | None:
+    """WP-112: the configured paging providers (attach-only), or ``None`` when there are none.
+
+    ``None`` means the Null Object: no page lookups, no ``page_recommended``,
+    no ``enrich_page`` handler; ``doctor``'s paging check warns.
+    """
+    cfg = config.paging
+    providers: list[PagerDutyPaging | OpsgeniePaging] = []
+    if cfg.pagerduty is not None:
+        providers.append(
+            PagerDutyPaging(
+                client=httpx.Client(
+                    base_url=cfg.pagerduty.base_url,
+                    headers={
+                        "Authorization": f"Token token={cfg.pagerduty.token.get_secret_value()}",
+                        "Accept": "application/vnd.pagerduty+json;version=2",
+                        "From": cfg.pagerduty.from_email,
+                    },
+                    transport=transport,
+                    timeout=10.0,
+                )
+            )
+        )
+    if cfg.opsgenie is not None:
+        providers.append(
+            OpsgeniePaging(
+                client=httpx.Client(
+                    base_url=cfg.opsgenie.base_url,
+                    headers={
+                        "Authorization": f"GenieKey {cfg.opsgenie.api_key.get_secret_value()}"
+                    },
+                    transport=transport,
+                    timeout=10.0,
+                )
+            )
+        )
+    return RoutedPaging(providers) if providers else None
 
 
 def _build_memory(config: AppConfig, uow: SqlUnitOfWork, clock: Clock) -> CaseMemory:
@@ -479,6 +524,7 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
     uow: SqlUnitOfWork | None = None,
     ids: IdGenerator | None = None,
     llm_provider: LLMProvider | None = None,
+    transport: httpx.BaseTransport | None = None,
 ) -> ShadowRunner:
     """Loop A without side effects (10-wp WP-014): the shadow-mode triage entry point."""
     uow = uow if uow is not None else _build_uow(config)
@@ -500,6 +546,8 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
         grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
         spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
         memory=_build_memory(config, uow, clock),
+        # WP-112: page lookups are reads, so shadow records page_recommended too.
+        paging=build_paging(config, transport=transport),
     )
 
 
@@ -701,7 +749,13 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     key = master_key if master_key is not None else load_master_key_default()
     runner_uow = SqlUnitOfWork(engine)
     runner = _build_shadow_runner(
-        config, clock=clock, master_key=key, uow=runner_uow, ids=ids, llm_provider=llm_provider
+        config,
+        clock=clock,
+        master_key=key,
+        uow=runner_uow,
+        ids=ids,
+        llm_provider=llm_provider,
+        transport=transport,
     )
     inbound_events = _event_sink(runner_uow, key, clock)
     inbound = ShadowInbound(

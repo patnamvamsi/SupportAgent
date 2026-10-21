@@ -29,6 +29,7 @@ from supportagent.app.doctor.checks.servicenow import (
     JournalVisibilityCheck,
     RateLimitCheck,
 )
+from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError, LLMUnavailable
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
@@ -374,8 +375,25 @@ def test_doctor_automation_actors_fail(clock: Any) -> None:
 # --- paging ------------------------------------------------------------------
 
 
+def _with_pagerduty() -> Any:
+    data = _shadow_config().model_dump(mode="json")
+    for secret in ("client_id", "client_secret", "session_secret"):
+        data["identity"][secret] = "d-" + secret + "-" + "x" * 32
+    data["servicenow"]["auth"] = {"kind": "basic", "user": "svc", "password": "pw-fake"}
+    data["paging"] = {"pagerduty": {"token": "pd-fake", "from_email": "sa@acme.example"}}
+    return AppConfig.model_validate(data)
+
+
 def test_doctor_paging_pass(clock: Any) -> None:
-    assert PagingCheck().run(_ctx(clock=clock)).status == "pass"
+    assert PagingCheck().run(_ctx(clock=clock, config=_with_pagerduty())).status == "pass"
+
+
+def test_doctor_paging_warns_on_null_object(clock: Any) -> None:
+    """WP-112: a paging_integration whose provider isn't configured gets the Null Object."""
+    res = PagingCheck().run(_ctx(clock=clock))
+    assert res.status == "warn"
+    assert res.data["null_paging"] == ["payments"]
+    assert "enrich_page is a no-op" in res.detail
 
 
 def test_doctor_paging_fail(clock: Any) -> None:

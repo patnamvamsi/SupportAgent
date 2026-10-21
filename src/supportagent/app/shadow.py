@@ -60,6 +60,7 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
+from supportagent.ports.paging import PagingIntegration
 
 
 class _UoW(Protocol):
@@ -171,6 +172,7 @@ class ShadowRunner:
         grouping: TriageGrouping | None = None,
         spend: TriageSpend | None = None,
         memory: TriageMemory | None = None,
+        paging: PagingIntegration | None = None,
     ) -> None:
         self._uow = uow
         self._ids = ids
@@ -189,6 +191,7 @@ class ShadowRunner:
             grouping=grouping,
             spend=spend,
             memory=memory,
+            paging=paging,
         )
 
     def run(self, evt: AlertEvent) -> ShadowRecord | None:

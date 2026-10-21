@@ -29,7 +29,8 @@ from ulid import ULID
 
 from supportagent.app.classify import safe_default
 from supportagent.app.grouping import GroupOutcome
-from supportagent.app.propose import build_action_specs
+from supportagent.app.propose import build_action_specs, page_recommended_spec
+from supportagent.domain.errors import ExternalServiceError
 from supportagent.domain.events import EventKind
 from supportagent.domain.fingerprint import fingerprint
 from supportagent.domain.ids import IdPrefix
@@ -58,6 +59,7 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
+from supportagent.ports.paging import PagingIntegration
 
 #: Root span of a triage trace (the app mints trace/span ids; 01 §4).
 _ROOT_SPAN = "span_0001"
@@ -229,6 +231,7 @@ class TriageService:
         grouping: TriageGrouping | None = None,
         spend: TriageSpend | None = None,
         memory: TriageMemory | None = None,
+        paging: PagingIntegration | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -241,6 +244,7 @@ class TriageService:
         self._grouping = grouping
         self._spend = spend
         self._memory = memory
+        self._paging = paging
         self._catalog = catalog
         self._unpaged = frozenset(catalog.unpaged_services())
         #: ``redaction.tenant_constants`` (02 §1): folded to ``<const>`` in the
@@ -431,11 +435,49 @@ class TriageService:
         route = self._classifier.routing.lookup(decision.classification, decision.severity)
         full_case = self._case_for(evt, fp, case_id, service, decision.classification)
         specs = self._with_citation(case_id, build_action_specs(route, full_case, self._catalog))
+        recommended = self._page_recommendation(
+            full_case.model_copy(update={"severity": decision.severity}), root
+        )
+        if recommended is not None:
+            specs.append(recommended)
         submitted = [self._gate.submit(case_id, spec, root.child(_span("gate"))) for spec in specs]
         if route.comms and self._planner is not None:
             # WP-102: the route's comms plan is a proposal of its own, in this UoW.
             submitted.append(self._planner.plan(case_id, route.comms, root.child(_span("comms"))))
         return [p for p in submitted if isinstance(p, Proposal)]
+
+    def _page_recommendation(self, case: Case, root: TraceContext) -> ActionSpec | None:
+        """ARCH §14: a P1/P2 with no open page gets ``page_recommended``, never a page.
+
+        The answer comes from the service's real paging provider. Without one
+        (the Null Object), nothing is looked up or recommended and ``doctor``
+        warns. A failed lookup recommends: a person should check.
+        """
+        if self._paging is None or case.severity not in (Severity.P1, Severity.P2):
+            return None
+        entry = next((e for e in self._catalog.services if e.name == case.service), None)
+        integration = entry.paging_integration if entry is not None else None
+        if not integration or not self._paging.supports(integration):
+            return None
+        why = "no open page for this alert"
+        try:
+            page = self._paging.find_open_page(integration, case.external_id or "")
+        except ExternalServiceError as exc:
+            page, why = None, f"page lookup failed: {type(exc).__name__}"
+        if page is not None:
+            return None
+        self._emit(
+            root,
+            EventKind.PAGE_RECOMMENDED,
+            _span("page"),
+            {
+                "v": 1,
+                "severity": case.severity.value,
+                "integration": integration,
+                "why": why,
+            },
+        )
+        return page_recommended_spec(case, integration, why)
 
     def _with_citation(self, case_id: str, specs: list[ActionSpec]) -> list[ActionSpec]:
         """A work note cites the most similar resolved case, when one exists (WP-108).
