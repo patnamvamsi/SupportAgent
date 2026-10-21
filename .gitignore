@@ -30,3 +30,6 @@ build/
 evals/.cache/
 # Per-run reports (02 §4); calibration.json is committed.
 evals/artifacts/*/
+
+# Claude Code local runtime state (locks, per-user settings)
+.claude/
