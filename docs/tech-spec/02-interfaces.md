@@ -13,7 +13,7 @@ config_version: 1                       # required; see 06 §3
 tenant:
   id: acme                              # ^[a-z0-9-]{2,32}$
   display_name: "Acme Corp"
-mode: shadow                            # shadow | assisted | standard (CAP §4.7). v0.0 accepts only shadow + demo
+mode: shadow                            # shadow | assisted | standard (CAP §4.7). v0.1 accepts shadow + assisted (ADR-0008); standard from v0.2
 database:
   url_env: SUPPORTAGENT_DB_URL          # sqlite:///data/sa.db | postgresql+psycopg://...
 servicenow:

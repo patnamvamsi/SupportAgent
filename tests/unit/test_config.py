@@ -74,13 +74,11 @@ def test_config_latest_suffix_alias_rejected(tmp_path: Path, model_id: str) -> N
         load_config(path, SECRET_ENV)
 
 
-def test_config_assisted_mode_rejected_before_v02(tmp_path: Path) -> None:
-    # 02 §1: "v0.0 accepts only shadow + demo"; assisted lands with WP-209.
+def test_config_assisted_mode_accepted_in_v01(tmp_path: Path) -> None:
     data = a_config_file()
     data["mode"] = "assisted"
     path = write_yaml_file(tmp_path, "config.yaml", data)
-    with pytest.raises(ConfigError, match="assisted"):
-        load_config(path, SECRET_ENV)
+    assert load_config(path, SECRET_ENV).mode == "assisted"
 
 
 def test_config_routing_label_must_exist(tmp_path: Path) -> None:

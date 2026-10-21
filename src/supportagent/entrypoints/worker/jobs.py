@@ -52,6 +52,8 @@ OUTBOX_EXECUTE_LEASE = "outbox.execute"
 
 #: 02 §7: the per-run row cap ("until empty or 50 rows").
 OUTBOX_EXECUTE_MAX_ROWS = 50
+#: 02 §7: ``outbox.execute`` every 2 s (assisted mode, ADR-0008).
+OUTBOX_EXECUTE_INTERVAL_S = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,16 @@ def groups_close(*, close: Callable[[], int], lease: Lease, owner: str) -> JobRe
     return JobResult(name=GROUPS_CLOSE_LEASE, ran=True, rows=closed)
 
 
+#: 02 §7: ``comms.cadence`` every 60 s (assisted mode, ADR-0008).
+COMMS_CADENCE_LEASE = "comms.cadence"
+COMMS_CADENCE_INTERVAL_S = 60
+
+
+def comms_cadence(*, run: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    """Render due comms-plan updates: send, or draft under ``human_owned`` (WP-102)."""
+    return _leased(COMMS_CADENCE_LEASE, run, lease, owner, ttl_s=300)
+
+
 #: 02 §7: ``proposals.expire`` every 60 s (BL-028).
 PROPOSALS_EXPIRE_LEASE = "proposals.expire"
 PROPOSALS_EXPIRE_INTERVAL_S = 60
@@ -255,10 +267,13 @@ def llm_deprecation_check(
 
 
 __all__ = [
+    "COMMS_CADENCE_INTERVAL_S",
+    "COMMS_CADENCE_LEASE",
     "GROUPS_CLOSE_INTERVAL_S",
     "GROUPS_CLOSE_LEASE",
     "LLM_DEPRECATION_INTERVAL_S",
     "LLM_DEPRECATION_LEASE",
+    "OUTBOX_EXECUTE_INTERVAL_S",
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
     "PROPOSALS_EXPIRE_INTERVAL_S",
@@ -273,6 +288,7 @@ __all__ = [
     "Executor",
     "JobResult",
     "Poller",
+    "comms_cadence",
     "groups_close",
     "llm_deprecation_check",
     "outbox_execute",

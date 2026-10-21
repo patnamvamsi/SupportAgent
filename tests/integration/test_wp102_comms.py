@@ -172,6 +172,9 @@ def test_cadence_one_send_per_slot(world: _World) -> None:
     assert "status In Progress, priority 3 - Moderate" in comment
     assert comment.splitlines()[-1].startswith("[sa:"), "the INV-04 marker"
     assert world.scalar("SELECT COUNT(*) FROM comms") == 1
+    # BL-034: the comms row follows its outbox outcome (ARCH §6.3 history).
+    assert world.scalar("SELECT status FROM comms") == "sent"
+    assert world.scalar("SELECT sent_at_ts FROM comms") is not None
 
 
 def test_cadence_missed_slot_not_backfilled(world: _World) -> None:

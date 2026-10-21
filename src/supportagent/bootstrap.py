@@ -113,9 +113,10 @@ from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport,
 from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
+from supportagent.app.handlers import build_handlers
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
-from supportagent.app.outbox import OutboxWriter
+from supportagent.app.outbox import OutboxExecutor, OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.rca import BufferedEvents, Knowledge, RcaJob, RcaService, lite_route_ids
 from supportagent.app.replay import ReplayService, ReplayView
@@ -126,7 +127,7 @@ from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.tools import ToolRegistry
-from supportagent.app.triage import TriageService
+from supportagent.app.triage import TriageRunner, TriageService
 from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
 from supportagent.config.loader import (
     load_config_default,
@@ -159,10 +160,14 @@ from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
+    COMMS_CADENCE_INTERVAL_S,
+    COMMS_CADENCE_LEASE,
     GROUPS_CLOSE_INTERVAL_S,
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    OUTBOX_EXECUTE_INTERVAL_S,
+    OUTBOX_EXECUTE_LEASE,
     PROPOSALS_EXPIRE_INTERVAL_S,
     PROPOSALS_EXPIRE_LEASE,
     RCA_RUN_INTERVAL_S,
@@ -172,8 +177,10 @@ from supportagent.entrypoints.worker.jobs import (
     WEBHOOKS_DRAIN_INTERVAL_S,
     WEBHOOKS_DRAIN_LEASE,
     JobResult,
+    comms_cadence,
     groups_close,
     llm_deprecation_check,
+    outbox_execute,
     proposals_expire,
     rca_run,
     retention_sweep,
@@ -451,11 +458,22 @@ def _build_classifier(
 
 def _build_triage(config: AppConfig) -> TriageService:
     """The live triage graph on one shared unit of work (10-wp WP-011; assisted mode)."""
-    uow = _build_uow(config)
-    clock = SystemClock()
-    ids = UlidIdGenerator()
-    aead = Aead(master_key=load_master_key_default(), keys=SqlKeyStore(uow), clock=clock)
-    events = SqlEventSink(uow=uow, cipher=aead)
+    return _build_live_triage(config, uow=_build_uow(config), clock=SystemClock())
+
+
+def _build_live_triage(  # noqa: PLR0913 — config plus the injectable ports and seams
+    config: AppConfig,
+    *,
+    uow: SqlUnitOfWork,
+    clock: Clock,
+    ids: IdGenerator | None = None,
+    master_key: bytes | None = None,
+    llm_provider: LLMProvider | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> TriageService:
+    """Assisted mode's triage (ADR-0008): proposals through the real gate."""
+    ids = ids if ids is not None else UlidIdGenerator()
+    events = _event_sink(uow, master_key, clock)
     catalog = _build_catalog(config)
     gate = GateService(
         uow=uow,
@@ -473,7 +491,7 @@ def _build_triage(config: AppConfig) -> TriageService:
         ids=ids,
         events=events,
         case_repo=CaseRepo(uow),
-        classifier=_build_classifier(config, events, ids, clock),
+        classifier=_build_classifier(config, events, ids, clock, llm_provider),
         gate=gate,
         catalog=catalog,
         tenant_constants=config.redaction.tenant_constants,
@@ -483,7 +501,31 @@ def _build_triage(config: AppConfig) -> TriageService:
         grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=config.tenant.id),
         spend=SpendBreaker(uow=uow, daily_budget_tokens=config.llm.daily_budget_tokens),
         memory=_build_memory(config, uow, clock),
-        paging=build_paging(config),
+        paging=build_paging(config, transport=transport),
+    )
+
+
+def build_outbox_executor(  # noqa: PLR0913 — config plus the injectable ports and seams
+    config: AppConfig,
+    *,
+    engine: Engine,
+    clock: Clock,
+    ids: IdGenerator,
+    master_key: bytes | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> OutboxExecutor:
+    """``outbox.execute`` (ADR-0008): the sink, the handlers, the BL-001 lease."""
+    uow = SqlUnitOfWork(engine)
+    return OutboxExecutor(
+        uow=uow,
+        repo=OutboxRepo(uow),
+        clock=clock,
+        ids=ids,
+        events=_event_sink(uow, master_key, clock),
+        sink=build_ticket_sink(config, clock=clock, transport=transport),
+        handlers=build_handlers(build_paging(config, transport=transport)),
+        lease_s=outbox_claim_lease_s(config, clock=clock),
+        send_budget_s=outbox_claim_budget_s(config, clock=clock),
     )
 
 
@@ -782,6 +824,53 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
     )
 
 
+def _assisted_jobs(  # noqa: PLR0913 — the worker's shared ports
+    config: AppConfig,
+    *,
+    engine: Engine,
+    key: bytes,
+    clock: Clock,
+    ids: IdGenerator,
+    lease: SqlLease,
+    owner: str,
+    transport: httpx.BaseTransport | None,
+) -> list[ScheduledJob]:
+    """ADR-0008 / BL-034: ``outbox.execute`` and ``comms.cadence``, assisted mode only.
+
+    The ``outbox.execute`` job lease matches the claim lease (BL-002): claims
+    are CAS-safe anyway, so the job lease only keeps two replicas from
+    draining at once.
+    """
+    executor = build_outbox_executor(
+        config, engine=engine, clock=clock, ids=ids, master_key=key, transport=transport
+    )
+    cadence = build_cadence_job(
+        config,
+        engine=engine,
+        source=_build_servicenow_source(config, clock=clock, transport=transport),
+        clock=clock,
+        ids=ids,
+        master_key=key,
+    )
+    job_lease_s = outbox_claim_lease_s(config, clock=clock)
+    return [
+        ScheduledJob(
+            name=OUTBOX_EXECUTE_LEASE,
+            interval_s=float(OUTBOX_EXECUTE_INTERVAL_S),
+            run=lambda: outbox_execute(
+                executor=executor, lease=lease, clock=clock, owner=owner, lease_ttl_s=job_lease_s
+            ),
+        ),
+        ScheduledJob(
+            name=COMMS_CADENCE_LEASE,
+            interval_s=float(COMMS_CADENCE_INTERVAL_S),
+            run=lambda: comms_cadence(
+                run=lambda: len(cadence.run(clock.now())), lease=lease, owner=owner
+            ),
+        ),
+    ]
+
+
 def _housekeeping_jobs(  # noqa: PLR0913 — the worker's shared ports
     config: AppConfig,
     *,
@@ -842,33 +931,46 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     llm_provider: LLMProvider | None = None,
     engine: Engine | None = None,
 ) -> Worker:
-    """The shadow worker (02 §7, 10-wp WP-008/014): one ``sync.poll.<table>`` per table.
+    """The worker (02 §7): one ``sync.poll.<table>`` per table, plus the mode's jobs.
 
-    Each poll feeds ``ShadowInbound``: a new record runs through the shadow
-    runner, a change to a known record writes one ``sync`` event. v0.0 is
-    shadow-only (02 §1), so no ``TicketSink`` and no ``outbox.execute`` job is
-    built: nothing can reach ServiceNow except the read-only poll.
+    Each poll feeds ``ShadowInbound``: a new record runs through the runner, a
+    change to a known record writes one ``sync`` event. In **shadow** mode the
+    runner is ``ShadowRunner`` and no ``TicketSink`` or ``outbox.execute`` job
+    is built: nothing can reach ServiceNow except the read-only poll. In
+    **assisted** mode (ADR-0008) the runner is the real triage, and
+    ``outbox.execute`` and ``comms.cadence`` are scheduled.
     ``transport`` / ``llm_provider`` / ``engine`` are test seams.
     """
     engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     require_automation_decided(config, SqlAutomationActors(engine))
-    if config.mode != "shadow":
-        raise ConfigError(  # noqa: TRY003 — the config mode gate already enforces this (02 §1)
-            f"v0.0 accepts only mode 'shadow'; got '{config.mode}' (02 §1, CAP §4.7)"
-        )
     clock = clock if clock is not None else SystemClock()
     ids = ids if ids is not None else UlidIdGenerator()
     key = master_key if master_key is not None else load_master_key_default()
     runner_uow = SqlUnitOfWork(engine)
-    runner = _build_shadow_runner(
-        config,
-        clock=clock,
-        master_key=key,
-        uow=runner_uow,
-        ids=ids,
-        llm_provider=llm_provider,
-        transport=transport,
-    )
+    runner: ShadowRunner | TriageRunner
+    if config.mode == "assisted":
+        # ADR-0008: the real triage, so proposals go through the gate.
+        runner = TriageRunner(
+            _build_live_triage(
+                config,
+                uow=runner_uow,
+                clock=clock,
+                ids=ids,
+                master_key=key,
+                llm_provider=llm_provider,
+                transport=transport,
+            )
+        )
+    else:
+        runner = _build_shadow_runner(
+            config,
+            clock=clock,
+            master_key=key,
+            uow=runner_uow,
+            ids=ids,
+            llm_provider=llm_provider,
+            transport=transport,
+        )
     inbound_events = _event_sink(runner_uow, key, clock)
     inbound = ShadowInbound(
         runner=runner,
@@ -958,6 +1060,19 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             ),
         )
     )
+    if config.mode == "assisted":
+        jobs.extend(
+            _assisted_jobs(
+                config,
+                engine=engine,
+                key=key,
+                clock=clock,
+                ids=ids,
+                lease=lease,
+                owner=owner,
+                transport=transport,
+            )
+        )
     jobs.extend(
         _housekeeping_jobs(
             config, engine=engine, key=key, clock=clock, ids=ids, lease=lease, owner=owner
@@ -1018,9 +1133,9 @@ def build_container(config: AppConfig) -> dict[str, Callable[[], object]]:
     zero-arg factory — file I/O, the engine, and key loading happen at call
     time, never at build time.
     """
-    if config.mode != "shadow":
+    if config.mode not in ("shadow", "assisted"):
         raise ConfigError(  # noqa: TRY003 — the config mode gate already enforces this (02 §1)
-            f"v0.0 accepts only mode 'shadow'; got '{config.mode}' (02 §1, CAP §4.7)"
+            f"v0.1 accepts modes 'shadow' and 'assisted'; got '{config.mode}' (ADR-0008)"
         )
     return {
         "config": lambda: config,
