@@ -8,13 +8,11 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-004 | P2 | No `CommsRepository` for the `comms` table (01 §3 lists `uow.comms`). The table exists (migration 0003); nothing reads or writes it yet. | WP-005 | first comms WP (v0.1) |
 
 ## LLM boundary
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-007 | P2 | **`TracingLLMProvider`** decorator (`adapters/llm/tracing.py`) is missing. `LLMClient` emits the `llm` event itself, so decide whether to add the decorator or update the 10-wp deliverable list. | WP-007 | WP-010 |
 
 ## ServiceNow and sync
 

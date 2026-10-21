@@ -95,6 +95,8 @@ class CaseView:
     drafts: list[dict[str, object]] = field(default_factory=list)
     #: WP-110: the RCA-lite artifact (internal; contradicted claims shown, never sent).
     rca: dict[str, object] | None = None
+    #: BL-004: every customer update for the case, with its outbox outcome.
+    comms: list[dict[str, object]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -106,6 +108,7 @@ class CaseView:
             "comms_plans": self.comms_plans,
             "drafts": self.drafts,
             "rca": self.rca,
+            "comms": self.comms,
         }
 
 
@@ -207,6 +210,17 @@ class AdminQueries:
                     {"id": case_id, "tenant": self._tenant},
                 ).mappings()
             ]
+            comms = [
+                {**dict(r), "text": json.loads(str(r["body_json"])).get("text", "")}
+                for r in conn.execute(
+                    sa.text(
+                        "SELECT c.id, c.kind, c.plan_id, c.status, c.sent_at_ts, c.body_json, "
+                        "o.attempts, o.last_error FROM comms c JOIN outbox o ON o.id = c.outbox_id "
+                        "WHERE c.case_id = :id AND c.tenant_id = :tenant ORDER BY c.id"
+                    ),
+                    {"id": case_id, "tenant": self._tenant},
+                ).mappings()
+            ]
             rca_raw = conn.execute(
                 sa.text(
                     "SELECT artifact_json FROM rca_artifacts "
@@ -236,6 +250,7 @@ class AdminQueries:
             comms_plans=plans,
             drafts=[{k: v for k, v in d.items() if k != "body_json"} for d in drafts],
             rca=json.loads(str(rca_raw)) if rca_raw else None,
+            comms=[{k: v for k, v in c.items() if k != "body_json"} for c in comms],
         )
 
     def grants(self, *, status: str | None = None) -> list[dict[str, object]]:

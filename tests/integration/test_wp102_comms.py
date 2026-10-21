@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from supportagent.adapters.db.repos.events import SqlEventSink
 from supportagent.adapters.db.repos.outbox import OutboxRepo
+from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.servicenow import FakeServiceNow
 from supportagent.adapters.files.comms_loader import load_comms_catalog
 from supportagent.app.approvals import ApprovalService
@@ -30,6 +31,7 @@ from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.gate import GateService
 from supportagent.app.handlers import HANDLERS
 from supportagent.app.outbox import Authorization, OutboxExecutor, OutboxWriter
+from supportagent.app.queries import AdminQueries
 from supportagent.domain.errors import AuthorizationDenied
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
@@ -175,6 +177,10 @@ def test_cadence_one_send_per_slot(world: _World) -> None:
     # BL-034: the comms row follows its outbox outcome (ARCH §6.3 history).
     assert world.scalar("SELECT status FROM comms") == "sent"
     assert world.scalar("SELECT sent_at_ts FROM comms") is not None
+    # BL-004: the case view lists the update with its outcome.
+    view = AdminQueries(uow=SqlUnitOfWork(world.db), tenant_id="acme").case("case_c")
+    assert [(m["status"], m["attempts"]) for m in view.comms] == [("sent", 0)]
+    assert "status In Progress" in str(view.comms[0]["text"])
 
 
 def test_cadence_missed_slot_not_backfilled(world: _World) -> None:
