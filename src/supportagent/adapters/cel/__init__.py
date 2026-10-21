@@ -1,1 +1,1 @@
-"""supportagent.adapters.cel (01 §1 layout; content lands with its WP)."""
+"""CEL checks over celpy (11-wp WP-110)."""

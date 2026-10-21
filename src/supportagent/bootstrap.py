@@ -18,7 +18,7 @@ import os
 import re
 import secrets
 import socket
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
@@ -33,6 +33,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from supportagent.adapters.cel.check import CelCheckCompiler
 from supportagent.adapters.crypto.aead import Aead
 from supportagent.adapters.db.engine import make_engine
 from supportagent.adapters.db.probe import SqlSchemaProbe
@@ -54,6 +55,7 @@ from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
 from supportagent.adapters.files.preclass_loader import load_preclass_rules
+from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import (
@@ -88,6 +90,11 @@ from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
+from supportagent.adapters.tools import airflow as airflow_tool
+from supportagent.adapters.tools import cron as cron_tool
+from supportagent.adapters.tools import gha as gha_tool
+from supportagent.adapters.tools import logs as logs_tool
+from supportagent.adapters.tools import oncall as oncall_tool
 from supportagent.adapters.tools.airflow import AirflowTool
 from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
@@ -104,6 +111,7 @@ from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
 from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
+from supportagent.app.rca import BufferedEvents, Knowledge, RcaJob, RcaService, lite_route_ids
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
@@ -134,6 +142,7 @@ from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
+from supportagent.domain.model.runbook import RcaBudget
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
@@ -147,11 +156,14 @@ from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    RCA_RUN_INTERVAL_S,
+    RCA_RUN_LEASE,
     WEBHOOKS_DRAIN_INTERVAL_S,
     WEBHOOKS_DRAIN_LEASE,
     JobResult,
     groups_close,
     llm_deprecation_check,
+    rca_run,
     sync_poll,
     sync_poll_lease,
     webhooks_drain,
@@ -230,13 +242,17 @@ def _build_ruleset(config: AppConfig) -> RuleSet:
 
 
 def _classify_slots(config: AppConfig) -> dict[SlotName, SlotSpec]:
-    slot = config.llm.slots[SlotName.CLASSIFY.value]
+    """Every configured slot the system knows (``classify`` is required; v0.1 adds
+    ``propose_hypotheses`` and ``entail``). An unconfigured slot fails closed."""
+    known = {slot.value for slot in SlotName}
     return {
-        SlotName.CLASSIFY: SlotSpec(
+        SlotName(name): SlotSpec(
             model_id=slot.model_id,
             timeout_s=slot.timeout_s,
             max_output_tokens=slot.max_output_tokens,
         )
+        for name, slot in config.llm.slots.items()
+        if name in known
     }
 
 
@@ -578,6 +594,84 @@ def _worker_owner() -> str:
     return f"worker:{socket.gethostname()}:{os.getpid()}"
 
 
+#: The declared result schema of every first-party tool (WP-107). Runbooks are
+#: validated against these whether or not the tool is configured; an
+#: unconfigured tool's step simply can't run (ARCH §5.5).
+KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = {
+    LogsTool.name: logs_tool.SCHEMA,
+    CronStatusTool.name: cron_tool.SCHEMA,
+    AirflowTool.name: airflow_tool.SCHEMA,
+    GitHubActionsTool.name: gha_tool.SCHEMA,
+    OnCallTool.name: oncall_tool.SCHEMA,
+}
+
+
+def build_rca_knowledge(config: AppConfig, registered: Collection[str]) -> Knowledge:
+    """WP-110: runbooks (every check compiled) and the probes of registered tools."""
+    taxonomy = load_hypotheses(Path(config.paths.hypotheses))
+    ids = [h.id for h in taxonomy.hypotheses]
+    compiler = CelCheckCompiler()
+    runbooks_dir = Path(config.paths.runbooks)
+    return Knowledge(
+        runbooks=load_runbooks(
+            runbooks_dir, hypotheses=ids, tool_schemas=KNOWN_TOOL_SCHEMAS, compiler=compiler
+        ),
+        probes=load_probes(
+            runbooks_dir / "probes.yaml",
+            hypotheses=ids,
+            tool_schemas={n: s for n, s in KNOWN_TOOL_SCHEMAS.items() if n in registered},
+            compiler=compiler,
+        ),
+        excludes={h.id: list(h.excludes) for h in taxonomy.hypotheses},
+    )
+
+
+def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
+    config: AppConfig,
+    *,
+    engine: Engine,
+    master_key: bytes,
+    clock: Clock,
+    ids: IdGenerator,
+    transport: httpx.BaseTransport | None = None,
+    llm_provider: LLMProvider | None = None,
+) -> RcaJob:
+    """``rca.run`` (WP-110). RCA's own events are buffered and written with the artifact."""
+    uow = SqlUnitOfWork(engine)
+    buffer = BufferedEvents()
+    tools = build_tool_registry(config, events=buffer, ids=ids, clock=clock, transport=transport)
+    rca = config.rca
+    service = RcaService(
+        knowledge=build_rca_knowledge(config, tools.names),
+        tools=tools,
+        llm=_build_llm(config, buffer, ids, clock, llm_provider),
+        events=buffer,
+        ids=ids,
+        clock=clock,
+        prior=rca.prior,
+        freeze=rca.freeze,
+        max_claims=rca.max_claims,
+        entail_budget_s=rca.entail_budget_s,
+    )
+    rows = [*config.routing, *([config.default] if config.default else [])]
+    return RcaJob(
+        uow=uow,
+        service=service,
+        catalog=_build_catalog(config),
+        buffer=buffer,
+        events=_event_sink(uow, master_key, clock),
+        lite_routes=lite_route_ids({row.id: row.rca for row in rows}),
+        default_budget=RcaBudget(
+            max_tool_calls=rca.max_tool_calls,
+            max_tokens=rca.max_tokens,
+            max_hypotheses=rca.max_hypotheses,
+        ),
+        ids=ids,
+        clock=clock,
+        tenant_id=config.tenant.id,
+    )
+
+
 def build_worker(  # noqa: PLR0913 — config plus the test seams
     config: AppConfig,
     *,
@@ -697,6 +791,23 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             ),
         )
     )
+    if any(row.rca == "lite" for row in [*config.routing, *filter(None, [config.default])]):
+        rca_job = build_rca_job(
+            config,
+            engine=engine,
+            master_key=key,
+            clock=clock,
+            ids=ids,
+            transport=transport,
+            llm_provider=llm_provider,
+        )
+        jobs.append(
+            ScheduledJob(
+                name=RCA_RUN_LEASE,
+                interval_s=float(RCA_RUN_INTERVAL_S),
+                run=lambda: rca_run(run=rca_job.run_once, lease=lease, owner=owner),
+            )
+        )
     if config.llm.deprecation_feed:
         feed = load_deprecation_feed(Path(config.llm.deprecation_feed))
         slots = {name: slot.model_id for name, slot in config.llm.slots.items()}

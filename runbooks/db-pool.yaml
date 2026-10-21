@@ -1,0 +1,20 @@
+# Database pool saturation (ARCH §5.1). Validated at load: hypotheses exist,
+# tools are registered, $service.* fields exist, and every check compiles
+# against its tool's result schema. Human notes: db-pool.md.
+id: runbook:db-pool
+applies_when:
+  classification: database/saturation
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: s1
+    hypothesis: recent_change_push
+    tool: gha.recent_runs
+    args: {repo: "$service.repos[0]", limit: 10}
+    check: "result.runs.exists(r, r.conclusion == 'failure')"
+    stop_if: true
+  - id: s2
+    hypothesis: capacity_decay
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "pool exhaust|connection timed out|too many clients"}
+    check: "result.count > 0"
+comms_if_supported: {audience: [internal], template: db-pool-internal}

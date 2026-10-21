@@ -14,3 +14,6 @@ class SlotName(StrEnum):
     """The closed set of LLM slots the system knows (02 §5)."""
 
     CLASSIFY = "classify"
+    #: v0.1 (WP-110): RCA hypothesis proposal and claim entailment (ARCH §5, §5.4).
+    PROPOSE_HYPOTHESES = "propose_hypotheses"
+    ENTAIL = "entail"

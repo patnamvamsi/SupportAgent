@@ -31,6 +31,25 @@
 {% endif %}
 {% else %}<p class="muted">Not decided yet.</p>{% endif %}
 
+<h2>RCA</h2>
+{% if c.rca %}
+<p><strong>{{ c.rca.outcome }}</strong> · {{ c.rca.reason }} · plan <code>{{ c.rca.plan }}</code></p>
+<p class="muted">What the evidence shows, not a confirmed cause. Internal only: RCA never drives customer comms.</p>
+{% if c.rca.evidence %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Step</th><th>Hypothesis</th><th>Tool</th><th>Result</th><th>Why</th></tr></thead>
+  <tbody>{% for e in c.rca.evidence %}
+  <tr><td>{{ e.step }}</td><td>{{ e.hypothesis }}</td><td>{{ e.tool }}</td>
+      <td>{{ "held" if e.ok else ("did not hold" if e.ran else "did not run") }}</td><td>{{ e.why }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% for claim in c.rca.claims %}
+<p{% if "contradicted" in claim.tags %} class="warn"{% endif %}>{{ claim.text }}
+{% if "contradicted" in claim.tags %}: <strong>contradicted by its evidence; never sent</strong>{% elif not claim.sendable %} <span class="muted">(speculation)</span>{% endif %}</p>
+{% endfor %}
+{% else %}<p class="muted">No RCA for this case.</p>{% endif %}
+
 <h2>Comms plans</h2>
 {% if c.comms_plans %}
 <div class="table-wrap"><table>

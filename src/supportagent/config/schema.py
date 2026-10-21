@@ -192,7 +192,7 @@ class RoutingRow(DomainModel):
             return [ActionKind(item) if isinstance(item, str) else item for item in value]
         return value
 
-    rca: Literal["none"]  # none | lite | deep (lite from v0.1)
+    rca: Literal["none", "lite"]  # none | lite (v0.1, WP-110) | deep (v0.2)
     comms: str | None = None  # comms plan template id (v0.1)
 
     @model_validator(mode="after")
@@ -309,6 +309,28 @@ class Tools(DomainModel):
     oncall: ToolOnCall | None = None
 
 
+class Rca(DomainModel):
+    """RCA-lite (ARCH §5, §5.4, §5.5; WP-110). Every value is provisional."""
+
+    #: Ordering weight per hypothesis id when no runbook matches; never gates (§5.5).
+    prior: dict[str, float] = Field(default_factory=lambda: {"recent_change_push": 0.35})
+    #: A change freeze is active: ``recent_change_push`` is zeroed and logged (§5.5).
+    freeze: bool = False
+    max_tool_calls: int = Field(default=5, ge=1, le=25)
+    max_tokens: int = Field(default=3000, ge=0)
+    max_hypotheses: int = Field(default=3, ge=1, le=10)
+    #: §5.4: at most this many claims are entailment-checked; the rest are speculation.
+    max_claims: int = Field(default=5, ge=0, le=20)
+    entail_budget_s: float = Field(default=20.0, gt=0)
+
+    @field_validator("prior")
+    @classmethod
+    def _non_negative(cls, value: dict[str, float]) -> dict[str, float]:
+        if any(w < 0 for w in value.values()):
+            raise ValueError("rca prior weights must be non-negative")  # noqa: TRY003
+        return value
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -333,6 +355,8 @@ class AppConfig(DomainModel):
     memory: Memory = Field(default_factory=Memory)
     #: v0.1 (WP-113): generic webhook sources; none by default.
     webhooks: list[Webhook] = Field(default_factory=list)
+    #: v0.1 (WP-110): RCA-lite budgets, prior and freeze.
+    rca: Rca = Field(default_factory=Rca)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

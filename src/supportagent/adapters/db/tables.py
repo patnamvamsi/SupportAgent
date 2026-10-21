@@ -412,6 +412,23 @@ feedback = sa.Table(
     sa.Index("ix_feedback_case", "tenant_id", "case_id", "kind"),
 )
 
+# 0012 (WP-110): one RCA-lite artifact per case (ARCH §5).
+rca_artifacts = sa.Table(
+    "rca_artifacts",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("case_id", sa.Text, sa.ForeignKey("cases.id"), nullable=False),
+    sa.Column("outcome", sa.Text, nullable=False),
+    sa.Column("artifact_json", sa.Text, nullable=False),
+    sa.Column("created_ts", sa.BigInteger, nullable=False),
+    sa.CheckConstraint(
+        "outcome IN ('SUPPORTED','CONSISTENT_UNCONFIRMED','INCONCLUSIVE')",
+        name="ck_rca_artifacts_outcome",
+    ),
+    sa.Index("ux_rca_artifacts_case", "tenant_id", "case_id", unique=True),
+)
+
 # 0009 (WP-113): webhook replay protection and the encrypted inbox.
 webhook_nonces = sa.Table(
     "webhook_nonces",

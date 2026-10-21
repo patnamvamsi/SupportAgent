@@ -93,6 +93,8 @@ class CaseView:
     event_counts: dict[str, int]
     comms_plans: list[dict[str, object]] = field(default_factory=list)
     drafts: list[dict[str, object]] = field(default_factory=list)
+    #: WP-110: the RCA-lite artifact (internal; contradicted claims shown, never sent).
+    rca: dict[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -103,6 +105,7 @@ class CaseView:
             "event_counts": self.event_counts,
             "comms_plans": self.comms_plans,
             "drafts": self.drafts,
+            "rca": self.rca,
         }
 
 
@@ -204,6 +207,13 @@ class AdminQueries:
                     {"id": case_id, "tenant": self._tenant},
                 ).mappings()
             ]
+            rca_raw = conn.execute(
+                sa.text(
+                    "SELECT artifact_json FROM rca_artifacts "
+                    "WHERE case_id = :id AND tenant_id = :tenant"
+                ),
+                {"id": case_id, "tenant": self._tenant},
+            ).scalar()
             counts = {
                 str(kind): int(n)
                 for kind, n in conn.execute(
@@ -225,6 +235,7 @@ class AdminQueries:
             event_counts=counts,
             comms_plans=plans,
             drafts=[{k: v for k, v in d.items() if k != "body_json"} for d in drafts],
+            rca=json.loads(str(rca_raw)) if rca_raw else None,
         )
 
     def grants(self, *, status: str | None = None) -> list[dict[str, object]]:
