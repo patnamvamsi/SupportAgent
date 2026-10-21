@@ -36,6 +36,10 @@ llm:
       model_id: claude-sonnet-4-5-20250929   # dated snapshot — floating aliases fail validation
       timeout_s: 15
       max_output_tokens: 400
+    # v0.1 RCA-lite slots (WP-110). Unconfigured, they fail closed: no proposed
+    # plan (INCONCLUSIVE) and every claim tagged speculation.
+    # propose_hypotheses: {model_id: claude-sonnet-4-5-20250929, timeout_s: 15, max_output_tokens: 200}
+    # entail: {model_id: claude-sonnet-4-5-20250929, timeout_s: 10, max_output_tokens: 50}
   daily_budget_tokens: 2000000       # v0.1 enforces; v0.0 logs only
   deprecation_feed: null             # v0.1: provider model-retirement feed (YAML); warns at T-90
 redaction:
@@ -55,12 +59,20 @@ routing:                             # rows reference taxonomy labels; doctor va
   - id: db-saturation
     match: {classification: database/saturation, severity: [P1, P2, P3]}
     actions: [work_note]             # ActionKind names only
-    rca: none                        # none | lite | deep (lite from v0.1)
+    rca: none                        # none | lite (v0.1: runbooks/, budgets in rca:) | deep (v0.2)
     comms: null                      # comms plan template id (v0.1)
 default: {id: generic, actions: [work_note], rca: none}
 proposals:
   ttl_hours: 24
 grants_request: []                   # v0.2: {action, system, target, requested_expiry_days}
+rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
+  prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
+  freeze: false                      # a change freeze zeroes recent_change_push (logged)
+  max_tool_calls: 5
+  max_tokens: 3000
+  max_hypotheses: 3
+  max_claims: 5                      # entailment-checked claims; the rest are speculation
+  entail_budget_s: 20
 retention:
   events_days: 395
   comms_days: 395

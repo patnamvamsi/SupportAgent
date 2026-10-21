@@ -1,0 +1,16 @@
+# One registered probe per hypothesis, for cases no runbook covers (ARCH §5).
+# The LLM may only propose taxonomy ids; a hypothesis without a probe here (or
+# whose tool isn't registered) is skipped and can never be SUPPORTED (ARCH §5.5).
+probes:
+  recent_change_push:
+    tool: gha.recent_runs
+    args: {repo: "$service.repos[0]", limit: 10}
+    check: "result.runs.exists(r, r.conclusion == 'failure')"
+  capacity_decay:
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "out of memory|pool exhaust|too many clients"}
+    check: "result.count > 0"
+  dependency_failure:
+    tool: airflow.dag_runs
+    args: {dag_id: "$service.dags[0]"}
+    check: "size(result.failed_tasks) > 0"

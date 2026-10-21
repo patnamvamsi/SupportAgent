@@ -167,6 +167,21 @@ def groups_close(*, close: Callable[[], int], lease: Lease, owner: str) -> JobRe
     return JobResult(name=GROUPS_CLOSE_LEASE, ran=True, rows=closed)
 
 
+#: ``rca.run`` every 30 s (11-wp WP-110): RCA-lite for ``rca: lite`` routes.
+RCA_RUN_LEASE = "rca.run"
+RCA_RUN_INTERVAL_S = 30
+
+
+def rca_run(*, run: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    if not lease.acquire(name=RCA_RUN_LEASE, owner=owner, ttl_s=600):
+        return JobResult(name=RCA_RUN_LEASE, ran=False)
+    try:
+        done = run()
+    finally:
+        lease.release(name=RCA_RUN_LEASE, owner=owner)
+    return JobResult(name=RCA_RUN_LEASE, ran=True, rows=done)
+
+
 #: 02 §7: ``llm.deprecation_check`` runs daily (11-wp WP-106).
 LLM_DEPRECATION_LEASE = "llm.deprecation_check"
 LLM_DEPRECATION_INTERVAL_S = 86_400
@@ -218,6 +233,8 @@ __all__ = [
     "LLM_DEPRECATION_LEASE",
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
+    "RCA_RUN_INTERVAL_S",
+    "RCA_RUN_LEASE",
     "SYNC_POLL_LEASE_TTL_S",
     "WEBHOOKS_DRAIN_INTERVAL_S",
     "WEBHOOKS_DRAIN_LEASE",
@@ -227,6 +244,7 @@ __all__ = [
     "groups_close",
     "llm_deprecation_check",
     "outbox_execute",
+    "rca_run",
     "sync_poll",
     "sync_poll_lease",
     "webhooks_drain",

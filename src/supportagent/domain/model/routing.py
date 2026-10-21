@@ -25,7 +25,7 @@ class Route(DomainModel):
 
     id: str = Field(min_length=1)
     actions: list[ActionKind] = Field(default_factory=list)
-    rca: Literal["none"] = "none"
+    rca: Literal["none", "lite"] = "none"
     comms: str | None = None
     why: str | None = None
 

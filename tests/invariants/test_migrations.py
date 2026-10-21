@@ -36,6 +36,7 @@ EXPECTED_TABLES = frozenset(
         "users",
         "role_assignments",
         "case_groups",
+        "rca_artifacts",
         "cases",
         "alerts",
         "blobs",

@@ -20,6 +20,7 @@ class IdPrefix(StrEnum):
     SHADOW = "shdw"
     FEEDBACK = "fb"
     VERSION = "ver"
+    RCA = "rca"
 
 
 # Branded ids (05 §6): distinct types at module boundaries. Users are
@@ -37,3 +38,4 @@ CaseGroupId = NewType("CaseGroupId", str)
 ShadowId = NewType("ShadowId", str)
 FeedbackId = NewType("FeedbackId", str)
 VersionId = NewType("VersionId", str)
+RcaId = NewType("RcaId", str)
