@@ -25,6 +25,7 @@ from supportagent.adapters.llm.faults import FaultInjectingLLMProvider
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.providers import make_llm_provider
 from supportagent.adapters.llm.providers.fixture import FixtureAnswer, FixtureLLMProvider
+from supportagent.adapters.llm.providers.ollama import DEFAULT_BASE_URL as OLLAMA_DEFAULT_BASE_URL
 from supportagent.adapters.llm.redact import RedactionResult, Redactor
 from supportagent.adapters.llm.retirement import RetiredModelGuard
 from supportagent.domain.events import EventKind
@@ -330,6 +331,7 @@ def build_llm_client(  # noqa: PLR0913 — the boundary's collaborators, plus th
 # composition code reaches it through the client module, and only ever passes
 # it *into* an ``LLMClient`` (redaction still runs; llm-providers-private).
 __all__ = [
+    "OLLAMA_DEFAULT_BASE_URL",
     "CachingLLMProvider",
     "FaultInjectingLLMProvider",
     "FixtureAnswer",

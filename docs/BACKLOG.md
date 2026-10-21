@@ -15,9 +15,7 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-006 | P2 | **Ollama provider** (`providers/ollama.py`) is missing (air-gap requirement, ARCH §9). | WP-007 | WP-010 |
 | BL-007 | P2 | **`TracingLLMProvider`** decorator (`adapters/llm/tracing.py`) is missing. `LLMClient` emits the `llm` event itself, so decide whether to add the decorator or update the 10-wp deliverable list. | WP-007 | WP-010 |
-| BL-008 | P2 | **Provider-native JSON mode:** `ProviderRequest.json_schema` is built but neither the Anthropic nor the OpenAI provider sends it. JSON output currently depends on the prompt alone. | WP-007 | WP-010 |
 | BL-009 | P3 | `PromptRegistry` doesn't validate prompt front matter, and `StrictUndefined` raises at render time rather than at load validation (10-wp WP-007 wording). | WP-007 | WP-010 |
 | BL-010 | P3 | The `llm` event records only `resolved_model`; 10-wp lists both the requested `model` and `resolved_model`. | WP-007 | any |
 

@@ -62,6 +62,7 @@ from supportagent.adapters.files.runbook_loader import load_probes, load_runbook
 from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import (
+    OLLAMA_DEFAULT_BASE_URL,
     CachingLLMProvider,
     FaultInjectingLLMProvider,
     FixtureAnswer,
@@ -333,7 +334,7 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
         )
     provider = config.llm.provider
     api_key = config.llm.api_key
-    sdk_client: anthropic.Anthropic | openai.OpenAI
+    sdk_client: anthropic.Anthropic | openai.OpenAI | httpx.Client
     if provider == "anthropic":
         if api_key is None:
             raise ConfigError("llm.api_key is required for provider 'anthropic' (02 §1)")  # noqa: TRY003
@@ -342,9 +343,12 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
         if api_key is None:
             raise ConfigError("llm.api_key is required for provider 'openai' (02 §1)")  # noqa: TRY003
         sdk_client = openai.OpenAI(api_key=api_key.get_secret_value())
+    elif provider == "ollama":
+        # BL-006: the air-gap path, a local server and no API key (ARCH §9).
+        sdk_client = httpx.Client(base_url=config.llm.base_url or OLLAMA_DEFAULT_BASE_URL)
     else:
-        raise ConfigError(  # noqa: TRY003 — the v0.0 container wires only the two cloud providers
-            f"container LLM wiring supports anthropic/openai; got '{provider}' (01 §5)"
+        raise ConfigError(  # noqa: TRY003 — fixture is test/--demo only
+            f"container LLM wiring supports anthropic/openai/ollama; got '{provider}' (01 §5)"
         )
     return build_llm_client(
         provider_name=provider,

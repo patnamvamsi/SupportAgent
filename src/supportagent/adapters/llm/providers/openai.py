@@ -48,6 +48,16 @@ class OpenAIProvider:
                 max_tokens=request.max_output_tokens,
                 messages=messages,
                 timeout=request.timeout_s,
+                # BL-008: provider-native structured output. Non-strict, because
+                # strict mode needs every property required and no extras.
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "result",
+                        "schema": dict(request.json_schema),
+                        "strict": False,
+                    },
+                },
             )
         except openai.APITimeoutError as exc:
             raise LLMTimeout(f"openai timed out: {exc}") from exc  # noqa: TRY003
