@@ -68,6 +68,25 @@ class ServiceNow(DomainModel):
     overlap_s: int = Field(ge=0)
     page_size: int = Field(gt=0)
     qps_limit: int = Field(gt=0)
+    #: BL-035: human-set ``category`` or ``category/subcategory`` (case-insensitive)
+    #: -> taxonomy label, for outcome feedback and shadow agreement. Empty: the
+    #: lower-cased ``category/subcategory`` is used as the label as-is.
+    classification_map: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("classification_map")
+    @classmethod
+    def _normalize_map(cls, value: dict[str, str]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for key, label in value.items():
+            norm = "/".join(part.strip() for part in key.lower().split("/"))
+            if not norm or norm.count("/") > 1 or "" in norm.split("/"):
+                raise ValueError(  # noqa: TRY003
+                    f"classification_map key {key!r} must be 'category' or 'category/subcategory'"
+                )
+            if norm in out:
+                raise ValueError(f"classification_map key {key!r} is duplicated")  # noqa: TRY003
+            out[norm] = label
+        return out
 
 
 class Identity(DomainModel):

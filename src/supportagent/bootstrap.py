@@ -774,6 +774,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             events=inbound_events,
             tenant_id=config.tenant.id,
             integration_user=config.servicenow.integration_user,
+            classification_map=config.servicenow.classification_map,
         ),
         lifecycle=LifecycleService(
             uow=runner_uow,

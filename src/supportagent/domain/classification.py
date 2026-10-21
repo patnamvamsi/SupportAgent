@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.stats import wilson_lower_bound
 
@@ -35,3 +37,24 @@ def calibrated_score(table: CalibrationTable, label: str, preclass_agrees: bool)
     if count is None or count.n < MIN_CALIBRATION_N:
         return 0.0
     return wilson_lower_bound(count.correct, count.n)
+
+
+def map_servicenow_classification(
+    category: str | None, subcategory: str | None, mapping: Mapping[str, str]
+) -> str | None:
+    """The taxonomy label for a human-set ServiceNow category (BL-035).
+
+    With no ``servicenow.classification_map`` configured, the label is
+    ``category/subcategory`` lower-cased: it only means something when the
+    partner's categories already match the taxonomy. With a map, the most
+    specific key wins (``category/subcategory``, then ``category``). An
+    unmapped value is ``None``: the case isn't counted, rather than counted
+    as a disagreement it never was.
+    """
+    cat = (category or "").strip().lower()
+    sub = (subcategory or "").strip().lower()
+    if not mapping:
+        return f"{cat}/{sub}" if cat and sub else None
+    if cat and sub and f"{cat}/{sub}" in mapping:
+        return mapping[f"{cat}/{sub}"]
+    return mapping.get(cat) if cat else None

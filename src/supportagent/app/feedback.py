@@ -15,7 +15,8 @@ trace, written in the caller's unit of work:
     → ``human_action``, which records what the human did with nothing to compare.
 
 - **``outcome``**: at resolution, the final human-set severity (``priority``)
-  and classification (``category/subcategory``) from the diffs. The case's
+  and classification (``category/subcategory``, through
+  ``servicenow.classification_map`` when one is configured, BL-035) from the diffs. The case's
   **shadow record** then gets its human labels, first-action time and agreement
   (CAP §4.7), filling only what it doesn't already have.
 """
@@ -23,7 +24,7 @@ trace, written in the caller's unit of work:
 from __future__ import annotations
 
 import json
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Protocol, Self
@@ -31,6 +32,7 @@ from typing import Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.lifecycle import confirmed_automation_actors
+from supportagent.domain.classification import map_servicenow_classification
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.model.event import Event
@@ -72,8 +74,10 @@ class FeedbackService:
         events: EventSink,
         tenant_id: str,
         integration_user: str = "",
+        classification_map: Mapping[str, str] | None = None,
     ) -> None:
         self._uow = uow
+        self._classification_map = dict(classification_map or {})
         self._clock = clock
         self._ids = ids
         self._events = events
@@ -189,8 +193,10 @@ class FeedbackService:
             severity = _PRIORITY.get(str(priority)) if priority else None
             category = latest.get("category", {}).get("actual")
             subcategory = latest.get("subcategory", {}).get("actual")
-            classification = (
-                f"{category}/{subcategory}".lower() if category and subcategory else None
+            classification = map_servicenow_classification(
+                str(category) if category else None,
+                str(subcategory) if subcategory else None,
+                self._classification_map,
             )
             first_at = min((datetime.fromisoformat(str(d["at"])) for d in diffs), default=None)
             self._write(
@@ -200,6 +206,9 @@ class FeedbackService:
                 {
                     "resolution": "resolved",
                     "classification": classification,
+                    "servicenow_category": (
+                        "/".join(str(v) for v in (category, subcategory) if v) or None
+                    ),
                     "severity": severity.value if severity else None,
                     "first_human_action_at": first_at.isoformat() if first_at else None,
                 },
