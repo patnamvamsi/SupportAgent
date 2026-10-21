@@ -353,6 +353,15 @@ sync_seen = sa.Table(
     sa.Column("processed_ts", sa.Integer, nullable=False),
 )
 
+# 0013 (BL-013): journal entries already delivered, by their sys_id.
+sync_journal_seen = sa.Table(
+    "sync_journal_seen",
+    metadata,
+    sa.Column("tenant_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("entry_id", sa.Text, nullable=False, primary_key=True),
+    sa.Column("processed_ts", sa.Integer, nullable=False),
+)
+
 # 03 §2.5: v0.0 table, used from v0.1 (confirmed automation accounts).
 automation_actors = sa.Table(
     "automation_actors",

@@ -110,6 +110,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    # 0013 (BL-013): delivered journal entries.
+    "sync_journal_seen",
     # 0012 (WP-110): rca_artifacts references cases.
     "rca_artifacts",
     # 0011 (WP-108): case memory (edges reference nodes).

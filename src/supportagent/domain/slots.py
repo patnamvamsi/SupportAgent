@@ -17,3 +17,15 @@ class SlotName(StrEnum):
     #: v0.1 (WP-110): RCA hypothesis proposal and claim entailment (ARCH §5, §5.4).
     PROPOSE_HYPOTHESES = "propose_hypotheses"
     ENTAIL = "entail"
+
+
+#: The variables each slot's caller supplies (BL-009). ``PromptRegistry.check``
+#: compares them with every prompt's template at load, so a renamed or missing
+#: variable is a ``ConfigError`` at startup rather than a failed call.
+SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
+    SlotName.CLASSIFY: frozenset({"ticket_subject", "ticket_body"}),
+    SlotName.PROPOSE_HYPOTHESES: frozenset(
+        {"hypothesis_ids", "max_hypotheses", "service", "classification", "severity"}
+    ),
+    SlotName.ENTAIL: frozenset({"claim", "evidence"}),
+}

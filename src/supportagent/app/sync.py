@@ -31,7 +31,7 @@ The poll loop (ARCH §8.1):
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import TracebackType
@@ -75,6 +75,12 @@ class _SyncRepo(Protocol):
     ) -> None: ...
 
     def max_seen_mod_count(self, tenant_id: str, sys_id: str) -> int | None: ...
+
+    def journal_seen(self, tenant_id: str, entry_ids: Collection[str]) -> set[str]: ...
+
+    def mark_journal_seen(
+        self, tenant_id: str, entry_ids: Collection[str], *, now_ts: int
+    ) -> None: ...
 
 
 class _ToAlert(Protocol):
@@ -164,8 +170,9 @@ class SyncService:
                     pending.append((rec, after))
 
             # History + delivery — no DB transaction held.
+            journal_ids: set[str] = set()
             for rec, after in pending:
-                if self._deliver(table, rec, after, since):
+                if self._deliver(table, rec, after, since, journal_ids):
                     delivered += 1
 
             # Write block: mark the page processed + advance the cursor.
@@ -175,6 +182,7 @@ class SyncService:
                     self._repo.mark_seen(
                         self._tenant_id, rec.sys_id, rec.sys_mod_count, now_ts=now_ts
                     )
+                self._repo.mark_journal_seen(self._tenant_id, journal_ids, now_ts=now_ts)
                 if batch.records:
                     self._repo.set_cursor(self._tenant_id, table_name, batch.next_cursor)
                     final_cursor = max(final_cursor, batch.next_cursor)
@@ -187,7 +195,12 @@ class SyncService:
         return SyncReport(delivered=delivered, final_cursor=final_cursor)
 
     def _deliver(
-        self, table: SnTable, rec: TicketRecord, after: int | None, since: datetime
+        self,
+        table: SnTable,
+        rec: TicketRecord,
+        after: int | None,
+        since: datetime,
+        journal_ids: set[str],
     ) -> bool:
         """Hand one new record version to the handler; ``True`` if delivered."""
         if after is None:
@@ -204,8 +217,15 @@ class SyncService:
             for c in self._source.history(table, rec.sys_id, after_mod_count=after, since=since)
             if c.user != self._integration_user
         ]
+        # BL-013: a journal entry re-read inside the overlap window is delivered once.
+        entry_ids = {c.entry_id for c in changes if c.source == "journal" and c.entry_id}
+        if entry_ids:
+            with self._uow:
+                seen = self._repo.journal_seen(self._tenant_id, entry_ids) | journal_ids
+            changes = [c for c in changes if c.entry_id not in seen]
+            journal_ids |= entry_ids
         if not changes:
-            return False  # only our own writes (self-echo)
+            return False  # only our own writes (self-echo), or entries already delivered
         self._handler.on_changes(
             ExternalCaseRef(table=rec.table, sys_id=rec.sys_id, number=rec.number), changes
         )

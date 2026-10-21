@@ -81,7 +81,7 @@ class SqlEventSink:
             )
         )
 
-    def trace_events(self, trace_id: str) -> list[Event]:
+    def trace_events(self, trace_id: str, tenant_id: str | None = None) -> list[Event]:
         """All events of one trace, decrypted, ordered by ``(ts_ms, span_id)`` (01 §3)."""
         rows = self._uow.connection.execute(
             sa.select(
@@ -100,7 +100,11 @@ class SqlEventSink:
                 events.c.payload_enc,
                 events.c.ts_ms,
             )
-            .where(events.c.trace_id == trace_id)
+            .where(
+                events.c.trace_id == trace_id,
+                # BL-015: a tenant only ever replays its own events.
+                sa.true() if tenant_id is None else events.c.tenant_id == tenant_id,
+            )
             .order_by(events.c.ts_ms, events.c.span_id)
         ).all()
         out: list[Event] = []

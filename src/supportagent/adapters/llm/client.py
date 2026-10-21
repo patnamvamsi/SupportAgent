@@ -235,10 +235,15 @@ class LLMClient:
         rendered_prompt_hash: str,
         error: str | None,
     ) -> None:
+        spec = self._slots.get(slot)
         payload: dict[str, object] = {
             "v": 1,
             "slot": slot.value,
             "rendered_prompt_hash": rendered_prompt_hash,
+            # BL-010: the pinned (requested) model and what the provider served;
+            # a mismatch is a silent remap (ARCH §9).
+            "model": spec.model_id if spec is not None else None,
+            "resolved_model": model,
         }
         if error is not None:
             payload["error"] = error

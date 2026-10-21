@@ -19,6 +19,16 @@ from supportagent.ports.tickets import JournalField, SnTable
 JOURNAL_FIELDS = "element,value,sys_created_by,sys_created_on"
 
 
+#: LIKE candidates fetched per reconciliation read; the last-line check filters them.
+_MARKER_CANDIDATES = 10
+
+
+def marker_on_last_line(text: str, marker: str) -> bool:
+    """True when ``marker`` is the entry's last non-empty line (01 §7.5)."""
+    lines = [line.strip() for line in text.strip().splitlines()]
+    return bool(lines) and lines[-1] == marker
+
+
 def _marker_query(table: SnTable, sys_id: str, marker: str) -> str:
     # LIKE with the marker as a substring; ServiceNow uses ``LIKE`` for
     # substring matches in the Table API.
@@ -83,7 +93,7 @@ class ServiceNowSink:
             params={
                 "sysparm_query": _marker_query(table, sys_id, marker),
                 "sysparm_fields": JOURNAL_FIELDS,
-                "sysparm_limit": 1,
+                "sysparm_limit": _MARKER_CANDIDATES,
                 "sysparm_display_value": "false",
             },
         )
@@ -91,9 +101,11 @@ class ServiceNowSink:
             rows = resp.json()["result"]
         except (ValueError, KeyError, TypeError) as exc:
             raise ServiceNowError(f"malformed journal response: {exc!r}") from exc  # noqa: TRY003
-        if not rows:
+        # 01 §7.5: the marker counts only as the entry's last line, so a person
+        # quoting a marker inside their own note never reconciles a send (BL-003).
+        row = next((r for r in rows if marker_on_last_line(str(r.get("value", "")), marker)), None)
+        if row is None:
             return None
-        row = rows[0]
         entry_index = row.get("sys_created_on", "")
         return ExternalRef(
             system=table.value, ref=f"{sys_id}#{row.get('element', '')}#{entry_index}"

@@ -14,11 +14,14 @@ values must be escaped so it cannot close the block early. Rendering is
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import jinja2.exceptions
 import pytest
 
 from supportagent.adapters.llm.prompts import PromptRegistry
-from supportagent.domain.slots import SlotName
+from supportagent.domain.errors import ConfigError
+from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 
 
 def test_prompt_untrusted_closing_tag_escaped(prompt_registry: PromptRegistry) -> None:
@@ -56,3 +59,17 @@ def test_prompt_untrusted_closing_tag_variants_escaped(
         SlotName.CLASSIFY, {"ticket_subject": f"x{closing}y", "ticket_body": "body"}
     )
     assert closing not in rendered.user
+
+
+def test_prompt_variables_checked_at_load(tmp_path: Path) -> None:
+    """BL-009: a prompt that drops or invents a variable fails at startup, not mid-call."""
+    shipped = PromptRegistry(root=Path(__file__).resolve().parents[2] / "prompts")
+    shipped.check(SLOT_VARIABLES)  # every shipped prompt matches its slot
+    slot_dir = tmp_path / "classify"
+    slot_dir.mkdir()
+    (slot_dir / "v1.md").write_text(
+        "## system\nClassify.\n\n## user\n{{ ticket_subject }} {{ ticket_title }}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="ticket_title"):
+        PromptRegistry(root=tmp_path).check(SLOT_VARIABLES)

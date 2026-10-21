@@ -29,6 +29,6 @@ class EventSink(Protocol):
 class EventRepository(Protocol):
     """Read side of the event log (01 §3 ``UnitOfWork.events``)."""
 
-    def trace_events(self, trace_id: str) -> list[Event]:
-        """Decrypted events for one trace, ordered by ``(ts, span_id)``."""
+    def trace_events(self, trace_id: str, tenant_id: str | None = None) -> list[Event]:
+        """Decrypted events of one trace by ``(ts, span_id)``; tenant-scoped when given."""
         ...

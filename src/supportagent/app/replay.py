@@ -124,12 +124,13 @@ class ReplayView:
 class ReplayService:
     """``replay(trace_id) -> ReplayView`` (01 §5); relies on INV-03."""
 
-    def __init__(self, *, repo: EventRepository) -> None:
+    def __init__(self, *, repo: EventRepository, tenant_id: str | None = None) -> None:
         self._repo = repo
+        self._tenant = tenant_id  # BL-015: the API and CLI always pass it
 
     def replay(self, trace_id: str) -> ReplayView:
         """Ordered, decrypted events for one trace; ``NotFound`` when empty (01 §6)."""
-        events = tuple(self._repo.trace_events(trace_id))
+        events = tuple(self._repo.trace_events(trace_id, self._tenant))
         if not events:
             raise NotFound(f"trace not found: {trace_id!r} (no events in the log)")  # noqa: TRY003
         return ReplayView(trace_id=trace_id, tenant_id=events[0].tenant_id, events=events)
