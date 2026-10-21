@@ -33,7 +33,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-018 | P2 | **Calibration rejection at startup.** `load_calibration` raises `ConfigError` on a grade/model mismatch, while 01 §7.7 says "rejected at load, and every label then scores 0". Bootstrap must choose: fail startup, or load an empty table (everything safe-defaults) and surface it in `doctor`. Also decide whether `severity_escalated` treating a severity-less case as escalated is intended for case skeletons (WP-009). | WP-010 | WP-011 |
 | BL-020 | P3 | `TriageService` mints `trace_id` with `ULID()` directly instead of the injected `IdGenerator`, so trace ids aren't deterministic under `SequentialIdGenerator` in tests. Add a trace id prefix and use `ids`. | WP-011 | any |
 | BL-023 | P2 | **WP-012 DoD, staging leg:** login against one real IdP in staging. The Authlib/joserfc adapter is covered by a mock IdP (discovery, PKCE, nonce, iss/aud/exp, signature, key rotation); a real IdP run needs staging. | WP-012 | before WP-016 |
 | BL-026 | P3 | The admin UI uses plain HTML forms with no JavaScript, so HTMX is not loaded yet. When in-place updates are wanted (e.g. the TTL countdown), self-host `htmx.min.js` under `/static` so CSP stays `script-src 'self'`. | WP-013 | any |

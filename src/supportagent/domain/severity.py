@@ -33,7 +33,8 @@ def severity_escalated(evt: AlertEvent, case: Mapping[str, object]) -> bool:
     P1 > P2 > P3 > P4. A hint against a case without a severity yet is an
     escalation (the case acquires its first ranked severity); no hint, or a
     hint at/below the current severity, is not. ``case`` is a row mapping
-    (the ``cases`` row, 03 §2.2).
+    (the ``cases`` row, 03 §2.2). The severity-less case is intended (BL-018):
+    a case first seen without a hint gets triaged with its first real severity.
     """
     hint = evt.severity_hint
     if hint is None:
