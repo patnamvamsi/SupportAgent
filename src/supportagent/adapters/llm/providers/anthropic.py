@@ -9,6 +9,7 @@ before ``APIStatusError`` (rate limit is a status error).
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Protocol
 
@@ -26,6 +27,9 @@ class _AnthropicClient(Protocol):
     messages: _Messages
 
 
+_TOOL = "emit_result"
+
+
 class AnthropicProvider:
     """One JSON-mode completion against the Anthropic Messages API (01 §5)."""
 
@@ -41,6 +45,16 @@ class AnthropicProvider:
                 system=request.system,
                 messages=[{"role": "user", "content": request.user}],
                 timeout=request.timeout_s,
+                # BL-008: provider-native structured output. One forced tool
+                # whose input schema is the slot's schema; its input is the answer.
+                tools=[
+                    {
+                        "name": _TOOL,
+                        "description": "Return the answer in the required shape.",
+                        "input_schema": dict(request.json_schema),
+                    }
+                ],
+                tool_choice={"type": "tool", "name": _TOOL},
             )
         except anthropic.APITimeoutError as exc:
             raise LLMTimeout(f"anthropic timed out: {exc}") from exc  # noqa: TRY003
@@ -51,7 +65,20 @@ class AnthropicProvider:
         except anthropic.APIConnectionError as exc:
             raise LLMUnavailable(f"anthropic connection failed: {exc}") from exc  # noqa: TRY003
 
-        text = "".join(getattr(block, "text", "") for block in response.content)
+        tool_input = next(
+            (
+                block.input
+                for block in response.content
+                if getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", "") == _TOOL
+            ),
+            None,
+        )
+        text = (
+            json.dumps(tool_input)
+            if tool_input is not None
+            else "".join(getattr(block, "text", "") for block in response.content)
+        )
         usage = response.usage
         return ProviderResponse(
             raw_text=text,
