@@ -83,3 +83,37 @@ def test_shadow_record_human_label_filled_on_resolve(
     assert (row[0], row[1]) == ("database/saturation", "P2")
     assert row[2] is not None
     assert row[3] in (0, 1), "agreement is computed once the human label exists"
+
+
+def test_outcome_uses_the_classification_map(  # noqa: PLR0913, PLR0917
+    tmp_path: Path, db: Engine, clock: Any, ids: Any, master_key: bytes, sn: FakeServiceNowHTTP
+) -> None:
+    """BL-035: the partner's categories reach shadow agreement as taxonomy labels."""
+    config = _config(tmp_path)
+    mapped = config.model_copy(
+        update={
+            "servicenow": config.servicenow.model_copy(
+                update={"classification_map": {"db/pool": "database/saturation"}}
+            )
+        }
+    )
+    worker = build_worker(
+        mapped,
+        master_key=master_key,
+        clock=clock,
+        ids=ids,
+        transport=SyncASGITransport(sn.app),
+        llm_provider=FakeLLMProvider(),
+        engine=db,
+    )
+    ticket = _Ticket(sn, clock)
+    worker.run_once()
+    ticket.change("bob", "priority", "2")
+    ticket.change("bob", "category", "DB")
+    ticket.change("bob", "subcategory", "Pool")
+    ticket.change("bob", "state", "6")
+    worker.run_once()
+    outcome = json.loads(_one(db, "SELECT payload FROM feedback WHERE kind = 'outcome'"))
+    assert outcome["classification"] == "database/saturation"
+    assert outcome["servicenow_category"] == "DB/Pool"
+    assert _one(db, "SELECT human_classification FROM shadow_records") == "database/saturation"

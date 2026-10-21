@@ -21,6 +21,7 @@ servicenow:
   overlap_s: 120
   page_size: 200
   qps_limit: 5
+  classification_map: {}             # BL-035: {"Database/Saturation": database/saturation, "Network": network/dns}
 identity:
   oidc_issuer: https://login.microsoftonline.com/acme-tenant-id/v2.0
   client_id_env: OIDC_CLIENT_ID

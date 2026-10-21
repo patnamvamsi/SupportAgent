@@ -39,6 +39,19 @@ def validate_bundle(
         _row_issues(row, f"routing[{index}]", known_labels, issues)
     if cfg.default is not None:
         _row_issues(cfg.default, "default", known_labels, issues)
+    # BL-035: every mapped ServiceNow category names a taxonomy label.
+    for key, label in sorted(cfg.servicenow.classification_map.items()):
+        if label not in known_labels:
+            issues.append(
+                ConfigIssue(
+                    code="servicenow.map-label-unknown",
+                    message=(
+                        f"classification_map '{key}' -> '{label}': not a label "
+                        "in the classification taxonomy"
+                    ),
+                    path=f"servicenow.classification_map.{key}",
+                )
+            )
     # `catalog` and `hypotheses` are consumed by the doctor (ARCH §12) once it
     # exists (WP-015); their internal integrity is enforced at construction.
     del catalog, hypotheses
