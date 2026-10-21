@@ -70,6 +70,18 @@
 {% for d in c.drafts %}<pre>{{ d.trigger }} #{{ d.interval_slot }}: {{ d.body }}</pre>{% endfor %}
 {% endif %}
 
+<h2>Customer updates</h2>
+{% if c.comms %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Update</th><th>Plan</th><th>Status</th><th>Failed tries</th><th>Text</th></tr></thead>
+  <tbody>{% for m in c.comms %}
+  <tr><td>{{ m.id }}</td><td>{{ m.plan_id or "—" }}</td>
+      <td>{{ m.status }}{% if m.status == "failed" and m.last_error %}: {{ m.last_error }}{% endif %}</td>
+      <td>{{ m.attempts }}</td><td>{{ m.text }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No customer updates.</p>{% endif %}
+
 <h2>Proposals</h2>
 {% if c.proposals %}
 <div class="table-wrap"><table>

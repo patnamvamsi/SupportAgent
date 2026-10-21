@@ -40,7 +40,7 @@ supportagent/                         repository root
 │   │   ├── system/                   SystemClock, UlidIdGenerator
 │   │   ├── files/                    catalog, taxonomy, calibration, runbook loaders
 │   │   ├── llm/                      client.py (LLMClient), redact.py, detectors/*, prompts.py,
-│   │   │                             providers/{anthropic,openai,ollama,fixture}.py, tracing.py, faults.py
+│   │   │                             providers/{anthropic,openai,ollama,fixture}.py, faults.py (the llm event: LLMClient)
 │   │   ├── servicenow/               http.py, auth.py, source.py, sink.py, mapping.py
 │   │   ├── identity/oidc.py
 │   │   ├── resilience/               retry.py, breaker.py (Decorators over ports)        [v0.1]
@@ -189,7 +189,7 @@ class UnitOfWork(Protocol):
     cases: CaseRepository; alerts: AlertRepository
     proposals: ProposalRepository; approvals: ApprovalRepository
     grants: GrantRepository; outbox: OutboxRepository
-    comms_plans: CommsPlanRepository; comms: CommsRepository
+    comms_plans: CommsPlanRepository; comms: (written by the cadence job, status by the outbox executor, read by AdminQueries.case; BL-004)
     events: EventRepository; users: UserRepository
     sync: SyncRepository; leases: LeaseRepository
     def __enter__(self) -> Self: ...
