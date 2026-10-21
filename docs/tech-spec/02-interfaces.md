@@ -69,6 +69,12 @@ proposals:
 grants_request:                         # a REQUEST only (CAP §2); `grants request --from config`
   - {action: job_rerun, system: airflow, target: "dag:nightly-sync", requested_expiry_days: 90}   # v0.2
 retention: {events_days: 395, comms_days: 395, alerts_days: 90}
+tools:                                  # v0.1 (WP-107): first-party read tools; each registered when configured
+  logs_root: /var/log/apps              # catalog log_paths resolve under it (logs.grep)
+  cron_status_dir: /var/run/cron-status # <job>.json written by the cron wrapper (cron.status)
+  airflow: {base_url: https://airflow.acme.internal, token_env: AIRFLOW_TOKEN}
+  github: {base_url: https://api.github.com, token_env: GITHUB_TOKEN}
+  oncall: {pagerduty_token_env: PD_TOKEN, opsgenie_token_env: null}
 memory:                                 # v0.1 (WP-108): case-memory ranking weights (prov.)
   weights: {signature_match: 0.40, bm25: 0.20, structured_match: 0.20, graph_similarity: 0.10, recency: 0.10}
 webhooks:                               # v0.1 (WP-113): generic webhook sources; none by default

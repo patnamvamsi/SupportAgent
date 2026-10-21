@@ -46,7 +46,7 @@ from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
 from supportagent.adapters.db.uow import SqlUnitOfWork
-from supportagent.adapters.fakes.faults import FaultInjectingTicketSink
+from supportagent.adapters.fakes.faults import FaultInjectingTicketSink, FaultInjectingTool
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
@@ -88,6 +88,11 @@ from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
+from supportagent.adapters.tools.airflow import AirflowTool
+from supportagent.adapters.tools.cron import CronStatusTool
+from supportagent.adapters.tools.gha import GitHubActionsTool
+from supportagent.adapters.tools.logs import LogsTool
+from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
@@ -105,6 +110,7 @@ from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
 from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
+from supportagent.app.tools import ToolRegistry
 from supportagent.app.triage import TriageService
 from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
 from supportagent.config.loader import (
@@ -117,7 +123,7 @@ from supportagent.config.schema import AppConfig, RoutingRow
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
-from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS
+from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
@@ -162,6 +168,7 @@ from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
 from supportagent.ports.tickets import SnTable, TicketSink, TicketSource
+from supportagent.ports.tools import Tool
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1130,6 +1137,73 @@ def create_snapshot(config: AppConfig, snapshot_id: str, root: Path) -> Path:
     manifest = {"id": snapshot_id, "created": wall_clock().now().isoformat(), "files": files}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return out
+
+
+def build_tool_registry(
+    config: AppConfig,
+    *,
+    events: EventSink,
+    ids: IdGenerator,
+    clock: Clock,
+    transport: httpx.BaseTransport | None = None,
+) -> ToolRegistry:
+    """WP-107: the configured read tools behind the registry (class/tier checked at load).
+
+    ``gha_500`` (``SUPPORTAGENT_FAULT_INJECT``) makes the GitHub Actions tool
+    fail as if its API were down (WP-106).
+    """
+    cfg = config.tools
+    catalog = _build_catalog(config)
+    tools: list[Tool] = []
+    if cfg.logs_root:
+        allow = frozenset(p for s in catalog.services for p in s.log_paths)
+        tools.append(LogsTool(root=Path(cfg.logs_root), allowlist=allow))
+    if cfg.cron_status_dir:
+        tools.append(CronStatusTool(status_dir=Path(cfg.cron_status_dir), clock=clock))
+
+    def client(base_url: str, headers: Mapping[str, str]) -> httpx.Client:
+        return httpx.Client(
+            base_url=base_url, headers=dict(headers), transport=transport, timeout=10.0
+        )
+
+    if cfg.airflow:
+        auth = (
+            {"Authorization": f"Bearer {cfg.airflow.token.get_secret_value()}"}
+            if (cfg.airflow.token)
+            else {}
+        )
+        tools.append(AirflowTool(client=client(cfg.airflow.base_url, auth)))
+    if cfg.github:
+        auth = {"Accept": "application/vnd.github+json"}
+        if cfg.github.token:
+            auth["Authorization"] = f"Bearer {cfg.github.token.get_secret_value()}"
+        gha: Tool = GitHubActionsTool(client=client(cfg.github.base_url, auth))
+        if Fault.GHA_500 in load_fault_injection_default():
+            gha = FaultInjectingTool(gha)
+        tools.append(gha)
+    if cfg.oncall:
+        oc = cfg.oncall
+        pd = (
+            client(
+                oc.pagerduty_base_url,
+                {"Authorization": f"Token token={oc.pagerduty_token.get_secret_value()}"},
+            )
+            if oc.pagerduty_token
+            else None
+        )
+        og = (
+            client(
+                oc.opsgenie_base_url,
+                {"Authorization": f"GenieKey {oc.opsgenie_token.get_secret_value()}"},
+            )
+            if oc.opsgenie_token
+            else None
+        )
+        tools.append(OnCallTool(pagerduty=pd, opsgenie=og))
+    redactor = Redactor(detectors=built_in_detectors())
+    return ToolRegistry(
+        tools, events=events, ids=ids, clock=clock, redact=lambda text: redactor.redact(text).text
+    )
 
 
 def wall_clock() -> Clock:
