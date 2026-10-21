@@ -50,10 +50,17 @@ class Linked(DomainModel):
 
 
 class Retriaged(DomainModel):
-    """An existing case re-decided in place (severity escalation); no proposals."""
+    """An existing case re-decided in place (severity escalation, ARCH §4.1).
+
+    A routed re-decision is routed again: the case's pending proposals are
+    superseded and ``proposals`` holds the new ones (BL-019). A human-owned
+    case keeps its proposals and gets none.
+    """
 
     case_id: str
     decision: TriageDecision
+    proposals: list[Proposal] = Field(default_factory=list)
+    superseded: list[str] = Field(default_factory=list)
 
 
 class Triaged(DomainModel):

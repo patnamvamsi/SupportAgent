@@ -25,6 +25,7 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
+import sqlalchemy as sa
 from ulid import ULID
 
 from supportagent.app.classify import safe_default
@@ -53,6 +54,8 @@ from supportagent.domain.model.triage import (
     TriageResult,
 )
 from supportagent.domain.model.upsert import UpsertResult
+from supportagent.domain.proposal_state import ProposalEvent, ProposalStatus
+from supportagent.domain.proposal_state import next_status as next_proposal_status
 from supportagent.domain.routing import RoutingTable
 from supportagent.domain.severity import Severity, severity_escalated
 from supportagent.domain.trace import TraceContext
@@ -78,6 +81,9 @@ class _UoW(Protocol):
     an active context manager with an explicit ``commit`` (commit is explicit,
     never implicit — 10-wp).
     """
+
+    @property
+    def connection(self) -> sa.Connection: ...
 
     def commit(self) -> None: ...
 
@@ -350,7 +356,7 @@ class TriageService:
 
             result: TriageOutcome
             if not upsert.created:
-                result = Retriaged(case_id=case_id, decision=decision)
+                result = self._retriage(evt, fp, case_id, service, decision, status, root)
             elif decision.outcome == "safe_default":
                 result = SafeDefaulted(case_id=case_id, decision=decision)
             else:
@@ -445,6 +451,65 @@ class TriageService:
             # WP-102: the route's comms plan is a proposal of its own, in this UoW.
             submitted.append(self._planner.plan(case_id, route.comms, root.child(_span("comms"))))
         return [p for p in submitted if isinstance(p, Proposal)]
+
+    def _retriage(  # noqa: PLR0913, PLR0917 — the case coordinates the proposal builder needs
+        self,
+        evt: AlertEvent,
+        fp: str,
+        case_id: str,
+        service: str | None,
+        decision: TriageDecision,
+        status: str,
+        root: TraceContext,
+    ) -> Retriaged:
+        """ARCH §4.1 / BL-019: escalation re-runs classification **and routing**.
+
+        The case's open proposals were built for the old severity, so they're
+        superseded (a ``gate`` event each) before a routed re-decision submits
+        its own. A human-owned case is left alone: it gets no proposals, and a
+        person's pending decisions aren't withdrawn under them.
+        """
+        if status == CaseStatus.HUMAN_OWNED.value:
+            return Retriaged(case_id=case_id, decision=decision)
+        superseded = self._supersede_open(case_id, root)
+        proposals = (
+            self._propose(evt, fp, case_id, service, decision, root)
+            if decision.outcome == "routed"
+            else []
+        )
+        return Retriaged(
+            case_id=case_id, decision=decision, proposals=proposals, superseded=superseded
+        )
+
+    def _supersede_open(self, case_id: str, root: TraceContext) -> list[str]:
+        conn = self._uow.connection
+        rows = conn.execute(
+            sa.text(
+                "SELECT id, status FROM proposals WHERE case_id = :c "
+                "AND status IN ('pending_approval', 'approved')"
+            ),
+            {"c": case_id},
+        ).all()
+        out: list[str] = []
+        for proposal_id, current in rows:
+            to = next_proposal_status(ProposalStatus(current), ProposalEvent.CASE_RETRIAGED)
+            conn.execute(
+                sa.text("UPDATE proposals SET status = :to WHERE id = :id AND status = :from"),
+                {"to": to.value, "id": proposal_id, "from": current},
+            )
+            self._emit(
+                root,
+                EventKind.GATE,
+                _span("gate"),
+                {
+                    "v": 1,
+                    "transition": "superseded",
+                    "proposal_id": str(proposal_id),
+                    "reason": "case_retriaged",
+                },
+            )
+            out.append(str(proposal_id))
+        return out
 
     def _page_recommendation(self, case: Case, root: TraceContext) -> ActionSpec | None:
         """ARCH §14: a P1/P2 with no open page gets ``page_recommended``, never a page.

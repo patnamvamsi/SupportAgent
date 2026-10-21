@@ -283,6 +283,70 @@ def test_triage_escalation_retriages_in_place(  # noqa: PLR0913, PLR0917
     assert second.case_id == first.case_id
 
 
+def _proposal_statuses(db: Any) -> dict[str, str]:
+    with db.connect() as conn:
+        return {
+            str(r[0]): str(r[1]) for r in conn.execute(text("SELECT id, status FROM proposals"))
+        }
+
+
+def test_retriage_reroutes_and_supersedes_open_proposals(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, aead: Any, fake_llm: Any
+) -> None:
+    """BL-019 / ARCH §4.1: escalation re-runs classification *and* routing."""
+    fake_llm.respond(_llm_json(severity="P3"))
+    w = _wire(uow, clock, ids, aead, fake_llm)
+    first = w.triage.handle(_evt(severity_hint=Severity.P3))
+    assert isinstance(first, Triaged)
+    old = [p.id for p in first.proposals]
+    assert old
+    fake_llm.respond(_llm_json(severity="P4"))  # still routed (P1/P2 would be capped)
+    second = w.triage.handle(_evt(severity_hint=Severity.P1))
+    assert isinstance(second, Retriaged)
+    assert second.superseded == old
+    assert second.proposals
+    statuses = _proposal_statuses(db)
+    assert all(statuses[p] == "superseded" for p in old)
+    assert all(statuses[p.id] == "pending_approval" for p in second.proposals)
+    with db.connect() as conn:
+        gate_events = conn.execute(
+            text("SELECT COUNT(*) FROM events WHERE kind = 'gate' AND span_id = 'span_gate'")
+        ).scalar_one()
+    assert gate_events >= len(old)
+
+
+def test_retriage_safe_default_supersedes_without_proposing(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, aead: Any, fake_llm: Any
+) -> None:
+    fake_llm.respond(_llm_json(severity="P3"))
+    w = _wire(uow, clock, ids, aead, fake_llm)
+    first = w.triage.handle(_evt(severity_hint=Severity.P3))
+    assert isinstance(first, Triaged)
+    fake_llm.respond("not json")  # llm-failure: a safe default
+    second = w.triage.handle(_evt(severity_hint=Severity.P1))
+    assert isinstance(second, Retriaged)
+    assert second.decision.outcome == "safe_default"
+    assert second.proposals == []
+    assert set(_proposal_statuses(db).values()) == {"superseded"}
+
+
+def test_retriage_leaves_a_human_owned_case_alone(  # noqa: PLR0913, PLR0917
+    db: Any, uow: Any, clock: Any, ids: Any, aead: Any, fake_llm: Any
+) -> None:
+    fake_llm.respond(_llm_json(severity="P3"))
+    w = _wire(uow, clock, ids, aead, fake_llm)
+    first = w.triage.handle(_evt(severity_hint=Severity.P3))
+    assert isinstance(first, Triaged)
+    with db.begin() as conn:
+        conn.execute(
+            text("UPDATE cases SET status = 'human_owned' WHERE id = :c"), {"c": first.case_id}
+        )
+    second = w.triage.handle(_evt(severity_hint=Severity.P1))
+    assert isinstance(second, Retriaged)
+    assert (second.proposals, second.superseded) == ([], [])
+    assert set(_proposal_statuses(db).values()) == {"pending_approval"}
+
+
 def test_triage_routed_submits_proposals(  # noqa: PLR0913, PLR0917
     db: Any, uow: Any, clock: Any, ids: Any, aead: Any, fake_llm: Any
 ) -> None:

@@ -31,6 +31,8 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
+import sqlalchemy as sa
+
 from supportagent.app.triage import (
     TriageCaseRepo,
     TriageClassifier,
@@ -64,6 +66,9 @@ from supportagent.ports.paging import PagingIntegration
 
 
 class _UoW(Protocol):
+    @property
+    def connection(self) -> sa.Connection: ...
+
     def commit(self) -> None: ...
 
     def __enter__(self) -> Self: ...
