@@ -44,6 +44,7 @@ from supportagent.adapters.db.repos.cases import CaseRepo
 from supportagent.adapters.db.repos.events import SqlEventSink
 from supportagent.adapters.db.repos.leases import SqlLease
 from supportagent.adapters.db.repos.outbox import OutboxRepo
+from supportagent.adapters.db.repos.retention import SqlRetention
 from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
@@ -117,6 +118,7 @@ from supportagent.app.outbox import OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.rca import BufferedEvents, Knowledge, RcaJob, RcaService, lite_route_ids
 from supportagent.app.replay import ReplayService, ReplayView
+from supportagent.app.retention import RetentionService
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
 from supportagent.app.spend import SpendBreaker
@@ -160,14 +162,20 @@ from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    PROPOSALS_EXPIRE_INTERVAL_S,
+    PROPOSALS_EXPIRE_LEASE,
     RCA_RUN_INTERVAL_S,
     RCA_RUN_LEASE,
+    RETENTION_SWEEP_INTERVAL_S,
+    RETENTION_SWEEP_LEASE,
     WEBHOOKS_DRAIN_INTERVAL_S,
     WEBHOOKS_DRAIN_LEASE,
     JobResult,
     groups_close,
     llm_deprecation_check,
+    proposals_expire,
     rca_run,
+    retention_sweep,
     sync_poll,
     sync_poll_lease,
     webhooks_drain,
@@ -747,6 +755,56 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
     )
 
 
+def _housekeeping_jobs(  # noqa: PLR0913 — the worker's shared ports
+    config: AppConfig,
+    *,
+    engine: Engine,
+    key: bytes,
+    clock: Clock,
+    ids: IdGenerator,
+    lease: SqlLease,
+    owner: str,
+) -> list[ScheduledJob]:
+    """BL-028: ``proposals.expire`` and ``retention.sweep`` (02 §7), each on its own UoW."""
+    gate_uow = SqlUnitOfWork(engine)
+    gate = GateService(
+        uow=gate_uow,
+        clock=clock,
+        ids=ids,
+        events=_event_sink(gate_uow, key, clock),
+        catalog=_build_catalog(config),
+        ttl=timedelta(hours=config.proposals.ttl_hours),
+    )
+    sweep_uow = SqlUnitOfWork(engine)
+    retention = RetentionService(
+        uow=sweep_uow,
+        store=SqlRetention(sweep_uow),
+        events=_event_sink(sweep_uow, key, clock),
+        ids=ids,
+        clock=clock,
+        tenant_id=config.tenant.id,
+        events_days=config.retention.events_days,
+        alerts_days=config.retention.alerts_days,
+        comms_days=config.retention.comms_days,
+    )
+    return [
+        ScheduledJob(
+            name=PROPOSALS_EXPIRE_LEASE,
+            interval_s=float(PROPOSALS_EXPIRE_INTERVAL_S),
+            run=lambda: proposals_expire(
+                expire=lambda: gate.expire_due(now=clock.now()), lease=lease, owner=owner
+            ),
+        ),
+        ScheduledJob(
+            name=RETENTION_SWEEP_LEASE,
+            interval_s=float(RETENTION_SWEEP_INTERVAL_S),
+            run=lambda: retention_sweep(
+                sweep=lambda: sum(retention.sweep().values()), lease=lease, owner=owner
+            ),
+        ),
+    ]
+
+
 def build_worker(  # noqa: PLR0913 — config plus the test seams
     config: AppConfig,
     *,
@@ -871,6 +929,11 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             run=lambda: groups_close(
                 close=lambda: grouping.close_due(clock.now()), lease=lease, owner=owner
             ),
+        )
+    )
+    jobs.extend(
+        _housekeeping_jobs(
+            config, engine=engine, key=key, clock=clock, ids=ids, lease=lease, owner=owner
         )
     )
     if any(row.rca == "lite" for row in [*config.routing, *filter(None, [config.default])]):

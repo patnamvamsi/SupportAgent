@@ -167,6 +167,34 @@ def groups_close(*, close: Callable[[], int], lease: Lease, owner: str) -> JobRe
     return JobResult(name=GROUPS_CLOSE_LEASE, ran=True, rows=closed)
 
 
+#: 02 §7: ``proposals.expire`` every 60 s (BL-028).
+PROPOSALS_EXPIRE_LEASE = "proposals.expire"
+PROPOSALS_EXPIRE_INTERVAL_S = 60
+#: 02 §7: ``retention.sweep`` every hour (BL-028).
+RETENTION_SWEEP_LEASE = "retention.sweep"
+RETENTION_SWEEP_INTERVAL_S = 3600
+
+
+def _leased(name: str, run: Callable[[], int], lease: Lease, owner: str, ttl_s: int) -> JobResult:
+    if not lease.acquire(name=name, owner=owner, ttl_s=ttl_s):
+        return JobResult(name=name, ran=False)
+    try:
+        rows = run()
+    finally:
+        lease.release(name=name, owner=owner)
+    return JobResult(name=name, ran=True, rows=rows)
+
+
+def proposals_expire(*, expire: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    """Expire ``pending_approval`` proposals past their TTL (01 §7.10)."""
+    return _leased(PROPOSALS_EXPIRE_LEASE, expire, lease, owner, ttl_s=120)
+
+
+def retention_sweep(*, sweep: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    """Delete rows past retention; audit tables are never swept (03 §2.4)."""
+    return _leased(RETENTION_SWEEP_LEASE, sweep, lease, owner, ttl_s=1800)
+
+
 #: ``rca.run`` every 30 s (11-wp WP-110): RCA-lite for ``rca: lite`` routes.
 RCA_RUN_LEASE = "rca.run"
 RCA_RUN_INTERVAL_S = 30
@@ -233,8 +261,12 @@ __all__ = [
     "LLM_DEPRECATION_LEASE",
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
+    "PROPOSALS_EXPIRE_INTERVAL_S",
+    "PROPOSALS_EXPIRE_LEASE",
     "RCA_RUN_INTERVAL_S",
     "RCA_RUN_LEASE",
+    "RETENTION_SWEEP_INTERVAL_S",
+    "RETENTION_SWEEP_LEASE",
     "SYNC_POLL_LEASE_TTL_S",
     "WEBHOOKS_DRAIN_INTERVAL_S",
     "WEBHOOKS_DRAIN_LEASE",
@@ -244,7 +276,9 @@ __all__ = [
     "groups_close",
     "llm_deprecation_check",
     "outbox_execute",
+    "proposals_expire",
     "rca_run",
+    "retention_sweep",
     "sync_poll",
     "sync_poll_lease",
     "webhooks_drain",
