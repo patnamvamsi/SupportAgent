@@ -33,6 +33,7 @@ llm:
   provider: anthropic                # anthropic | openai | ollama | fixture (test/--demo only)
   api_key_env: ANTHROPIC_API_KEY     # absent for ollama / fixture
   base_url: null                     # ollama: the local server (default http://localhost:11434); no api_key_env
+                                     # openai: any OpenAI-compatible server, e.g. LM Studio http://host:1234/v1 (BL-042)
   slots:
     classify:                        # v0.0 slot; propose_hypotheses/entail/draft_comms from v0.1
       model_id: claude-sonnet-4-5-20250929   # dated snapshot — floating aliases fail validation

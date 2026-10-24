@@ -64,7 +64,11 @@ def test_llm_bound_canaries_absent(
     subject, body = _build_ticket(canaries, placement)
     structured_llm.structured(
         SlotName.CLASSIFY,
-        {"ticket_subject": subject, "ticket_body": body},
+        {
+            "taxonomy_labels": "- database/saturation: pool saturation",
+            "ticket_subject": subject,
+            "ticket_body": body,
+        },
         TriageResult,
         trace=_TRACE,
     )
@@ -97,7 +101,11 @@ def test_redaction_counts_event_contains_no_values(
     subject, body = _build_ticket(canaries)
     structured_llm.structured(
         SlotName.CLASSIFY,
-        {"ticket_subject": subject, "ticket_body": body},
+        {
+            "taxonomy_labels": "- database/saturation: pool saturation",
+            "ticket_subject": subject,
+            "ticket_body": body,
+        },
         TriageResult,
         trace=_TRACE,
     )

@@ -344,7 +344,9 @@ def _build_llm(  # noqa: PLR0913 — the client's ports plus the two seams
     elif provider == "openai":
         if api_key is None:
             raise ConfigError("llm.api_key is required for provider 'openai' (02 §1)")  # noqa: TRY003
-        sdk_client = openai.OpenAI(api_key=api_key.get_secret_value())
+        # BL-042: base_url reaches any OpenAI-compatible server (LM Studio, vLLM);
+        # None keeps the SDK's default endpoint.
+        sdk_client = openai.OpenAI(api_key=api_key.get_secret_value(), base_url=config.llm.base_url)
     elif provider == "ollama":
         # BL-006: the air-gap path, a local server and no API key (ARCH §9).
         sdk_client = httpx.Client(base_url=config.llm.base_url or OLLAMA_DEFAULT_BASE_URL)
@@ -466,7 +468,14 @@ def _build_classifier(
         calibration=_classifier_calibration(config),
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
+        taxonomy_labels=_taxonomy_labels(config),
     )
+
+
+def _taxonomy_labels(config: AppConfig) -> str:
+    """BL-043: the classify prompt's label list, one ``- id: description`` line each."""
+    labels = load_classification(Path(config.paths.taxonomy)).labels
+    return "\n".join(f"- {label.id}: {' '.join(label.description.split())}" for label in labels)
 
 
 def _build_triage(config: AppConfig) -> TriageService:
@@ -1365,6 +1374,7 @@ class EvalPipeline:
                 calibration=_wiring_calibration(config),
                 min_score=config.calibration.min_score,
                 routing=_build_routing(config),
+                taxonomy_labels=_taxonomy_labels(config),
             ),
             catalog=_build_catalog(config),
             repo=ShadowRepo(uow),
@@ -1454,6 +1464,7 @@ class QualityPipeline:
             calibration=_wiring_calibration(config),
             min_score=config.calibration.min_score,
             routing=_build_routing(config),
+            taxonomy_labels=_taxonomy_labels(config),
         )
 
     @property

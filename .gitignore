@@ -33,3 +33,6 @@ evals/artifacts/*/
 
 # Claude Code local runtime state (locks, per-user settings)
 .claude/
+
+# Local configs (BL-042)
+supportagent.local.yaml
