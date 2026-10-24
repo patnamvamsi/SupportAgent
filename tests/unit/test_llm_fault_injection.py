@@ -27,6 +27,7 @@ from supportagent.domain.trace import TraceContext
 
 _TRACE = TraceContext.new("acme", "trace_0001", "span_llm")
 _VARS: dict[str, str] = {
+    "taxonomy_labels": "- database/saturation: pool saturation",
     "ticket_subject": "DNS failure",
     "ticket_body": "Users cannot resolve hostnames since 02:00 UTC.",
 }

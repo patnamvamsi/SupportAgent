@@ -23,7 +23,7 @@ class SlotName(StrEnum):
 #: compares them with every prompt's template at load, so a renamed or missing
 #: variable is a ``ConfigError`` at startup rather than a failed call.
 SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
-    SlotName.CLASSIFY: frozenset({"ticket_subject", "ticket_body"}),
+    SlotName.CLASSIFY: frozenset({"taxonomy_labels", "ticket_subject", "ticket_body"}),
     SlotName.PROPOSE_HYPOTHESES: frozenset(
         {"hypothesis_ids", "max_hypotheses", "service", "classification", "severity"}
     ),

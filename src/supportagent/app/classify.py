@@ -50,7 +50,7 @@ _DecideReason = Literal[
 class Classifier:
     """Decides how a case is triaged (ARCH §4). Stateless; all inputs injected."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — the ARCH §4 tables plus the prompt's label list
         self,
         *,
         rule_set: RuleSet,
@@ -58,12 +58,15 @@ class Classifier:
         calibration: CalibrationTable,
         min_score: float,
         routing: RoutingTable,
+        taxonomy_labels: str = "",
     ) -> None:
         self.rule_set = rule_set
         self.llm = llm
         self.calibration = calibration
         self.min_score = min_score
         self.routing = routing
+        #: BL-043: the label list the classify prompt offers (``id: description`` lines).
+        self.taxonomy_labels = taxonomy_labels
 
     def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision:
         # 1. unresolved-service: checked first, before the LLM is consulted.
@@ -75,7 +78,11 @@ class Classifier:
         # 2. llm-failure: the structured LLM returned no usable answer.
         llmres = self.llm.structured(
             SlotName.CLASSIFY,
-            {"ticket_subject": evt.subject, "ticket_body": evt.body},
+            {
+                "taxonomy_labels": self.taxonomy_labels,
+                "ticket_subject": evt.subject,
+                "ticket_body": evt.body,
+            },
             TriageResult,
             trace,
         )

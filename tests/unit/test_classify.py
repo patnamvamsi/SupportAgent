@@ -53,7 +53,7 @@ class _FakeLLM:
     ) -> Any:
         # The classifier must call the ``classify`` slot with the prompt vars.
         assert slot is SlotName.CLASSIFY
-        assert set(variables) == {"ticket_subject", "ticket_body"}
+        assert set(variables) == {"taxonomy_labels", "ticket_subject", "ticket_body"}
         return self._result
 
 

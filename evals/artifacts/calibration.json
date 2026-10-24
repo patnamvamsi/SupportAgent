@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "grade": "smoke",
+  "snapshot_id": "smoke-v0.0-2026-10-20",
+  "model_id": "qwen/qwen3.8-27b",
+  "labels": {
+    "auth/failure": {
+      "agree": {
+        "n": 1,
+        "correct": 1
+      },
+      "abstain": null
+    },
+    "batch/failure": {
+      "agree": {
+        "n": 1,
+        "correct": 1
+      },
+      "abstain": null
+    },
+    "database/failure": {
+      "agree": {
+        "n": 1,
+        "correct": 1
+      },
+      "abstain": null
+    },
+    "database/latency": {
+      "agree": null,
+      "abstain": {
+        "n": 1,
+        "correct": 1
+      }
+    },
+    "database/saturation": {
+      "agree": {
+        "n": 12,
+        "correct": 12
+      },
+      "abstain": null
+    },
+    "deploy/failure": {
+      "agree": {
+        "n": 1,
+        "correct": 1
+      },
+      "abstain": null
+    },
+    "network/latency": {
+      "agree": {
+        "n": 1,
+        "correct": 1
+      },
+      "abstain": null
+    },
+    "request/access": {
+      "agree": null,
+      "abstain": {
+        "n": 1,
+        "correct": 1
+      }
+    }
+  },
+  "report_id": "20261024T234356Z-smoke-live",
+  "signature": "e92a1baaae9889c8c435827022c3b9e39b6d83d5e1109fc732c12d82e5138b28"
+}

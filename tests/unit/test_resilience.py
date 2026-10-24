@@ -165,7 +165,11 @@ def test_degraded_flag_on_events_when_llm_breaker_open(
     breaker = CircuitBreaker(clock=clock, threshold=5)
     structured_llm._provider = CircuitBreakerLLMProvider(down, breaker)
     trace = TraceContext.new("acme", "trace_1", "span_1")
-    variables = {"ticket_subject": "s", "ticket_body": "b"}
+    variables = {
+        "taxonomy_labels": "- database/saturation: pool saturation",
+        "ticket_subject": "s",
+        "ticket_body": "b",
+    }
     for _ in range(6):
         assert structured_llm.structured(SlotName.CLASSIFY, variables, TriageResult, trace) is None
     assert down.calls == 5, "the sixth call never reached the provider"
