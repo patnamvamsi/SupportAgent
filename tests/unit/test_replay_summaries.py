@@ -56,3 +56,27 @@ def test_ui_root_redirects_to_the_approvals_queue(
     resp = client.get(path, follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"] == "/ui/approvals"
+
+
+def test_llm_summary_names_slot_and_models() -> None:
+    payload = {"v": 1, "slot": "classify", "model": "m-1", "resolved_model": "m-1"}
+    assert summarize(EventKind.LLM, payload) == "slot=classify model=m-1 resolved=m-1"
+
+
+def test_redact_summary_with_nothing_redacted() -> None:
+    assert summarize(EventKind.REDACT, {"v": 1, "slot": "classify", "counts_by_class": {}}) == (
+        "counts=none"
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"phase": "claim"}, "phase=claim"),
+        ({"phase": "sent", "external_ref": "incident:abc"}, "phase=sent ref=incident:abc"),
+        ({"phase": "retry", "attempts": 2, "retry_at_ts": 9}, "phase=retry attempts=2"),
+        ({"phase": "cadence_skipped", "plan_id": "plan_1"}, "phase=cadence_skipped plan_id=plan_1"),
+    ],
+)
+def test_send_summary_shows_the_phase(payload: dict[str, object], expected: str) -> None:
+    assert summarize(EventKind.SEND, payload) == expected
