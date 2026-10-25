@@ -225,6 +225,7 @@ Rules:
 | Poll | `GET /api/now/table/{table}?sysparm_query=sys_updated_on>={cursor-overlap}^ORDERBYsys_updated_on&sysparm_limit={page_size}&sysparm_offset={k}&sysparm_fields=sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id&sysparm_display_value=false` |
 | Audit history | `GET /api/now/table/sys_audit?sysparm_query=tablename={table}^documentkey={sys_id}^record_checkpoint>{after_mod_count}^ORDERBYrecord_checkpoint&sysparm_fields=fieldname,oldvalue,newvalue,user,sys_created_on,record_checkpoint` |
 | Journal history | `GET /api/now/table/sys_journal_field?sysparm_query=name={table}^element_id={sys_id}^sys_created_on>={since}&sysparm_fields=element,value,sys_created_by,sys_created_on` |
+| Record (ADR-0010) | `GET /api/now/table/{table}/{sys_id}?sysparm_fields=<poll fields>,sys_created_by` (404 → `None`): the record's current fields and its creator, read by the comms cadence |
 | Append work note / comment | `PATCH /api/now/table/{table}/{sys_id}` body `{"work_notes": text}` or `{"comments": text}` |
 | Update fields | `PATCH /api/now/table/{table}/{sys_id}` body `{field: value}` |
 | Find marker | `GET /api/now/table/sys_journal_field?sysparm_query=element_id={sys_id}^valueLIKE[sa:{key}]&sysparm_limit=1` |

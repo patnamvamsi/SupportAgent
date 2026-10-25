@@ -53,6 +53,7 @@ class _Row(TypedDict):
     sys_updated_on: datetime
     sys_updated_by: str
     sys_mod_count: int
+    sys_created_by: str | None
 
 
 _FIXED_TS = "2026-01-01 00:00:00"  # timestamps for sink-appended entries (not asserted on)
@@ -99,6 +100,7 @@ class FakeServiceNow:
         sys_updated_on: datetime,
         sys_updated_by: str = "u1",
         sys_mod_count: int = 1,
+        sys_created_by: str | None = None,
     ) -> None:
         """Record a row in the table (source-side state for ``poll``)."""
         with self._lock:
@@ -116,6 +118,7 @@ class FakeServiceNow:
                 "sys_updated_on": sys_updated_on,
                 "sys_updated_by": sys_updated_by,
                 "sys_mod_count": sys_mod_count,
+                "sys_created_by": sys_created_by,
             }
 
     def seed_audit(  # noqa: PLR0913
@@ -214,6 +217,12 @@ class FakeServiceNow:
             records = [self._row_to_record(table, r) for r in page]
         return PollBatch(records=records, next_cursor=next_cursor)
 
+    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+        """The seeded row's current fields, or ``None`` (ADR-0010)."""
+        with self._lock:
+            row = self._rows.get(table.value, {}).get(sys_id)
+            return None if row is None else self._row_to_record(table, row)
+
     def history(
         self,
         table: SnTable,
@@ -306,6 +315,7 @@ class FakeServiceNow:
             sys_updated_on=row["sys_updated_on"],
             sys_updated_by=row.get("sys_updated_by") or "unknown",
             sys_mod_count=row["sys_mod_count"],
+            sys_created_by=row.get("sys_created_by"),
         )
 
 
@@ -413,6 +423,7 @@ class FakeServiceNowHTTP:
         sys_updated_on: datetime | str,
         sys_updated_by: str = "u1",
         sys_mod_count: int = 1,
+        sys_created_by: str | None = None,
     ) -> None:
         with self._lock:
             self._rows.setdefault(table, {})[sys_id] = {
@@ -429,6 +440,7 @@ class FakeServiceNowHTTP:
                 "sys_updated_on": self._fmt(sys_updated_on),
                 "sys_updated_by": sys_updated_by,
                 "sys_mod_count": str(sys_mod_count),
+                "sys_created_by": sys_created_by,
             }
 
     def seed_audit(  # noqa: PLR0913

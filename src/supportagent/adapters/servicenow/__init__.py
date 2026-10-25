@@ -18,7 +18,7 @@ from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.domain.errors import ServiceNowError
 from supportagent.domain.model.external import ExternalRef
-from supportagent.domain.model.ticket import ChangeRecord
+from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
 from supportagent.ports.tickets import JournalField, PollBatch, SnTable
 
 
@@ -44,6 +44,9 @@ class ServiceNow:
 
     def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
         return self._source.poll(table, since, limit, offset)
+
+    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+        return self._source.record(table, sys_id)
 
     def history(
         self,

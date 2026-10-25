@@ -288,3 +288,22 @@ def test_poll_carries_the_ci_name_as_the_alert_resource(sn_env: Any) -> None:
     evt = record_to_alert("acme", rec, received_at=T0)
     assert evt.resource == "MailServerUS"
     assert evt.cmdb_ci == "ci-sysid-9"
+
+
+def test_record_returns_current_fields_or_none(sn_env: Any) -> None:
+    """ADR-0010: ``record`` reads one record, with its creator; a missing one is ``None``."""
+    sn_env["seed"](
+        SnTable.INCIDENT,
+        "rec_one",
+        number="INC400",
+        state="2",
+        priority="3",
+        sys_updated_on=T0,
+        sys_updated_by="u1",
+        sys_mod_count=1,
+        sys_created_by="ada",
+    )
+    rec = sn_env["source"].record(SnTable.INCIDENT, "rec_one")
+    assert rec is not None
+    assert (rec.number, rec.state, rec.priority, rec.sys_created_by) == ("INC400", "2", "3", "ada")
+    assert sn_env["source"].record(SnTable.INCIDENT, "no_such_record") is None

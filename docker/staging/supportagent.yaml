@@ -9,7 +9,7 @@ config_version: 1
 tenant:
   id: acme
   display_name: Acme Corp
-mode: shadow
+mode: assisted                       # ADR-0008; the exit demo writes work notes to dev393479 (approved 2026-10-25)
 database:
   url_env: SUPPORTAGENT_DB_URL        # sqlite:///data/sa.db | postgresql+psycopg://…
 servicenow:
@@ -53,7 +53,7 @@ redaction:
 calibration:
   path: evals/artifacts/calibration.json
   min_grade: smoke                   # smoke (v0.0); holdout for the v0.1 release, once the partner holdout exists (BL-037)
-  min_score: 0.80
+  min_score: 0.0                     # STAGING DEMO ONLY: smoke calibration can't route at 0.80; ADR-0003 sets the real floor
 paths:
   taxonomy: taxonomy/classification.yaml
   hypotheses: taxonomy/hypotheses.yaml
@@ -66,7 +66,7 @@ routing:                             # rows reference taxonomy labels; doctor va
     actions: [work_note]             # ActionKind names only
     rca: none                        # none | lite (v0.1: runbooks/, budgets in rca:) | deep (v0.2)
     comms: null                      # comms plan template id (v0.1)
-default: {id: generic, actions: [work_note], rca: none}
+default: {id: generic, actions: [work_note], rca: none, comms: customer-4h}   # demo: T1 note + T2 comms plan
 proposals:
   ttl_hours: 24
 grants_request: []                   # v0.2: {action, system, target, requested_expiry_days}

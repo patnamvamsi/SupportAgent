@@ -13,6 +13,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0007](0007-storm-member-safe-default.md) | A storm group's non-lead members safe-default as `storm-member` | accepted |
 | [0008](0008-assisted-mode-in-v0-1.md) | Assisted mode ships in v0.1 | accepted |
 | [0009](0009-severity-from-source-priority.md) | Severity comes from the source priority | accepted |
+| [0010](0010-creation-values-are-human-set.md) | A human creator's values at creation are human-set | accepted |
 
 ## Naming
 

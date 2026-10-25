@@ -86,6 +86,7 @@ def row_to_record(table: str, row: Mapping[str, Any]) -> TicketRecord:
         assignment_group=_opt_str(row.get("assignment_group")),
         cmdb_ci=_opt_str(row.get("cmdb_ci")),
         cmdb_ci_name=_opt_str(row.get("cmdb_ci.name")),
+        sys_created_by=_opt_str(row.get("sys_created_by")),
         caller_id=_opt_str(row.get("caller_id")),
         u_alert_source=_opt_str(row.get("u_alert_source")),
         sys_updated_on=_to_aware_utc(row["sys_updated_on"]),

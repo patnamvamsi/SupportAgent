@@ -20,7 +20,9 @@ no-self-approval, and the hash the approver saw (``ApprovalService``).
 
 **Field values.** A ``record_state`` field is the value **a human actor last
 set** in the record's per-change history (ARCH §8.2). A value our
-integration user wrote never counts. If a field has no human-set value the
+integration user wrote never counts. ADR-0010: when a human created the
+record, each field's value at creation is human-set too (ServiceNow audits
+changes, not the insert); a later human change overrides it. If a field has no human-set value the
 slot is skipped and the skip is recorded, rather than sending something the
 agent decided. ``schedule`` fields come from the cadence.
 
@@ -51,7 +53,7 @@ from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.outbox import OutboxRow
 from supportagent.domain.model.proposal import Proposal, Skipped
-from supportagent.domain.model.ticket import ChangeRecord
+from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
 from supportagent.domain.rbac import Permission, RoleGrant, can, service_role_scope
 from supportagent.domain.scopes import record_scope
 from supportagent.domain.takeover import is_human_actor
@@ -108,14 +110,49 @@ def display_value(field: str, raw: str) -> str:
     return raw
 
 
+def creation_values(
+    record: TicketRecord | None, changes: Sequence[ChangeRecord], fields: Collection[str]
+) -> dict[str, str]:
+    """ADR-0010: each field's value when the record was created.
+
+    ServiceNow audits changes, not the insert, so the value at creation is the
+    ``oldvalue`` of the field's first audited change, or its current value when
+    it was never changed. An empty value at creation yields nothing.
+    """
+    if record is None:
+        return {}
+    audited = sorted(
+        (c for c in changes if c.source == "audit" and c.fieldname in fields),
+        key=lambda c: (c.ts, c.checkpoint or 0),
+    )
+    values: dict[str, str] = {}
+    for name in fields:
+        first = next((c for c in audited if c.fieldname == name), None)
+        value = first.oldvalue if first is not None else getattr(record, name, None)
+        if isinstance(value, str) and value:
+            values[name] = value
+    return values
+
+
 def human_record_state(
     changes: Sequence[ChangeRecord],
     *,
     integration_user: str,
     automation_actors: Collection[str],
+    created: tuple[str | None, Mapping[str, str]] | None = None,
 ) -> dict[str, str]:
-    """Each field's value as **last set by a human actor** (ARCH §6.3, §8.2)."""
+    """Each field's value as **last set by a human actor** (ARCH §6.3, §8.2).
+
+    ``created`` is ``(creator, values at creation)``: a human creator's values
+    seed the result (ADR-0010); later human changes override them.
+    """
     values: dict[str, str] = {}
+    if created is not None:
+        creator, at_creation = created
+        if creator and is_human_actor(
+            creator, integration_user=integration_user, automation_actors=automation_actors
+        ):
+            values.update(at_creation)
     for change in sorted(changes, key=lambda c: (c.ts, c.checkpoint or 0)):
         if change.source != "audit" or not change.fieldname or change.newvalue is None:
             continue
@@ -249,14 +286,21 @@ class CadenceJob:
         if status not in ("human_owned", "resolved") and status not in _ACTIVE:
             return CadenceResult(plan_id, "not_due", f"case is {status}")
 
-        # Outside any transaction: the record's history (a ServiceNow read).
-        changes = self._source.history(
-            SnTable(str(plan["external_table"] or "incident")), str(plan["external_id"]), 0
-        )
-        state = human_record_state(
-            changes, integration_user=self._integration_user, automation_actors=automation
-        )
+        # Outside any transaction: the record and its history (ServiceNow reads).
+        table = SnTable(str(plan["external_table"] or "incident"))
+        changes = self._source.history(table, str(plan["external_id"]), 0)
+        record = self._source.record(table, str(plan["external_id"]))
         fields = json.loads(str(plan["allowed_fields_json"]))
+        record_fields = [n for n, src in fields.items() if src == "record_state"]
+        state = human_record_state(
+            changes,
+            integration_user=self._integration_user,
+            automation_actors=automation,
+            created=(
+                None if record is None else record.sys_created_by,
+                creation_values(record, changes, record_fields),
+            ),
+        )
         values: dict[str, str] = {}
         for name, source in fields.items():
             if source == "schedule":
@@ -502,6 +546,7 @@ __all__ = [
     "CadenceResult",
     "CommsPlanner",
     "CommsPlans",
+    "creation_values",
     "display_value",
     "human_record_state",
 ]
