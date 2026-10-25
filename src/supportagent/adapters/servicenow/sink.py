@@ -95,6 +95,7 @@ class ServiceNowSink:
                 "sysparm_fields": JOURNAL_FIELDS,
                 "sysparm_limit": _MARKER_CANDIDATES,
                 "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
             },
         )
         try:
@@ -117,7 +118,7 @@ class ServiceNowSink:
         resp = self._http.request(
             "GET",
             f"/api/now/table/{table.value}/{sys_id}",
-            params={"sysparm_display_value": "false"},
+            params={"sysparm_display_value": "false", "sysparm_exclude_reference_link": "true"},
         )
         try:
             return cast("dict[str, object]", resp.json()["result"])

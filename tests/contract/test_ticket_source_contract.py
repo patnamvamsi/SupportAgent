@@ -244,3 +244,24 @@ def test_history_since_filters_journal(sn_env: Any) -> None:
         table, sid, after_mod_count=0, since=T0 + timedelta(seconds=30)
     )
     assert [c.newvalue for c in changes if c.source == "journal"] == ["new note"]
+
+
+def test_poll_reference_fields_are_plain_sys_ids(sn_env: Any) -> None:
+    """BL-030: ``cmdb_ci`` / ``caller_id`` map to bare sys_ids, never a
+    ``{"link", "value"}`` object (a real instance renders references that way
+    unless the request excludes reference links)."""
+    sn_env["seed"](
+        SnTable.INCIDENT,
+        "rec_ref",
+        number="INC200",
+        short_description="ref fields",
+        cmdb_ci="ci-sysid-1",
+        caller_id="user-sysid-1",
+        sys_updated_on=T0,
+        sys_updated_by="u1",
+        sys_mod_count=1,
+    )
+    batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=10)
+    rec = next(r for r in batch.records if r.sys_id == "rec_ref")
+    assert rec.cmdb_ci == "ci-sysid-1"
+    assert rec.caller_id == "user-sysid-1"

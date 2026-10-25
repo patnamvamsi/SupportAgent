@@ -42,5 +42,7 @@ def healthy_instance(sn: FakeServiceNowHTTP) -> FakeServiceNowHTTP:
         "sys_auto_flush",
         {"sys_id": "af-1", "tablename": "sys_audit", "age": str(90 * 86_400), "active": "true"},
     )
+    # BL-030: sync's history tables are readable, with one human work note.
+    sn.seed_journal("incident", "inc-1", user="ada", ts=WHEN, element="work_notes", value="looking")
     sn.set_response_headers({"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "4900"})
     return sn

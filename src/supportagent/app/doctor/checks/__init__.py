@@ -8,6 +8,7 @@ from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PagingChe
 from supportagent.app.doctor.checks.servicenow import (
     AuditRetentionCheck,
     AuthCheck,
+    HistoryAccessCheck,
     IntegrationRoleCheck,
     JournalVisibilityCheck,
     RateLimitCheck,
@@ -23,6 +24,7 @@ def default_checks() -> list[Check]:
         JournalVisibilityCheck(),
         IntegrationRoleCheck(),
         RateLimitCheck(),
+        HistoryAccessCheck(),
         AuditRetentionCheck(),
         AutomationActorsCheck(),
         PagingCheck(),

@@ -97,6 +97,7 @@ def test_wp015_dod_doctor_all_green_on_example_config(
         "servicenow.journal_visibility",
         "servicenow.integration_role",
         "servicenow.rate_limit",
+        "servicenow.history_access",
         "servicenow.audit_retention",
         "automation_actors",
         "paging",

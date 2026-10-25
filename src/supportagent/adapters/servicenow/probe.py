@@ -16,6 +16,13 @@ from supportagent.domain.errors import ServiceNowError
 from supportagent.ports.diagnostics import ProbeRows
 
 
+def _flat(value: object) -> str:
+    """A field value as text; a ``{"link", "value"}`` reference yields its ``value`` (BL-030)."""
+    if isinstance(value, dict):
+        value = value.get("value")
+    return "" if value is None else str(value)
+
+
 class ServiceNowTableProbe:
     """Read-only Table API access for the doctor."""
 
@@ -27,6 +34,7 @@ class ServiceNowTableProbe:
             "sysparm_fields": ",".join(fields),
             "sysparm_limit": limit,
             "sysparm_display_value": "false",
+            "sysparm_exclude_reference_link": "true",
         }
         if query:
             params["sysparm_query"] = query
@@ -39,9 +47,7 @@ class ServiceNowTableProbe:
             raise ServiceNowError("Table API response missing 'result' list")  # noqa: TRY003
         return ProbeRows(
             rows=[
-                {str(k): "" if v is None else str(v) for k, v in row.items()}
-                for row in rows
-                if isinstance(row, dict)
+                {str(k): _flat(v) for k, v in row.items()} for row in rows if isinstance(row, dict)
             ],
             headers={k.lower(): v for k, v in resp.headers.items()},
         )
