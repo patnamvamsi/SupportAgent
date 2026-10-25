@@ -1,0 +1,96 @@
+{
+ "params": {
+  "sysparm_display_value": "false",
+  "sysparm_exclude_reference_link": "true",
+  "sysparm_fields": "sys_id,element,value,sys_created_by,sys_created_on",
+  "sysparm_query": "name=incident^element_id=<sys_id>"
+ },
+ "result": [
+  {
+   "element": "comments",
+   "sys_created_by": "david.loo",
+   "sys_created_on": "2016-12-13 14:43:17",
+   "sys_id": "263ab36b0b2322007518478d83673afd",
+   "value": "Hi Joe,\nMy name is David.\u00a0I'll be assisting you with this incident. Can you confirm which VPN you have been using today?\u00a0I also see you were having this issue at 2:30PM. Were there any other times you can recall you had issues connecting to the email?"
+  },
+  {
+   "element": "work_notes",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "sys_id": "3388d92b0b2322007518478d83673af1",
+   "value": "Updating priority as workaround for incident has been provided."
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "employee",
+   "sys_created_on": "2016-12-12 20:43:50",
+   "sys_id": "44aed02b0b2322007518478d83673aef",
+   "value": "Hi Beth,\nYes, I'm connected to the VPN, although I've had to reconnect to it a couple of times. The last time I was unable to connect was 2:30PM."
+  },
+  {
+   "element": "work_notes",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "sys_id": "8078ffd70b2322007518478d83673a63",
+   "value": "Increasing priority as this incident is affecting more number of users"
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "david.loo",
+   "sys_created_on": "2016-12-13 18:42:25",
+   "sys_id": "9df0787b0b2322007518478d83673abd",
+   "value": "Hi Joe,\nI've checked in network logs and you were timed out from the VPN at 9:25AM, 10:42AM and 2:28PM. These three times coincide with entries in the exchange server logs showing you lost connection at those same times. The VPN policy is to time out a connection if it hasn't been active in 30 minutes. Please ensure the next time you lose connectivity you are still\u00a0connected to the VPN.\n\nI'm going to update this incident to resolved. Please let me know if you need any more assistance."
+  },
+  {
+   "element": "work_notes",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-12 17:01:24",
+   "sys_id": "a1bb2fd70b2322007518478d83673aa7",
+   "value": "Updating incident with correct Configuration item"
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "employee",
+   "sys_created_on": "2016-12-13 15:53:01",
+   "sys_id": "bf2a447b0b2322007518478d83673aa3",
+   "value": "Hi David,\nThank you! I use the corporate VPN and was also unable to connect to the email server at 9:30AM and 10:45AM."
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "sys_id": "c435402b0b2322007518478d83673a6b",
+   "value": "Hi Joe, \nAre you connected to the VPN when you're having this issue? Can you identify a specific time you were unable to connect to email?"
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "sys_id": "e1b4abd70b2322007518478d83673a22",
+   "value": "Hi Joe, \nMy name is Beth and I'll be assisting you with your issue."
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "employee",
+   "sys_created_on": "2016-12-12 15:19:57",
+   "sys_id": "eb741bd70b2322007518478d83673a5e",
+   "value": "I am unable to connect to the email server. It appears to be down."
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "employee",
+   "sys_created_on": "2016-12-13 20:30:14",
+   "sys_id": "f0a94d7b0b2322007518478d83673aa9",
+   "value": "Hi David, \nThat must be it. I was on phone calls at all three of those times and must not have had any activity on my computer. Please close this incident."
+  },
+  {
+   "element": "comments",
+   "sys_created_by": "beth.anglin",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "sys_id": "f388d92b0b2322007518478d83673af1",
+   "value": "Hi Joe, \nAs per discussion on call, Workaround has been provided and it has worked for you. I have verified with the Exchange team we haven't had an issue with the email server today. I'm going to assign this issue to the network team for further investigation."
+  }
+ ],
+ "status": 200,
+ "table": "sys_journal_field"
+}

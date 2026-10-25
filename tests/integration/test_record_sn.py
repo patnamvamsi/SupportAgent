@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +53,10 @@ def _record(client: httpx.Client, name: str, table: str, params: dict[str, Any])
     resp.raise_for_status()
     body = resp.text.replace(f"https://{_HOST}", "https://example.service-now.com")
     result = json.loads(body)["result"]
-    fixture = {"table": table, "params": params, "status": resp.status_code, "result": result}
+    # The request is kept for the reader, minus record ids: a sys_id after
+    # "documentkey=" reads to secret scanners as an API key.
+    shown = {k: re.sub(r"[0-9a-f]{32}", "<sys_id>", str(v)) for k, v in params.items()}
+    fixture = {"table": table, "params": shown, "status": resp.status_code, "result": result}
     (_OUT / f"{name}.json").write_text(json.dumps(fixture, indent=1, sort_keys=True) + "\n")
     return list(result)
 
@@ -76,9 +81,23 @@ def test_record_incident_poll(client: httpx.Client) -> None:
 
 
 def test_record_incident_history(client: httpx.Client) -> None:
-    poll = json.loads((_OUT / "incident_poll.json").read_text())["result"]
-    sys_id = poll[0]["sys_id"]
     flags = {"sysparm_display_value": "false", "sysparm_exclude_reference_link": "true"}
+    # The incident with the most journal entries, so the fixture holds real
+    # work notes and comments (a dev instance's demo data has only a few).
+    resp = client.get(
+        "/api/now/table/sys_journal_field",
+        params={
+            "sysparm_query": "name=incident",
+            "sysparm_fields": "element_id",
+            "sysparm_limit": 1000,
+        },
+    )
+    if resp.status_code == _FORBIDDEN:
+        pytest.skip("sys_journal_field: 403 for the integration user")
+    counts = Counter(r["element_id"] for r in resp.json()["result"])
+    if not counts:
+        pytest.skip("no incident has journal entries: add a few work notes first")
+    sys_id = counts.most_common(1)[0][0]
     _record(
         client,
         "incident_audit",

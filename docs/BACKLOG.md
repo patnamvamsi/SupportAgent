@@ -18,7 +18,6 @@ Known gaps, deferred deliverables and follow-ups found while reviewing the merge
 
 | ID | P | Item | From | Pick up in |
 |---|---|---|---|---|
-| BL-012 | P2 | **Recorded history fixtures.** `make record-sn` now records the incident poll from a developer instance (`tests/data/sn/incident_poll*.json`, replayed by `tests/contract/test_sn_recorded.py`). `incident_audit` / `incident_journal` still need the integration user's read access to `sys_audit` and `sys_journal_field` (quickstart §2) and a few incidents with work notes. | WP-008 | before the exit demo |
 
 ## Wiring, tenancy, housekeeping
 
