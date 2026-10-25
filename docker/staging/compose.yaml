@@ -1,0 +1,78 @@
+# Staging on the LAN host (runbook step 3; 06 §6 exit demo).
+#
+#   cd docker/staging && docker compose --env-file .env up -d --build
+#
+#   SupportAgent  http://192.168.0.201:8800   (API, admin UI, worker; shadow mode)
+#   Keycloak      http://192.168.0.201:8880   (the real OIDC provider, BL-023)
+#   Postgres 16   internal only
+#
+# Secrets come from docker/staging/.env on the host (see staging.env.example); the
+# file is git-ignored and never leaves the host. The app reads the repo's
+# catalog, taxonomy, prompts, runbooks and calibration read-only.
+name: supportagent-staging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: supportagent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: supportagent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportagent -d supportagent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      # The issuer the browser and the app both see (ARCH §6.4 identity).
+      KC_HOSTNAME: http://192.168.0.201:8880
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?set in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
+    ports:
+      - "8880:8080"
+    volumes:
+      - kcdata:/opt/keycloak/data
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    image: supportagent:staging
+    command: ["run", "--host", "0.0.0.0", "--port", "8000", "--config", "docker/staging/supportagent.yaml"]
+    environment:
+      SUPPORTAGENT_DB_URL: postgresql+psycopg://supportagent:${POSTGRES_PASSWORD}@postgres:5432/supportagent
+      SA_MASTER_KEY_ENV: ${SA_MASTER_KEY:?set in .env}   # 03 §3: 64 hex chars
+      SN_USER: ${SN_USER:?set in .env}
+      SN_PASSWORD: ${SN_PASSWORD:?set in .env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-supportagent}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set in .env}
+      SA_SESSION_SECRET: ${SA_SESSION_SECRET:?set in .env}
+      LMSTUDIO_API_KEY: lm-studio
+      PAGERDUTY_TOKEN: ${PAGERDUTY_TOKEN:-staging-no-pagerduty}
+    ports:
+      - "8800:8000"
+    volumes:
+      - ../../catalog:/app/catalog:ro
+      - ../../taxonomy:/app/taxonomy:ro
+      - ../../prompts:/app/prompts:ro
+      - ../../runbooks:/app/runbooks:ro
+      - ../../evals:/app/evals:ro
+      - ../../templates:/app/templates:ro
+      - ./supportagent.yaml:/app/docker/staging/supportagent.yaml:ro
+      - ./catalog.yaml:/app/docker/staging/catalog.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  kcdata:

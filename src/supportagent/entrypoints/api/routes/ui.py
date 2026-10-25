@@ -169,6 +169,13 @@ def stylesheet() -> Response:
     return Response(_CSS, media_type="text/css")
 
 
+@router.get("/")
+@router.get("/ui")
+def ui_home() -> Response:
+    """The approvals queue is the UI's landing page; it sends a signed-out user to login."""
+    return RedirectResponse("/ui/approvals", status_code=303)
+
+
 @router.get("/ui/login")
 def login_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
     return _render(request, ctx, "login.html", None)

@@ -1,0 +1,55 @@
+# Staging catalog (runbook step 3): services built from the CIs on the
+# developer instance dev393479 (ServiceNow demo data). cmdb_ci entries are CI
+# sys_ids, which is what an incident's cmdb_ci carries.
+version: staging-2026-10
+services:
+  - name: email
+    repos: []
+    log_paths: []
+    dags: []
+    cmdb_ci: [b0c4030ac0a800090152e7a4564ca36c]   # MailServerUS
+    resources: [MailServerUS]
+    oncall_schedule: staging-oncall
+    owners: [ada@staging.test]
+    depends_on: []
+    paging_integration: pagerduty:staging
+  - name: sales-force-automation
+    repos: []
+    log_paths: []
+    dags: []
+    cmdb_ci: [a9c0c8d2c6112276018f7705562f9cb0]   # Sales Force Automation
+    resources: [Sales Force Automation]
+    oncall_schedule: staging-oncall
+    owners: [ada@staging.test]
+    depends_on: []
+    paging_integration: pagerduty:staging
+  - name: storage
+    repos: []
+    log_paths: []
+    dags: []
+    cmdb_ci: [109562a3c611227500a7b7ff98cc0dc7]   # Storage Area Network 001
+    resources: [Storage Area Network 001]
+    oncall_schedule: staging-oncall
+    owners: [ada@staging.test]
+    depends_on: []
+    paging_integration: pagerduty:staging
+  - name: database
+    repos: []
+    log_paths: []
+    dags: []
+    cmdb_ci: [14a9e27bc61122750037b90c4d34da38]   # DatabaseServer2
+    resources: [DatabaseServer2]
+    oncall_schedule: staging-oncall
+    owners: [ada@staging.test]
+    depends_on: []
+    paging_integration: pagerduty:staging
+  - name: peoplesoft
+    repos: []
+    log_paths: []
+    dags: []
+    cmdb_ci: [b0cb50c3c0a8000900893e69d3c5885e]   # ApplicationServerPeopleSoft
+    resources: [ApplicationServerPeopleSoft]
+    oncall_schedule: staging-oncall
+    owners: [ada@staging.test]
+    depends_on: []
+    paging_integration: pagerduty:staging
