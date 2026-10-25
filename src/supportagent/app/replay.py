@@ -36,7 +36,8 @@ def _fmt_dedup(payload: Mapping[str, object]) -> str:
 
 
 def _fmt_preclass(payload: Mapping[str, object]) -> str:
-    return f"service={payload.get('service', '?')} confidence={payload.get('confidence', '?')}"
+    # TriageService records the catalog-resolved service (None: unresolved).
+    return f"service={payload.get('service', '?')}"
 
 
 def _fmt_classify(payload: Mapping[str, object]) -> str:
@@ -47,9 +48,19 @@ def _fmt_classify(payload: Mapping[str, object]) -> str:
 
 
 def _fmt_decision(payload: Mapping[str, object]) -> str:
-    proposals = payload.get("proposals")
-    count = len(proposals) if isinstance(proposals, list) else "?"
-    return f"decision={payload.get('decision', '?')} proposals={count}"
+    # Triage decisions carry outcome/reason (ARCH §4); other stages (rca,
+    # retention) name themselves in ``stage``.
+    if "stage" in payload and "outcome" not in payload:
+        return f"stage={payload['stage']}"
+    parts = [
+        f"outcome={payload.get('outcome', '?')}",
+        f"reason={payload.get('reason', '?')}",
+    ]
+    for key in ("stage", "classification", "severity", "route_id"):
+        value = payload.get(key)
+        if value is not None:
+            parts.append(f"{key.removesuffix('_id')}={value}")
+    return " ".join(parts)
 
 
 def _fmt_llm(payload: Mapping[str, object]) -> str:
