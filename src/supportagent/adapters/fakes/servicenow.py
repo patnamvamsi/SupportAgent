@@ -47,6 +47,7 @@ class _Row(TypedDict):
     priority: str | None
     state: str | None
     cmdb_ci: str | None
+    cmdb_ci_name: str | None
     caller_id: str | None
     u_alert_source: str | None
     sys_updated_on: datetime
@@ -92,6 +93,7 @@ class FakeServiceNow:
         priority: str | None = None,
         state: str | None = None,
         cmdb_ci: str | None = None,
+        cmdb_ci_name: str | None = None,
         caller_id: str | None = None,
         u_alert_source: str | None = None,
         sys_updated_on: datetime,
@@ -108,6 +110,7 @@ class FakeServiceNow:
                 "priority": priority,
                 "state": state,
                 "cmdb_ci": cmdb_ci,
+                "cmdb_ci_name": cmdb_ci_name,
                 "caller_id": caller_id,
                 "u_alert_source": u_alert_source,
                 "sys_updated_on": sys_updated_on,
@@ -297,6 +300,7 @@ class FakeServiceNow:
             assigned_to=None,
             assignment_group=None,
             cmdb_ci=row.get("cmdb_ci"),
+            cmdb_ci_name=row.get("cmdb_ci_name"),
             caller_id=row.get("caller_id"),
             u_alert_source=row.get("u_alert_source"),
             sys_updated_on=row["sys_updated_on"],
@@ -403,6 +407,7 @@ class FakeServiceNowHTTP:
         priority: str | None = None,
         state: str | None = None,
         cmdb_ci: str | None = None,
+        cmdb_ci_name: str | None = None,
         caller_id: str | None = None,
         u_alert_source: str | None = None,
         sys_updated_on: datetime | str,
@@ -418,6 +423,7 @@ class FakeServiceNowHTTP:
                 "priority": priority,
                 "state": state,
                 "cmdb_ci": cmdb_ci,
+                "cmdb_ci.name": cmdb_ci_name,
                 "caller_id": caller_id,
                 "u_alert_source": u_alert_source,
                 "sys_updated_on": self._fmt(sys_updated_on),

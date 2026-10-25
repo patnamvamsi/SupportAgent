@@ -1,7 +1,7 @@
 {
  "params": {
   "sysparm_display_value": "false",
-  "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id",
+  "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id",
   "sysparm_limit": "5",
   "sysparm_offset": "0",
   "sysparm_query": "sys_updated_on>=2000-01-01 00:00:00^ORDERBYsys_updated_on^ORDERBYsys_id"
@@ -21,6 +21,7 @@
     "link": "https://example.service-now.com/api/now/table/cmdb_ci/a9c0c8d2c6112276018f7705562f9cb0",
     "value": "a9c0c8d2c6112276018f7705562f9cb0"
    },
+   "cmdb_ci.name": "Sales Force Automation",
    "description": "Pages are taking more time to load than normal.",
    "number": "INC0000048",
    "priority": "4",
@@ -45,6 +46,7 @@
     "value": "681ccaf9c0a8016400b98a06818d57c7"
    },
    "cmdb_ci": "",
+   "cmdb_ci.name": "",
    "description": "I need to organize my inbox in my email program. However I can't create a sub-folder. I didn't seen an option to create a new folder when right clicking.",
    "number": "INC0000017",
    "priority": "1",
@@ -66,6 +68,7 @@
     "value": "681ccaf9c0a8016400b98a06818d57c7"
    },
    "cmdb_ci": "",
+   "cmdb_ci.name": "",
    "description": "I have to analyze all US data in the SFA system, but am unable to get to see the data from the west coast.",
    "number": "INC0000007",
    "priority": "1",
@@ -90,6 +93,7 @@
     "link": "https://example.service-now.com/api/now/table/cmdb_ci/26e44e8a0a0a0bb40095ff953f9ee520",
     "value": "26e44e8a0a0a0bb40095ff953f9ee520"
    },
+   "cmdb_ci.name": "SAP Materials Management",
    "description": "Nothing loads in the application. Is there an outage?",
    "number": "INC0000054",
    "priority": "1",
@@ -108,6 +112,7 @@
     "value": "5137153cc611227c000bbd1bd8cd2006"
    },
    "cmdb_ci": "",
+   "cmdb_ci.name": "",
    "description": "I can access my personal folder but can't access my team's folder on our file share.",
    "number": "INC0000059",
    "priority": "3",

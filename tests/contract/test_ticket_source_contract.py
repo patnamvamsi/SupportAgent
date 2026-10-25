@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.domain.errors import ServiceNowError
 from supportagent.ports.tickets import SnTable
 from tests.builders import T0
@@ -265,3 +266,25 @@ def test_poll_reference_fields_are_plain_sys_ids(sn_env: Any) -> None:
     rec = next(r for r in batch.records if r.sys_id == "rec_ref")
     assert rec.cmdb_ci == "ci-sysid-1"
     assert rec.caller_id == "user-sysid-1"
+
+
+def test_poll_carries_the_ci_name_as_the_alert_resource(sn_env: Any) -> None:
+    """BL-045 / 02 §6: ``resource`` ← ``cmdb_ci.name``, so a catalog lists CI names."""
+    sn_env["seed"](
+        SnTable.INCIDENT,
+        "rec_ci",
+        number="INC300",
+        short_description="mail down",
+        cmdb_ci="ci-sysid-9",
+        cmdb_ci_name="MailServerUS",
+        caller_id="user-1",
+        sys_updated_on=T0,
+        sys_updated_by="u1",
+        sys_mod_count=1,
+    )
+    batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=10)
+    rec = next(r for r in batch.records if r.sys_id == "rec_ci")
+    assert rec.cmdb_ci_name == "MailServerUS"
+    evt = record_to_alert("acme", rec, received_at=T0)
+    assert evt.resource == "MailServerUS"
+    assert evt.cmdb_ci == "ci-sysid-9"
