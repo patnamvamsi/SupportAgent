@@ -29,6 +29,9 @@ CALLS_PER_POLL = 3
 POLL_BUDGET_SHARE = 0.5
 LOW_HEADROOM = 0.2
 MIN_AUDIT_DAYS = 7
+#: BL-030: values per ``fieldIN`` query. A real instance answers 414 (URI too
+#: long) when one query lists every ACL of a role-rich user.
+IN_CHUNK = 50
 
 
 def _forbidden(exc: Exception) -> bool:
@@ -39,12 +42,29 @@ def _in(values: Sequence[str]) -> str:
     return ",".join(sorted(set(values)))
 
 
+def _read_in(  # noqa: PLR0913 — one Table API read, split by its IN list
+    sn: ServiceNowProbe,
+    table: str,
+    field: str,
+    values: Sequence[str],
+    *,
+    fields: Sequence[str],
+    limit: int,
+    extra: str = "",
+) -> list[dict[str, str]]:
+    """``field IN values`` (plus ``extra``), read ``IN_CHUNK`` values at a time (BL-030)."""
+    ordered = sorted(set(values))
+    rows: list[dict[str, str]] = []
+    for start in range(0, len(ordered), IN_CHUNK):
+        query = f"{field}IN{','.join(ordered[start : start + IN_CHUNK])}" + (
+            f"^{extra}" if extra else ""
+        )
+        rows.extend(sn.read(table, query=query, fields=fields, limit=limit).rows)
+    return rows
+
+
 def _role_names(sn: ServiceNowProbe, role_ids: Sequence[str]) -> dict[str, str]:
-    if not role_ids:
-        return {}
-    rows = sn.read(
-        "sys_user_role", query=f"sys_idIN{_in(role_ids)}", fields=["sys_id", "name"], limit=500
-    ).rows
+    rows = _read_in(sn, "sys_user_role", "sys_id", role_ids, fields=["sys_id", "name"], limit=500)
     return {r["sys_id"]: r.get("name", "") for r in rows}
 
 
@@ -88,12 +108,14 @@ class JournalVisibilityCheck:
                     "fail",
                     "no active read ACL protects work_notes: every user can read it",
                 )
-            links = sn.read(
+            links = _read_in(
+                sn,
                 "sys_security_acl_role",
-                query=f"sys_security_aclIN{_in([a['sys_id'] for a in acls])}",
+                "sys_security_acl",
+                [a["sys_id"] for a in acls],
                 fields=["sys_security_acl", "sys_user_role"],
                 limit=500,
-            ).rows
+            )
             names_by_id = _role_names(sn, [link["sys_user_role"] for link in links])
         except ServiceNowError as exc:
             if _forbidden(exc):
@@ -155,7 +177,6 @@ class IntegrationRoleCheck:
                 ).rows
             ]
             roles = _role_names(sn, role_ids)
-            write_acls = self._write_acls(sn, role_ids)
         except ServiceNowError as exc:
             if _forbidden(exc):
                 return CheckResult(
@@ -164,24 +185,47 @@ class IntegrationRoleCheck:
                     "can't read roles or ACLs (403): review the user's roles manually",
                 )
             raise
+        # BL-030: a non-admin integration user usually can't read the ACL
+        # tables; the role findings still stand without them.
+        try:
+            write_acls: list[str] | None = self._write_acls(sn, role_ids)
+        except ServiceNowError as exc:
+            if not _forbidden(exc):
+                raise
+            write_acls = None
         allowed = set(ctx.config.servicenow.tables)
         extra = sorted(
             name
-            for name in write_acls
+            for name in write_acls or []
             if name.split(".", 1)[0] not in allowed and name not in _TASK_JOURNAL_ACLS
         )
         broad = sorted(set(roles.values()) & BROAD_ROLES)
-        if broad or extra:
+        # BL-030: ServiceNow hides elevated roles (security_admin) from a
+        # non-admin reader, so an unnamed role is reported, never dropped.
+        hidden = len(set(role_ids) - set(roles))
+        if broad or extra or hidden or write_acls is None:
             parts = []
             if broad:
                 parts.append("holds " + ", ".join(broad))
+            if hidden:
+                parts.append(
+                    f"{hidden} role(s) it can't read (hidden roles are usually elevated, "
+                    "e.g. security_admin): remove them"
+                )
             if extra:
                 parts.append(f"{len(extra)} write ACL(s) outside {', '.join(sorted(allowed))}")
+            if write_acls is None:
+                parts.append("can't read ACLs (403): review its write access manually")
             return CheckResult(
                 self.name,
                 "warn",
                 f"{user_name}: " + "; ".join(parts),
-                {"broad_roles": broad, "extra_write_acls": extra},
+                {
+                    "broad_roles": broad,
+                    "extra_write_acls": extra,
+                    "acls_readable": write_acls is not None,
+                    "hidden_roles": hidden,
+                },
             )
         return CheckResult(
             self.name,
@@ -192,25 +236,26 @@ class IntegrationRoleCheck:
 
     @staticmethod
     def _write_acls(sn: ServiceNowProbe, role_ids: Sequence[str]) -> list[str]:
-        if not role_ids:
-            return []
         acl_ids = [
             r["sys_security_acl"]
-            for r in sn.read(
+            for r in _read_in(
+                sn,
                 "sys_security_acl_role",
-                query=f"sys_user_roleIN{_in(role_ids)}",
+                "sys_user_role",
+                role_ids,
                 fields=["sys_security_acl"],
                 limit=1000,
-            ).rows
+            )
         ]
-        if not acl_ids:
-            return []
-        rows = sn.read(
+        rows = _read_in(
+            sn,
             "sys_security_acl",
-            query=f"sys_idIN{_in(acl_ids)}^operationINwrite,create,delete^active=true",
+            "sys_id",
+            acl_ids,
             fields=["name"],
             limit=1000,
-        ).rows
+            extra="operationINwrite,create,delete^active=true",
+        )
         return [r["name"] for r in rows]
 
 
@@ -267,6 +312,56 @@ class RateLimitCheck:
         )
 
 
+class HistoryAccessCheck:
+    """BL-030: sync can read the per-change history it needs (``sys_audit``, journal).
+
+    Sync reads ``sys_audit`` and ``sys_journal_field`` for every changed record
+    to spot a human takeover (02 §6 ``history``). ServiceNow restricts both
+    tables by default: a 403 means the poll job fails on the first update,
+    and an empty journal can hide human work notes.
+    """
+
+    name = "servicenow.history_access"
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        sn = ctx.servicenow
+        table = ctx.config.servicenow.tables[0]
+        blocked: list[str] = []
+        journal_rows = 0
+        for history_table, query in (
+            ("sys_audit", f"tablename={table}"),
+            ("sys_journal_field", f"name={table}"),
+        ):
+            try:
+                rows = sn.read(history_table, query=query, fields=["sys_id"], limit=1).rows
+            except ServiceNowError as exc:
+                if _forbidden(exc):
+                    blocked.append(history_table)
+                    continue
+                raise
+            if history_table == "sys_journal_field":
+                journal_rows = len(rows)
+        if blocked:
+            return CheckResult(
+                self.name,
+                "fail",
+                f"the integration user can't read {', '.join(blocked)} (403): sync can't detect "
+                "a human takeover and the poll job fails on the first update; grant it read "
+                "access (a read ACL on each table for a dedicated role)",
+                {"blocked": blocked},
+            )
+        if journal_rows == 0:
+            return CheckResult(
+                self.name,
+                "warn",
+                f"no {table} journal entries readable: if records have work notes or comments, "
+                "a read ACL on sys_journal_field is hiding them from sync",
+            )
+        return CheckResult(
+            self.name, "pass", f"sys_audit and sys_journal_field readable for {table}"
+        )
+
+
 class AuditRetentionCheck:
     """Reports the ``sys_audit`` retention window (warning if < 7 days)."""
 
@@ -307,6 +402,7 @@ class AuditRetentionCheck:
 __all__ = [
     "AuditRetentionCheck",
     "AuthCheck",
+    "HistoryAccessCheck",
     "IntegrationRoleCheck",
     "JournalVisibilityCheck",
     "RateLimitCheck",

@@ -42,6 +42,9 @@ banned-api = {
 "tests/**" = ["S101", "ANN401", "PLR2004"]
 # Local container service: must bind the container interface for compose.
 "docker/fake_sn.py" = ["S104"]
+# BL-012: the ServiceNow recorder takes its instance and credentials from the
+# environment (`make record-sn`); it never runs in the default suites.
+"tests/integration/test_record_sn.py" = ["TID251"]
 
 [lint.isort]
 known-first-party = ["supportagent"]

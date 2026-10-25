@@ -30,6 +30,10 @@ export ANTHROPIC_API_KEY=...
 export PAGERDUTY_TOKEN=...      # paging: attach-only (enrich_page, page lookups); or comment out paging:
 ```
 
+### The ServiceNow integration user
+
+Create a dedicated user (for example `svc_supportagent`) with the `itil` role, and nothing broader: `doctor` warns about `admin`, `security_admin` or any role it can't read. Sync also reads each changed record's history, so the user needs **read access to `sys_audit` and `sys_journal_field`**. ServiceNow restricts both tables by default. Create a role (for example `x_supportagent_history`), add a read ACL for it on each table (`sys_audit` and `sys_journal_field`, both the table and its fields), and grant it to the user. `doctor` fails `servicenow.history_access` until this is done.
+
 ## 3. Database and checks
 
 ```bash

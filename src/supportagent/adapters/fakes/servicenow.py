@@ -305,6 +305,34 @@ class FakeServiceNow:
         )
 
 
+#: BL-030: reference fields a real Table API returns as ``{"link", "value"}``
+#: objects unless the request sends ``sysparm_exclude_reference_link=true``.
+_REFERENCE_FIELDS = frozenset(
+    {
+        "assigned_to",
+        "assignment_group",
+        "caller_id",
+        "cmdb_ci",
+        "role",
+        "sys_security_acl",
+        "sys_user_role",
+        "user",
+    }
+)
+
+
+def _with_reference_links(request: Request, row: Mapping[str, Any]) -> dict[str, Any]:
+    """Render ``row`` as a real instance would for this request (BL-030)."""
+    if request.query_params.get("sysparm_exclude_reference_link") == "true":
+        return dict(row)
+    return {
+        k: {"link": f"https://fake.service-now.com/api/now/table/x/{v}", "value": v}
+        if k in _REFERENCE_FIELDS and isinstance(v, str) and v
+        else v
+        for k, v in row.items()
+    }
+
+
 class FakeServiceNowHTTP:
     """A starlette ASGI app simulating the ServiceNow Table API (WP-008).
 
@@ -470,7 +498,8 @@ class FakeServiceNowHTTP:
             rows = list(self._rows.get(table, {}).values())
             headers = dict(self._headers)
         rows = self._filter(rows, query)[offset : offset + limit]
-        return JSONResponse({"result": rows, "count": len(rows)}, headers=headers)
+        rendered = [_with_reference_links(request, row) for row in rows]
+        return JSONResponse({"result": rendered, "count": len(rows)}, headers=headers)
 
     async def _token(self, request: Request) -> JSONResponse:
         """02 §6 OAuth token: any client-credentials form gets a 30-minute token."""
@@ -493,7 +522,7 @@ class FakeServiceNowHTTP:
         if row is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         if request.method == "GET":
-            return JSONResponse({"result": row})
+            return JSONResponse({"result": _with_reference_links(request, row)})
         body = await request.json()
         if not isinstance(body, dict) or not all(isinstance(v, str) for v in body.values()):
             # A real instance rejects non-string field values (e.g. a journal array).
@@ -513,6 +542,9 @@ class FakeServiceNowHTTP:
         fault = self._fault_response()
         if fault is not None:
             return fault
+        with self._lock:
+            if "sys_audit" in self._forbidden:
+                return JSONResponse({"error": {"message": "forbidden"}}, status_code=403)
         query = request.query_params.get("sysparm_query", "")
         limit = int(request.query_params.get("sysparm_limit", "1000"))
         with self._lock:
@@ -524,6 +556,9 @@ class FakeServiceNowHTTP:
         fault = self._fault_response()
         if fault is not None:
             return fault
+        with self._lock:
+            if "sys_journal_field" in self._forbidden:
+                return JSONResponse({"error": {"message": "forbidden"}}, status_code=403)
         query = request.query_params.get("sysparm_query", "")
         limit = int(request.query_params.get("sysparm_limit", "1000"))
         with self._lock:

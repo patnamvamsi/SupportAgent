@@ -1,0 +1,124 @@
+{
+ "params": {
+  "sysparm_display_value": "false",
+  "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id",
+  "sysparm_limit": 5,
+  "sysparm_offset": 0,
+  "sysparm_query": "sys_updated_on>=2000-01-01 00:00:00^ORDERBYsys_updated_on^ORDERBYsys_id"
+ },
+ "result": [
+  {
+   "assigned_to": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/681b365ec0a80164000fb0b05854a0cd",
+    "value": "681b365ec0a80164000fb0b05854a0cd"
+   },
+   "assignment_group": "",
+   "caller_id": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/46d96f57a9fe198101947a9620895886",
+    "value": "46d96f57a9fe198101947a9620895886"
+   },
+   "cmdb_ci": {
+    "link": "https://example.service-now.com/api/now/table/cmdb_ci/a9c0c8d2c6112276018f7705562f9cb0",
+    "value": "a9c0c8d2c6112276018f7705562f9cb0"
+   },
+   "description": "Pages are taking more time to load than normal.",
+   "number": "INC0000048",
+   "priority": "4",
+   "short_description": "Having problems with Sales Tools performance",
+   "state": "3",
+   "sys_id": "a9e428cac61122760075710592216c58",
+   "sys_mod_count": "12",
+   "sys_updated_by": "admin",
+   "sys_updated_on": "2015-11-24 15:46:20"
+  },
+  {
+   "assigned_to": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/5137153cc611227c000bbd1bd8cd2005",
+    "value": "5137153cc611227c000bbd1bd8cd2005"
+   },
+   "assignment_group": {
+    "link": "https://example.service-now.com/api/now/table/sys_user_group/d625dccec0a8016700a222a0f7900d06",
+    "value": "d625dccec0a8016700a222a0f7900d06"
+   },
+   "caller_id": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/681ccaf9c0a8016400b98a06818d57c7",
+    "value": "681ccaf9c0a8016400b98a06818d57c7"
+   },
+   "cmdb_ci": "",
+   "description": "I need to organize my inbox in my email program. However I can't create a sub-folder. I didn't seen an option to create a new folder when right clicking.",
+   "number": "INC0000017",
+   "priority": "1",
+   "short_description": "How do I create a sub-folder",
+   "state": "3",
+   "sys_id": "46e482d9a9fe198101d3e3f3e2a14459",
+   "sys_mod_count": "36",
+   "sys_updated_by": "admin",
+   "sys_updated_on": "2015-11-24 15:47:36"
+  },
+  {
+   "assigned_to": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/5137153cc611227c000bbd1bd8cd2007",
+    "value": "5137153cc611227c000bbd1bd8cd2007"
+   },
+   "assignment_group": "",
+   "caller_id": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/681ccaf9c0a8016400b98a06818d57c7",
+    "value": "681ccaf9c0a8016400b98a06818d57c7"
+   },
+   "cmdb_ci": "",
+   "description": "I have to analyze all US data in the SFA system, but am unable to get to see the data from the west coast.",
+   "number": "INC0000007",
+   "priority": "1",
+   "short_description": "Need access to sales DB for the West",
+   "state": "3",
+   "sys_id": "8d6353eac0a8016400d8a125ca14fc1f",
+   "sys_mod_count": "50",
+   "sys_updated_by": "admin",
+   "sys_updated_on": "2015-11-24 15:47:36"
+  },
+  {
+   "assigned_to": "",
+   "assignment_group": {
+    "link": "https://example.service-now.com/api/now/table/sys_user_group/d625dccec0a8016700a222a0f7900d06",
+    "value": "d625dccec0a8016700a222a0f7900d06"
+   },
+   "caller_id": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/97000fcc0a0a0a6e0104ca999f619e5b",
+    "value": "97000fcc0a0a0a6e0104ca999f619e5b"
+   },
+   "cmdb_ci": {
+    "link": "https://example.service-now.com/api/now/table/cmdb_ci/26e44e8a0a0a0bb40095ff953f9ee520",
+    "value": "26e44e8a0a0a0bb40095ff953f9ee520"
+   },
+   "description": "Nothing loads in the application. Is there an outage?",
+   "number": "INC0000054",
+   "priority": "1",
+   "short_description": "SAP Materials Management is slow or there is an outage",
+   "state": "3",
+   "sys_id": "d71da88ac0a801670061eabfe4b28f77",
+   "sys_mod_count": "95",
+   "sys_updated_by": "admin",
+   "sys_updated_on": "2015-11-24 15:47:36"
+  },
+  {
+   "assigned_to": "",
+   "assignment_group": "",
+   "caller_id": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/5137153cc611227c000bbd1bd8cd2006",
+    "value": "5137153cc611227c000bbd1bd8cd2006"
+   },
+   "cmdb_ci": "",
+   "description": "I can access my personal folder but can't access my team's folder on our file share.",
+   "number": "INC0000059",
+   "priority": "3",
+   "short_description": "Unable to access team file share",
+   "state": "1",
+   "sys_id": "85071a1347c12200e0ef563dbb9a71c1",
+   "sys_mod_count": "0",
+   "sys_updated_by": "admin",
+   "sys_updated_on": "2016-08-10 16:14:29"
+  }
+ ],
+ "status": 200,
+ "table": "incident"
+}

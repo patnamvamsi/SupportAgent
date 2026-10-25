@@ -31,7 +31,13 @@ DEFAULT_FIELD_MAP: Mapping[str, str] = {
 
 
 def _opt_str(value: Any) -> str | None:  # noqa: ANN401
-    """A ServiceNow display/ID value: ``None`` for null/empty, else ``str``."""
+    """A ServiceNow display/ID value: ``None`` for null/empty, else ``str``.
+
+    BL-030: a reference field the instance rendered as ``{"link", "value"}``
+    (a request without ``sysparm_exclude_reference_link``) yields its ``value``.
+    """
+    if isinstance(value, Mapping):
+        value = value.get("value")
     if value is None:
         return None
     text = str(value).strip()

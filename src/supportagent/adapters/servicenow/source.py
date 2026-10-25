@@ -54,6 +54,7 @@ class ServiceNowSource:
                 "sysparm_offset": offset,
                 "sysparm_fields": POLL_FIELDS,
                 "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
             },
         )
         rows = self._results(resp)
@@ -86,6 +87,7 @@ class ServiceNowSource:
                 "sysparm_query": query,
                 "sysparm_fields": AUDIT_FIELDS,
                 "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
             },
         )
         return [audit_row_to_change(row) for row in self._results(resp)]
@@ -102,6 +104,7 @@ class ServiceNowSource:
                 "sysparm_query": query,
                 "sysparm_fields": JOURNAL_FIELDS,
                 "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
             },
         )
         return [journal_row_to_change(row) for row in self._results(resp)]

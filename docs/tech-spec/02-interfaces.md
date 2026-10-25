@@ -178,6 +178,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | servicenow.journal_visibility | v0.0 | `work_notes` not exposed to the caller role (checks `sys_dictionary` / ACL read for `snc_external`/ess roles) |
 | servicenow.integration_role | v0.0 | Integration user's roles contain no write ACLs beyond the configured tables and fields (warning) |
 | servicenow.rate_limit | v0.0 | Headroom measured from response headers; recommends `poll_interval_s` |
+| servicenow.history_access | v0.1 | The integration user can read `sys_audit` and `sys_journal_field` for the first configured table (fail on 403: sync can't detect a takeover; warning when no journal entry is readable). Added by BL-030 |
 | servicenow.audit_retention | v0.0 | Reports the `sys_audit` retention window (warning if < 7 days) |
 | automation_actors | v0.0 | `--discover-automation` lists `sys_user` records that set `assigned_to` in the last 30 days and are flagged as non-interactive. An admin must confirm them before `mode: assisted` |
 | paging | v0.0 | Every catalog service has `paging_integration`; triage is refused for services without one |

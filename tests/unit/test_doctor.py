@@ -8,6 +8,7 @@ ServiceNow is FakeServiceNowHTTP behind the real read-only Table API probe.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from typing import Any
 
@@ -25,12 +26,13 @@ from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PagingChe
 from supportagent.app.doctor.checks.servicenow import (
     AuditRetentionCheck,
     AuthCheck,
+    HistoryAccessCheck,
     IntegrationRoleCheck,
     JournalVisibilityCheck,
     RateLimitCheck,
 )
 from supportagent.config.schema import AppConfig
-from supportagent.domain.errors import ConfigError, LLMUnavailable
+from supportagent.domain.errors import ConfigError, LLMUnavailable, ServiceNowError
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.triage import SafeDefaulted
@@ -268,6 +270,98 @@ def test_doctor_servicenow_integration_role_fail(clock: Any) -> None:
     sn = FakeServiceNowHTTP()  # no sys_user for the integration user
     res = IntegrationRoleCheck().run(_ctx(sn, clock=clock))
     assert res.status == "fail" and "not found" in res.detail
+
+
+def test_doctor_servicenow_integration_role_reports_broad_roles_without_acls(clock: Any) -> None:
+    """BL-030: a dev instance's itil user can read its roles but not the ACL tables."""
+    sn = _sn()
+    sn.seed_row("sys_user_role", {"sys_id": "r-secadmin", "name": "security_admin"})
+    sn.seed_row(
+        "sys_user_has_role",
+        {"sys_id": "uhr-9", "user": "u-svc", "role": "r-secadmin", "state": "active"},
+    )
+    sn.forbid("sys_security_acl_role")
+    res = IntegrationRoleCheck().run(_ctx(sn, clock=clock))
+    assert res.status == "warn"
+    assert res.data["broad_roles"] == ["security_admin"]
+    assert res.data["acls_readable"] is False
+    assert "can't read ACLs" in res.detail
+
+
+def test_doctor_servicenow_integration_role_reports_hidden_roles(clock: Any) -> None:
+    """BL-030: a role the user holds but can't read (elevated) is reported."""
+    sn = _sn()
+    sn.seed_row(
+        "sys_user_has_role",
+        {"sys_id": "uhr-h", "user": "u-svc", "role": "r-unreadable", "state": "active"},
+    )
+    res = IntegrationRoleCheck().run(_ctx(sn, clock=clock))
+    assert res.status == "warn"
+    assert res.data["hidden_roles"] == 1
+
+
+def test_doctor_servicenow_history_access_pass(clock: Any) -> None:
+    res = HistoryAccessCheck().run(_ctx(clock=clock))
+    assert res.status == "pass", res.detail
+
+
+@pytest.mark.parametrize("table", ["sys_audit", "sys_journal_field"])
+def test_doctor_servicenow_history_access_fails_on_403(clock: Any, table: str) -> None:
+    """BL-030: a dev instance's itil user gets 403 on sys_audit; sync would stall."""
+    sn = _sn()
+    sn.forbid(table)
+    res = IntegrationRoleCheck().run(_ctx(sn, clock=clock))  # unaffected
+    assert res.status == "pass", res.detail
+    res = HistoryAccessCheck().run(_ctx(sn, clock=clock))
+    assert res.status == "fail"
+    assert res.data["blocked"] == [table]
+
+
+def test_doctor_servicenow_history_access_warns_on_empty_journal(clock: Any) -> None:
+    sn = _sn()
+    sn._journal.clear()  # a dev instance's itil user reads the journal as empty
+    res = HistoryAccessCheck().run(_ctx(sn, clock=clock))
+    assert res.status == "warn"
+    assert "sys_journal_field" in res.detail
+
+
+class _ShortURIs:
+    """BL-030: a probe that answers 414 like a real instance when a query runs long."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.longest = 0
+
+    def read(self, table: str, *, query: str, fields: Any, limit: int) -> Any:
+        self.longest = max(self.longest, len(query))
+        if len(query) > 4000:
+            raise ServiceNowError(f"GET /api/now/table/{table} -> 414", status=414)  # noqa: TRY003
+        return self._inner.read(table, query=query, fields=fields, limit=limit)
+
+
+def test_doctor_servicenow_integration_role_chunks_long_in_queries(clock: Any) -> None:
+    """BL-030: a role-rich user (dev instance: 51 roles, many ACLs) no longer hits 414."""
+    sn = _sn()
+    for i in range(120):
+        role, acl = f"r-many-{i:03d}", f"acl-m{i:03d}"
+        sn.seed_row("sys_user_role", {"sys_id": role, "name": f"role_{i}"})
+        has_role = {"sys_id": f"uhr-m{i:03d}", "user": "u-svc", "role": role, "state": "active"}
+        sn.seed_row("sys_user_has_role", has_role)
+        write_acl = {
+            "sys_id": acl,
+            "name": f"incident.f{i}",
+            "operation": "write",
+            "active": "true",
+        }
+        sn.seed_row("sys_security_acl", write_acl)
+        link = {"sys_id": f"ar-m{i:03d}", "sys_security_acl": acl, "sys_user_role": role}
+        sn.seed_row("sys_security_acl_role", link)
+    ctx = _ctx(sn, clock=clock)
+    probe = _ShortURIs(ctx.servicenow)
+    res = IntegrationRoleCheck().run(dataclasses.replace(ctx, servicenow=probe))
+    assert res.status == "pass", res.detail
+    assert "role_119" in res.detail
+    assert 0 < probe.longest <= 4000
 
 
 # --- servicenow.rate_limit ---------------------------------------------------
