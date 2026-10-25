@@ -12,7 +12,7 @@
 
 **The LLM decides *content*; code decides *control*.**
 
-The LLM fills typed slots (classification label, severity, summary, hypothesis *evidence judgment*). Code owns routing, tiers, budgets, approval, idempotency, and which evidence is admissible.
+The LLM fills typed slots (classification label, severity, summary, hypothesis *evidence judgment*). Severity routes from the source record's priority when it has one; the LLM's severity is the fallback (ADR-0009). Code owns routing, tiers, budgets, approval, idempotency, and which evidence is admissible.
 
 **Scope of the claim:** the LLM *does* pick the classification label and severity — both are inputs to routing. So the pathway is *indirectly* LLM-influenced. We do **not** claim "a bad prompt can never move the pathway." What we *do* claim, and enforce:
 
@@ -111,10 +111,10 @@ def triage(evt: AlertEvent) -> Case:
         return safe_default(case, reason="classifier-conflict")      # §4.2
     if calibrated_score(llmres, label) < cfg.min_score:              # (prov.) — fail-closed
         return safe_default(case, reason="low-calibrated-score")
-    severity = llmres.severity
+    severity = severity_strategy.resolve(evt, llmres.severity)       # ADR-0009: source priority, else LLM
     if label is None and severity in ("P1", "P2"):                   # no cross-check: severity cap
         trace.decision("route", "severity_cap",
-                       why=f"llm={severity} without preclass agreement → human confirm")
+                       why=f"{severity} without preclass agreement → human confirm")
         return safe_default(case, reason="unconfirmed-high-severity",
                             suggestion=llmres)                       # human sees the LLM's suggestion
 

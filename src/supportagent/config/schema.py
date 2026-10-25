@@ -379,6 +379,17 @@ class Rca(DomainModel):
         return value
 
 
+class SeverityConfig(DomainModel):
+    """ADR-0009: how a case's severity is decided.
+
+    ``source_priority``: the source record's priority (ServiceNow ``priority``),
+    the LLM's severity only when the record has none. A future severity
+    calculator lands as a new strategy value.
+    """
+
+    strategy: Literal["source_priority"] = "source_priority"
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -407,6 +418,8 @@ class AppConfig(DomainModel):
     rca: Rca = Field(default_factory=Rca)
     #: v0.1 (WP-112): paging providers for enrich_page and page lookups.
     paging: Paging = Field(default_factory=Paging)
+    #: ADR-0009: where severity comes from.
+    severity: SeverityConfig = Field(default_factory=SeverityConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

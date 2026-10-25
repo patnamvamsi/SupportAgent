@@ -42,6 +42,7 @@ from supportagent.domain.model.external import ExternalRef
 from supportagent.domain.model.preclass import PreclassRule, RuleSet
 from supportagent.domain.model.triage import SafeDefaulted, Triaged
 from supportagent.domain.routing import Route
+from supportagent.domain.severity import Severity
 from supportagent.ports.paging import PageRef, PagingIntegration
 from supportagent.ports.tickets import SnTable
 from tests.unit.api_support import ADA, TENANT, catalog, login, make_client, seed_proposal
@@ -245,7 +246,8 @@ def _triage(  # noqa: PLR0913, PLR0917 — the fixtures plus the paging seam
         rules=[PreclassRule(when={"subject": "Payment"}, label="payments/api")]
     )
     w.triage._paging = paging
-    return w, lambda: w.triage.handle(_evt())
+    # ADR-0009: the case's severity is the source priority, so it matches the LLM's here.
+    return w, lambda: w.triage.handle(_evt(severity_hint=Severity(severity)))
 
 
 def _page_events(db: Any) -> int:

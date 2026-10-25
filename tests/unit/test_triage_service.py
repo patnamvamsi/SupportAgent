@@ -63,7 +63,7 @@ from supportagent.domain.model.triage import (
     SafeDefaulted,
     Triaged,
 )
-from supportagent.domain.preclass import RuleSet
+from supportagent.domain.preclass import PreclassRule, RuleSet
 from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.severity import Severity
@@ -300,7 +300,12 @@ def test_retriage_reroutes_and_supersedes_open_proposals(  # noqa: PLR0913, PLR0
     assert isinstance(first, Triaged)
     old = [p.id for p in first.proposals]
     assert old
-    fake_llm.respond(_llm_json(severity="P4"))  # still routed (P1/P2 would be capped)
+    # ADR-0009: the escalation's P1 comes from the source priority; an agreeing
+    # pre-classifier label confirms it, so the re-triage routes (not capped).
+    w.triage._classifier.rule_set = RuleSet(  # type: ignore[attr-defined]
+        rules=[PreclassRule(when={"subject": "Payment"}, label=_LABEL)]
+    )
+    fake_llm.respond(_llm_json(severity="P4"))
     second = w.triage.handle(_evt(severity_hint=Severity.P1))
     assert isinstance(second, Retriaged)
     assert second.superseded == old

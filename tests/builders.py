@@ -204,7 +204,7 @@ def an_alert(**overrides: object) -> dict[str, Any]:
         "resource": "payments-api",
         "alert_type": "error_rate",
         "error_signature": "5xx:/v1/payments",
-        "severity_hint": Severity.P1,
+        "severity_hint": Severity.P3,
         "cmdb_ci": None,
         "raw_ref": "alerts.payload_ref:acme:INC0000001",
     }
