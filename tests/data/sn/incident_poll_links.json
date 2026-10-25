@@ -2,8 +2,8 @@
  "params": {
   "sysparm_display_value": "false",
   "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id",
-  "sysparm_limit": 5,
-  "sysparm_offset": 0,
+  "sysparm_limit": "5",
+  "sysparm_offset": "0",
   "sysparm_query": "sys_updated_on>=2000-01-01 00:00:00^ORDERBYsys_updated_on^ORDERBYsys_id"
  },
  "result": [

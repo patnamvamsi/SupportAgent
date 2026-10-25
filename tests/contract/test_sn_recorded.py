@@ -33,9 +33,11 @@ def _fixture(name: str) -> dict[str, Any]:
     return data
 
 
-def _source(fixture: dict[str, Any]) -> ServiceNowSource:
+def _source(fixture: dict[str, Any], **by_table: dict[str, Any]) -> ServiceNowSource:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"result": fixture["result"]})
+        table = request.url.path.rsplit("/", 1)[-1]
+        chosen = by_table.get(table, fixture)
+        return httpx.Response(200, json={"result": chosen["result"]})
 
     http = ServiceNowHTTP(
         http=build_client(
@@ -65,3 +67,16 @@ def test_recorded_reference_objects_unwrap_to_sys_ids() -> None:
     for row in linked:
         rec = row_to_record("incident", row)
         assert rec.cmdb_ci == row["cmdb_ci"]["value"]
+
+
+def test_recorded_history_merges_audit_and_journal_in_time_order() -> None:
+    """02 §6 ``history`` over a real incident's audit trail, work notes and comments."""
+    audit, journal = _fixture("incident_audit"), _fixture("incident_journal")
+    source = _source(audit, sys_audit=audit, sys_journal_field=journal)
+    changes = source.history(SnTable.INCIDENT, "0" * 32, after_mod_count=0)
+    assert len(changes) == len(audit["result"]) + len(journal["result"])
+    assert [c.ts for c in changes] == sorted(c.ts for c in changes)
+    notes = [c for c in changes if c.source == "journal"]
+    assert {c.fieldname for c in notes} >= {"work_notes", "comments"}
+    assert all(c.entry_id and _SYS_ID.match(c.entry_id) for c in notes)
+    assert all(c.user and c.user != "unknown" for c in changes)

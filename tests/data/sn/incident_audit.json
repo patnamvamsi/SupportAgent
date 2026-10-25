@@ -1,0 +1,484 @@
+{
+ "params": {
+  "sysparm_display_value": "false",
+  "sysparm_exclude_reference_link": "true",
+  "sysparm_fields": "fieldname,oldvalue,newvalue,user,sys_created_on,record_checkpoint",
+  "sysparm_query": "tablename=incident^documentkey=<sys_id>"
+ },
+ "result": [
+  {
+   "fieldname": "assigned_to",
+   "newvalue": "46d44a23a9fe19810012d100cca80666",
+   "oldvalue": "",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "2",
+   "oldvalue": "1",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "subcategory",
+   "newvalue": "email",
+   "oldvalue": "",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Joe, \nMy name is Beth and I'll be assisting you with your issue.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "business_service",
+   "newvalue": "27d32778c0a8000b00db970eeaa60f16",
+   "oldvalue": "",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "assignment_group",
+   "newvalue": "d625dccec0a8016700a222a0f7900d06",
+   "oldvalue": "",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "2",
+   "oldvalue": "1",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "reassignment_count",
+   "newvalue": "1",
+   "oldvalue": "0",
+   "record_checkpoint": "1",
+   "sys_created_on": "2016-12-12 16:30:49",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "work_notes",
+   "newvalue": "Updating incident with correct Configuration item",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "2",
+   "sys_created_on": "2016-12-12 17:01:24",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "cmdb_ci",
+   "newvalue": "109562a3c611227500a7b7ff98cc0dc7",
+   "oldvalue": "",
+   "record_checkpoint": "2",
+   "sys_created_on": "2016-12-12 17:01:24",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "impact",
+   "newvalue": "1",
+   "oldvalue": "2",
+   "record_checkpoint": "3",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "activity_due",
+   "newvalue": "2016-12-12 19:57:00",
+   "oldvalue": "",
+   "record_checkpoint": "3",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "priority",
+   "newvalue": "1",
+   "oldvalue": "3",
+   "record_checkpoint": "3",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "work_notes",
+   "newvalue": "Increasing priority as this incident is affecting more number of users",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "3",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "urgency",
+   "newvalue": "1",
+   "oldvalue": "2",
+   "record_checkpoint": "3",
+   "sys_created_on": "2016-12-12 17:57:00",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "activity_due",
+   "newvalue": "2016-12-12 20:52:42",
+   "oldvalue": "2016-12-12 19:57:00",
+   "record_checkpoint": "4",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "hold_reason",
+   "newvalue": "1",
+   "oldvalue": "",
+   "record_checkpoint": "4",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Joe, \nAre you connected to the VPN when you're having this issue? Can you identify a specific time you were unable to connect to email?",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "4",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "3",
+   "oldvalue": "2",
+   "record_checkpoint": "4",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "3",
+   "oldvalue": "2",
+   "record_checkpoint": "4",
+   "sys_created_on": "2016-12-12 18:52:42",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "activity_due",
+   "newvalue": "2016-12-12 22:43:50",
+   "oldvalue": "2016-12-12 20:52:42",
+   "record_checkpoint": "5",
+   "sys_created_on": "2016-12-12 20:43:50",
+   "user": "employee"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Beth,\nYes, I'm connected to the VPN, although I've had to reconnect to it a couple of times. The last time I was unable to connect was 2:30PM.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "5",
+   "sys_created_on": "2016-12-12 20:43:50",
+   "user": "employee"
+  },
+  {
+   "fieldname": "activity_due",
+   "newvalue": "2016-12-12 23:26:36",
+   "oldvalue": "2016-12-12 22:43:50",
+   "record_checkpoint": "6",
+   "sys_created_on": "2016-12-12 21:26:36",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "hold_reason",
+   "newvalue": "",
+   "oldvalue": "1",
+   "record_checkpoint": "6",
+   "sys_created_on": "2016-12-12 21:26:36",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "2",
+   "oldvalue": "3",
+   "record_checkpoint": "6",
+   "sys_created_on": "2016-12-12 21:26:36",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "2",
+   "oldvalue": "3",
+   "record_checkpoint": "6",
+   "sys_created_on": "2016-12-12 21:26:36",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "priority",
+   "newvalue": "3",
+   "oldvalue": "1",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "reassignment_count",
+   "newvalue": "2",
+   "oldvalue": "1",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "work_notes",
+   "newvalue": "Updating priority as workaround for incident has been provided.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "assigned_to",
+   "newvalue": "5137153cc611227c000bbd1bd8cd2007",
+   "oldvalue": "46d44a23a9fe19810012d100cca80666",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "assignment_group",
+   "newvalue": "287ebd7da9fe198100f92cc8d1d2154e",
+   "oldvalue": "d625dccec0a8016700a222a0f7900d06",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Joe, \nAs per discussion on call, Workaround has been provided and it has worked for you. I have verified with the Exchange team we haven't had an issue with the email server today. I'm going to assign this issue to the network team for further investigation.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "impact",
+   "newvalue": "2",
+   "oldvalue": "1",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "urgency",
+   "newvalue": "2",
+   "oldvalue": "1",
+   "record_checkpoint": "8",
+   "sys_created_on": "2016-12-13 00:56:57",
+   "user": "beth.anglin"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "3",
+   "oldvalue": "2",
+   "record_checkpoint": "9",
+   "sys_created_on": "2016-12-13 14:43:17",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "3",
+   "oldvalue": "2",
+   "record_checkpoint": "9",
+   "sys_created_on": "2016-12-13 14:43:17",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Joe,\nMy name is David.\u00a0I'll be assisting you with this incident. Can you confirm which VPN you have been using today?\u00a0I also see you were having this issue at 2:30PM. Were there any other times you can recall you had issues connecting to the email?",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "9",
+   "sys_created_on": "2016-12-13 14:43:17",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "hold_reason",
+   "newvalue": "1",
+   "oldvalue": "",
+   "record_checkpoint": "9",
+   "sys_created_on": "2016-12-13 14:43:17",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi David,\nThank you! I use the corporate VPN and was also unable to connect to the email server at 9:30AM and 10:45AM.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "10",
+   "sys_created_on": "2016-12-13 15:53:01",
+   "user": "employee"
+  },
+  {
+   "fieldname": "hold_reason",
+   "newvalue": "",
+   "oldvalue": "1",
+   "record_checkpoint": "11",
+   "sys_created_on": "2016-12-13 16:12:36",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "2",
+   "oldvalue": "3",
+   "record_checkpoint": "11",
+   "sys_created_on": "2016-12-13 16:12:36",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "2",
+   "oldvalue": "3",
+   "record_checkpoint": "11",
+   "sys_created_on": "2016-12-13 16:12:36",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi Joe,\nI've checked in network logs and you were timed out from the VPN at 9:25AM, 10:42AM and 2:28PM. These three times coincide with entries in the exchange server logs showing you lost connection at those same times. The VPN policy is to time out a connection if it hasn't been active in 30 minutes. Please ensure the next time you lose connectivity you are still\u00a0connected to the VPN.\n\nI'm going to update this incident to resolved. Please let me know if you need any more assistance.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "12",
+   "sys_created_on": "2016-12-13 18:42:25",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "comments",
+   "newvalue": "Hi David, \nThat must be it. I was on phone calls at all three of those times and must not have had any activity on my computer. Please close this incident.",
+   "oldvalue": "JOURNAL FIELD ADDITION",
+   "record_checkpoint": "13",
+   "sys_created_on": "2016-12-13 20:30:14",
+   "user": "employee"
+  },
+  {
+   "fieldname": "calendar_duration",
+   "newvalue": "1970-01-02 04:23:17",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "business_duration",
+   "newvalue": "1970-01-01 08:00:00",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "close_notes",
+   "newvalue": "This incident is resolved.",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "resolved_by",
+   "newvalue": "5137153cc611227c000bbd1bd8cd2007",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "resolved_at",
+   "newvalue": "2016-12-13 21:43:14",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "6",
+   "oldvalue": "2",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "6",
+   "oldvalue": "2",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "close_code",
+   "newvalue": "Solved (Permanently)",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "calendar_stc",
+   "newvalue": "102197",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "business_stc",
+   "newvalue": "28800",
+   "oldvalue": "",
+   "record_checkpoint": "14",
+   "sys_created_on": "2016-12-13 21:43:14",
+   "user": "david.loo"
+  },
+  {
+   "fieldname": "active",
+   "newvalue": "0",
+   "oldvalue": "1",
+   "record_checkpoint": "15",
+   "sys_created_on": "2016-12-14 02:46:44",
+   "user": "employee"
+  },
+  {
+   "fieldname": "closed_by",
+   "newvalue": "681ccaf9c0a8016400b98a06818d57c7",
+   "oldvalue": "",
+   "record_checkpoint": "15",
+   "sys_created_on": "2016-12-14 02:46:44",
+   "user": "employee"
+  },
+  {
+   "fieldname": "incident_state",
+   "newvalue": "7",
+   "oldvalue": "6",
+   "record_checkpoint": "15",
+   "sys_created_on": "2016-12-14 02:46:44",
+   "user": "employee"
+  },
+  {
+   "fieldname": "state",
+   "newvalue": "7",
+   "oldvalue": "6",
+   "record_checkpoint": "15",
+   "sys_created_on": "2016-12-14 02:46:44",
+   "user": "employee"
+  },
+  {
+   "fieldname": "closed_at",
+   "newvalue": "2016-12-14 02:46:44",
+   "oldvalue": "",
+   "record_checkpoint": "15",
+   "sys_created_on": "2016-12-14 02:46:44",
+   "user": "employee"
+  }
+ ],
+ "status": 200,
+ "table": "sys_audit"
+}
