@@ -159,6 +159,7 @@ from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
+from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
@@ -469,7 +470,15 @@ def _build_classifier(
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
         taxonomy_labels=_taxonomy_labels(config),
+        severity=_severity_strategy(config),
     )
+
+
+def _severity_strategy(config: AppConfig) -> SeverityStrategy:
+    """ADR-0009: the configured severity strategy (``source_priority`` for now)."""
+    if config.severity.strategy == "source_priority":
+        return SourcePrioritySeverity()
+    raise ConfigError(f"unknown severity strategy: {config.severity.strategy}")  # noqa: TRY003
 
 
 def _taxonomy_labels(config: AppConfig) -> str:
@@ -1375,6 +1384,7 @@ class EvalPipeline:
                 min_score=config.calibration.min_score,
                 routing=_build_routing(config),
                 taxonomy_labels=_taxonomy_labels(config),
+                severity=_severity_strategy(config),
             ),
             catalog=_build_catalog(config),
             repo=ShadowRepo(uow),
@@ -1465,6 +1475,7 @@ class QualityPipeline:
             min_score=config.calibration.min_score,
             routing=_build_routing(config),
             taxonomy_labels=_taxonomy_labels(config),
+            severity=_severity_strategy(config),
         )
 
     @property

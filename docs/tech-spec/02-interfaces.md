@@ -229,7 +229,7 @@ Rules:
 | Find marker | `GET /api/now/table/sys_journal_field?sysparm_query=element_id={sys_id}^valueLIKE[sa:{key}]&sysparm_limit=1` |
 | OAuth token | `POST /oauth_token.do` form `grant_type=client_credentials&client_id&client_secret` (cached until `expires_in − 60s`) |
 
-Mapping to `AlertEvent`: `incident` records with a caller and no `u_alert_source` give `origin="ticket"`. Records created by Event Management (`em_alert`), or with the configured alert-source field, give `origin="alert"`. The field names are configurable in `servicenow.field_map`, with these defaults: `resource` ← `cmdb_ci.name`, `severity_hint` ← priority 1–4 → P1–P4, `subject` ← `short_description`, `body` ← `description`.
+Mapping to `AlertEvent`: `incident` records with a caller and no `u_alert_source` give `origin="ticket"`. Records created by Event Management (`em_alert`), or with the configured alert-source field, give `origin="alert"`. The field names are configurable in `servicenow.field_map`, with these defaults: `resource` ← `cmdb_ci.name`, `severity_hint` ← priority 1–4 → P1–P4 and 5 → P4 (this is the severity a case routes on, ADR-0009), `subject` ← `short_description`, `body` ← `description`.
 
 HTTP behaviour: timeouts 10 s connect / 30 s read. A `429` is retryable with `Retry-After`; a `5xx` is retryable with exponential backoff (0.5 s × 2ⁿ, jitter ±20%, max 5 tries). Any other `4xx` is non-retryable (`ServiceNowError(retryable=False)`).
 

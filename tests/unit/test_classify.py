@@ -24,7 +24,7 @@ from supportagent.domain.model.case import Case
 from supportagent.domain.model.triage import TriageResult
 from supportagent.domain.preclass import PreclassRule, RuleSet
 from supportagent.domain.routing import Route, RoutingRule, RoutingTable
-from supportagent.domain.severity import Severity
+from supportagent.domain.severity import Severity, SeverityOrigin
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
 from tests.builders import an_alert
@@ -150,9 +150,10 @@ def test_decide_llm_only_p1_capped_with_suggestion() -> None:
     # (unconfirmed high severity) carrying the LLM result as a suggestion.
     llm = TriageResult(classification=_LABEL, severity=Severity.P1, summary="s", confidence=0.9)
     table = _table(_LABEL, _STRONG, _STRONG)
-    d = _classifier(llm_result=llm, table=table).decide(_evt(), _case(), TRACE)
+    d = _classifier(llm_result=llm, table=table).decide(_evt(severity_hint=None), _case(), TRACE)
     assert d.outcome == "safe_default"
     assert d.reason == "unconfirmed-high-severity"
+    assert d.severity_origin == "llm"
     assert d.llm_suggestion is not None
     assert d.llm_suggestion.classification == _LABEL
     assert d.llm_suggestion.severity == Severity.P1
@@ -178,3 +179,44 @@ def test_decide_unresolved_service_safe_default() -> None:
     d = _classifier(llm_result=llm).decide(_evt(), _case(service=None), TRACE)
     assert d.outcome == "safe_default"
     assert d.reason == "unresolved-service"
+
+
+def test_decide_routes_on_the_source_priority_not_the_llm() -> None:
+    """ADR-0009: ServiceNow's priority decides severity; the LLM's is ignored."""
+    llm = TriageResult(classification=_LABEL, severity=Severity.P1, summary="s", confidence=0.9)
+    table = _table(_LABEL, _WEAK, _STRONG)
+    d = _classifier(llm_result=llm, table=table).decide(
+        _evt(severity_hint=Severity.P3), _case(), TRACE
+    )
+    assert d.outcome == "routed"
+    assert d.severity == Severity.P3
+    assert d.severity_origin == "source_priority"
+
+
+def test_decide_source_p1_without_preclass_is_still_capped() -> None:
+    """ADR-0009 keeps the ARCH §4.2 cap whatever the severity's origin."""
+    llm = TriageResult(classification=_LABEL, severity=Severity.P3, summary="s", confidence=0.9)
+    table = _table(_LABEL, _STRONG, _STRONG)
+    d = _classifier(llm_result=llm, table=table).decide(
+        _evt(severity_hint=Severity.P1), _case(), TRACE
+    )
+    assert d.reason == "unconfirmed-high-severity"
+    assert d.severity == Severity.P1
+    assert d.severity_origin == "source_priority"
+
+
+def test_decide_uses_an_injected_severity_strategy() -> None:
+    """ADR-0009: a future severity calculator replaces the default strategy."""
+
+    class _AlwaysP4:
+        def resolve(
+            self, evt: AlertEvent, llm_severity: Severity
+        ) -> tuple[Severity, SeverityOrigin]:
+            return Severity.P4, "llm"
+
+    llm = TriageResult(classification=_LABEL, severity=Severity.P1, summary="s", confidence=0.9)
+    classifier = _classifier(llm_result=llm, table=_table(_LABEL, _WEAK, _STRONG))
+    classifier.severity = _AlwaysP4()
+    d = classifier.decide(_evt(severity_hint=Severity.P1), _case(), TRACE)
+    assert d.outcome == "routed"
+    assert d.severity == Severity.P4

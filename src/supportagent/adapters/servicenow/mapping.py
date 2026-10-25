@@ -118,7 +118,13 @@ def journal_row_to_change(row: Mapping[str, Any]) -> ChangeRecord:
 
 
 def severity_from_priority(priority: str | None) -> Severity | None:
-    """Priority ``"1"``..``"4"`` → ``P1``..``P4`` (02 §6); else ``None``."""
+    """Priority ``"1"``..``"4"`` → ``P1``..``P4`` (02 §6); ``"5"`` (Planning) → ``P4``.
+
+    Anything else → ``None``.
+
+    ADR-0009: this is the severity a case routes on, so the lowest
+    ServiceNow priority still yields one rather than falling back to the LLM.
+    """
     if priority is None:
         return None
     try:
@@ -127,6 +133,8 @@ def severity_from_priority(priority: str | None) -> Severity | None:
         return None
     if 1 <= level <= 4:  # noqa: PLR2004
         return Severity(f"P{level}")
+    if level == 5:  # noqa: PLR2004 — ServiceNow's Planning priority
+        return Severity.P4
     return None
 
 

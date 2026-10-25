@@ -15,7 +15,7 @@ A2     5     "refused" (database/failure), human sibling      routed / agree (sa
 B      5     like A1, human severity P2                       routed / disagree
 C      5     "deploy" subject, LLM network/outage             classifier-conflict / 2 agree
 D      5     no keyword, LLM request/access (uncalibrated)    low-calibrated-score / agree
-E      5     no keyword, LLM network/outage P1                unconfirmed-high-severity /
+E      5     no keyword, priority 1, LLM network/outage P1    unconfirmed-high-severity /
                                                               3 agree (P1), 2 disagree (P2)
 F      4     keyword subject, LLM returns garbage             llm-failure / disagree
 G      3     unknown CMDB CI                                  unresolved-service / disagree
@@ -71,6 +71,7 @@ def main() -> None:
         reason: str = "routed",
         agree: bool | None = None,
         preclass: bool = True,
+        priority: str = "3",
     ) -> None:
         i = len(rows) + 1
         number = f"INC{i:07d}"
@@ -83,7 +84,8 @@ def main() -> None:
                     "number": number,
                     "short_description": subject,
                     "description": f"Reported issue, reference {number}.",
-                    "priority": "3",
+                    # ADR-0009: the case's severity is this ServiceNow priority.
+                    "priority": priority,
                     "cmdb_ci": ci,
                     "opened_at": opened.strftime("%Y-%m-%d %H:%M:%S"),
                     "sys_updated_on": opened.strftime("%Y-%m-%d %H:%M:%S"),
@@ -173,6 +175,7 @@ def main() -> None:
             reason="unconfirmed-high-severity",
             agree=k < 3,
             preclass=False,
+            priority="1",
         )
     for _ in range(4):  # F
         add(

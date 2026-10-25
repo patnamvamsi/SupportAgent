@@ -81,6 +81,8 @@ rca:                                 # v0.1 RCA-lite (WP-110); routes opt in wit
   max_hypotheses: 3
   max_claims: 5                      # entailment-checked claims; the rest are speculation
   entail_budget_s: 20
+severity:                            # ADR-0009: where a case's severity comes from
+  strategy: source_priority          # ServiceNow priority (1-4 -> P1-P4, 5 -> P4); the LLM's only when absent
 retention:
   events_days: 395
   comms_days: 395

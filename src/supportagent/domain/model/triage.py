@@ -41,6 +41,8 @@ class TriageDecision(DomainModel):
     calibrated_score: float | None
     route_id: str | None
     llm_suggestion: TriageResult | None
+    #: ADR-0009: where ``severity`` came from; ``None`` before the LLM ran.
+    severity_origin: Literal["source_priority", "llm"] | None = None
 
 
 class Linked(DomainModel):

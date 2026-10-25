@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from supportagent.domain.model.alert import AlertEvent
@@ -44,3 +45,29 @@ def severity_escalated(evt: AlertEvent, case: Mapping[str, object]) -> bool:
     if current is None:
         return True
     return rank(hint) < rank(current)
+
+
+#: Where a decision's severity came from (ADR-0009).
+SeverityOrigin = Literal["source_priority", "llm"]
+
+
+class SeverityStrategy(Protocol):
+    """ADR-0009: decides a case's severity; a future calculator plugs in here."""
+
+    def resolve(
+        self, evt: AlertEvent, llm_severity: Severity
+    ) -> tuple[Severity, SeverityOrigin]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePrioritySeverity:
+    """ADR-0009: the source record's priority (ServiceNow ``priority``), else the LLM's.
+
+    The LLM's severity is the fallback only, for a record with no usable
+    priority (a webhook without a severity field, a free-text intake).
+    """
+
+    def resolve(self, evt: AlertEvent, llm_severity: Severity) -> tuple[Severity, SeverityOrigin]:
+        if evt.severity_hint is not None:
+            return evt.severity_hint, "source_priority"
+        return llm_severity, "llm"
