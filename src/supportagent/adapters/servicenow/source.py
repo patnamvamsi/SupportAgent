@@ -26,7 +26,7 @@ from supportagent.ports.tickets import PollBatch, SnTable
 
 POLL_FIELDS = (
     "sys_id,number,short_description,description,priority,state,assigned_to,"
-    "assignment_group,cmdb_ci,sys_updated_on,sys_updated_by,sys_mod_count,caller_id"
+    "assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id"
 )
 AUDIT_FIELDS = "fieldname,oldvalue,newvalue,user,sys_created_on,record_checkpoint"
 JOURNAL_FIELDS = "sys_id,element,value,sys_created_by,sys_created_on"

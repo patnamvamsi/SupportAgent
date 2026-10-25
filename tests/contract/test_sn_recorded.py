@@ -57,6 +57,8 @@ def test_recorded_poll_maps_every_record() -> None:
         assert _SYS_ID.match(rec.sys_id)
         for ref in (rec.cmdb_ci, rec.caller_id, rec.assigned_to, rec.assignment_group):
             assert ref is None or _SYS_ID.match(ref), ref
+        # BL-045: a record with a CI also carries its name (the alert resource).
+        assert (rec.cmdb_ci is None) == (rec.cmdb_ci_name is None)
 
 
 def test_recorded_reference_objects_unwrap_to_sys_ids() -> None:

@@ -36,6 +36,8 @@ class TicketRecord(DomainModel):
     assigned_to: str | None = None
     assignment_group: str | None = None
     cmdb_ci: str | None = None
+    #: BL-045: the CI's name (``cmdb_ci.name``), what a catalog's ``resources`` list.
+    cmdb_ci_name: str | None = None
     caller_id: str | None = None
     u_alert_source: str | None = None
     sys_updated_on: datetime

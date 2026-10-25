@@ -2,6 +2,8 @@
 # Customer-owned file: `version` is free-form and recorded in decision_json.catalog_version (06 §3).
 # Resolution (ARCH §7): an alert's `resource` maps to ServiceEntry.resources first;
 # then its CMDB CI to ServiceEntry.cmdb_ci; otherwise the case safe-defaults.
+# For ServiceNow, `resource` is the CI's name (cmdb_ci.name, e.g. MailServerUS) and
+# `cmdb_ci` is the CI's sys_id (BL-045): list names under resources.
 version: v2026-01
 services:
   - name: nightly-sync

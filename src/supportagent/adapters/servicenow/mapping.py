@@ -26,7 +26,8 @@ from supportagent.domain.severity import Severity
 DEFAULT_FIELD_MAP: Mapping[str, str] = {
     "subject": "short_description",
     "body": "description",
-    "resource": "cmdb_ci",
+    # 02 §6: resource ← cmdb_ci.name (BL-045), which catalog `resources` list.
+    "resource": "cmdb_ci.name",
 }
 
 
@@ -84,6 +85,7 @@ def row_to_record(table: str, row: Mapping[str, Any]) -> TicketRecord:
         assigned_to=_opt_str(row.get("assigned_to")),
         assignment_group=_opt_str(row.get("assignment_group")),
         cmdb_ci=_opt_str(row.get("cmdb_ci")),
+        cmdb_ci_name=_opt_str(row.get("cmdb_ci.name")),
         caller_id=_opt_str(row.get("caller_id")),
         u_alert_source=_opt_str(row.get("u_alert_source")),
         sys_updated_on=_to_aware_utc(row["sys_updated_on"]),
@@ -146,7 +148,8 @@ def severity_from_priority(priority: str | None) -> Severity | None:
 
 def _mapped_field(rec: TicketRecord, field_map: Mapping[str, str], alert_field: str) -> str | None:
     vendor_field = field_map.get(alert_field, DEFAULT_FIELD_MAP[alert_field])
-    return _opt_str(getattr(rec, vendor_field, None))
+    # A dot-walked vendor field (``cmdb_ci.name``) is stored as ``cmdb_ci_name``.
+    return _opt_str(getattr(rec, vendor_field.replace(".", "_"), None))
 
 
 def record_to_alert(
