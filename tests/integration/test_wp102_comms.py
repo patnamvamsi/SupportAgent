@@ -272,3 +272,61 @@ def test_plan_is_never_grant_approved(world: _World, db: Any) -> None:
     proposal = world.planner.plan("case_c", "customer-4h", TraceContext.new(_TENANT, "tr_c", "s"))
     assert isinstance(proposal, Proposal)
     assert proposal.status is ProposalStatus.PENDING_APPROVAL
+
+
+def _human_created(world: _World, creator: str = "ada") -> None:
+    """ADR-0010: the record as a person raised it (state New, priority 3)."""
+    world.sn.seed_record(
+        SnTable.INCIDENT,
+        _SYS,
+        number="INC0000001",
+        state="1",
+        priority="3",
+        sys_updated_on=world.clock.now(),
+        sys_created_by=creator,
+    )
+
+
+def test_cadence_sends_the_values_a_human_set_at_creation(world: _World) -> None:
+    """ADR-0010: no human change yet, yet the human creator's values count.
+
+    Before ADR-0010 this slot was skipped, and a human changing ``state`` is
+    a takeover, so an active ServiceNow case could never get an update.
+    """
+    _human_created(world)
+    world.plan_and_approve()
+    (sent,) = world.cadence.run(world.clock.now())
+    assert sent.outcome == "enqueued", sent.detail
+    world.executor.run_once(world.clock.now())
+    (comment,) = world.comments()
+    assert "status New, priority 3 - Moderate" in comment
+
+
+def test_creation_values_do_not_count_when_the_agent_created_the_record(world: _World) -> None:
+    _human_created(world, creator=_SVC)
+    world.plan_and_approve()
+    (skipped,) = world.cadence.run(world.clock.now())
+    assert skipped.outcome == "skipped"
+
+
+def test_creation_value_is_the_first_changes_old_value(world: _World) -> None:
+    """A field changed since creation: its creation value is the first ``oldvalue``."""
+    _human_created(world)
+    world.plan_and_approve()
+    world.clock.advance(1)
+    world.mod += 1
+    world.sn.seed_audit(
+        SnTable.INCIDENT,
+        _SYS,
+        user=_SVC,
+        ts=world.clock.now(),
+        fieldname="priority",
+        oldvalue="4",
+        newvalue="1",
+        checkpoint=world.mod,
+    )
+    (sent,) = world.cadence.run(world.clock.now())
+    assert sent.outcome == "enqueued"
+    world.executor.run_once(world.clock.now())
+    (comment,) = world.comments()
+    assert "priority 4 - Low" in comment, "the agent's priority 1 never reaches a customer"

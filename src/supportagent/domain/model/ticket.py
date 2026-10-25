@@ -38,6 +38,8 @@ class TicketRecord(DomainModel):
     cmdb_ci: str | None = None
     #: BL-045: the CI's name (``cmdb_ci.name``), what a catalog's ``resources`` list.
     cmdb_ci_name: str | None = None
+    #: ADR-0010: who created the record; a human creator makes its creation values human-set.
+    sys_created_by: str | None = None
     caller_id: str | None = None
     u_alert_source: str | None = None
     sys_updated_on: datetime

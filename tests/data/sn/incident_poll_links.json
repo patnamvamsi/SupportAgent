@@ -1,7 +1,7 @@
 {
  "params": {
   "sysparm_display_value": "false",
-  "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id",
+  "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to,assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id,sys_created_by",
   "sysparm_limit": "5",
   "sysparm_offset": "0",
   "sysparm_query": "sys_updated_on>=2000-01-01 00:00:00^ORDERBYsys_updated_on^ORDERBYsys_id"
@@ -27,6 +27,7 @@
    "priority": "4",
    "short_description": "Having problems with Sales Tools performance",
    "state": "3",
+   "sys_created_by": "admin",
    "sys_id": "a9e428cac61122760075710592216c58",
    "sys_mod_count": "12",
    "sys_updated_by": "admin",
@@ -52,6 +53,7 @@
    "priority": "1",
    "short_description": "How do I create a sub-folder",
    "state": "3",
+   "sys_created_by": "don.goodliffe",
    "sys_id": "46e482d9a9fe198101d3e3f3e2a14459",
    "sys_mod_count": "36",
    "sys_updated_by": "admin",
@@ -74,6 +76,7 @@
    "priority": "1",
    "short_description": "Need access to sales DB for the West",
    "state": "3",
+   "sys_created_by": "employee",
    "sys_id": "8d6353eac0a8016400d8a125ca14fc1f",
    "sys_mod_count": "50",
    "sys_updated_by": "admin",
@@ -99,6 +102,7 @@
    "priority": "1",
    "short_description": "SAP Materials Management is slow or there is an outage",
    "state": "3",
+   "sys_created_by": "itil",
    "sys_id": "d71da88ac0a801670061eabfe4b28f77",
    "sys_mod_count": "95",
    "sys_updated_by": "admin",
@@ -118,6 +122,7 @@
    "priority": "3",
    "short_description": "Unable to access team file share",
    "state": "1",
+   "sys_created_by": "admin",
    "sys_id": "85071a1347c12200e0ef563dbb9a71c1",
    "sys_mod_count": "0",
    "sys_updated_by": "admin",

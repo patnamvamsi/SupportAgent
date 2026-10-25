@@ -21,15 +21,17 @@ from supportagent.adapters.servicenow.mapping import (
     row_to_record,
 )
 from supportagent.domain.errors import ServiceNowError
-from supportagent.domain.model.ticket import ChangeRecord
+from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
 from supportagent.ports.tickets import PollBatch, SnTable
 
 POLL_FIELDS = (
     "sys_id,number,short_description,description,priority,state,assigned_to,"
-    "assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id"
+    "assignment_group,cmdb_ci,cmdb_ci.name,sys_updated_on,sys_updated_by,sys_mod_count,caller_id,"
+    "sys_created_by"
 )
 AUDIT_FIELDS = "fieldname,oldvalue,newvalue,user,sys_created_on,record_checkpoint"
 JOURNAL_FIELDS = "sys_id,element,value,sys_created_by,sys_created_on"
+_NOT_FOUND = 404
 
 
 def _format_since(since: datetime) -> str:
@@ -61,6 +63,28 @@ class ServiceNowSource:
         records = [row_to_record(table.value, row) for row in rows]
         next_cursor = max((r.sys_updated_on for r in records), default=since)
         return PollBatch(records=records, next_cursor=next_cursor)
+
+    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+        """The record's current fields (ADR-0010), or ``None`` when it doesn't exist."""
+        try:
+            resp = self._http.request(
+                "GET",
+                f"/api/now/table/{table.value}/{sys_id}",
+                params={
+                    "sysparm_fields": POLL_FIELDS,
+                    "sysparm_display_value": "false",
+                    "sysparm_exclude_reference_link": "true",
+                },
+            )
+        except ServiceNowError as exc:
+            if exc.status == _NOT_FOUND:
+                return None
+            raise
+        try:
+            row = resp.json()["result"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ServiceNowError(f"malformed record response: {exc!r}") from exc  # noqa: TRY003
+        return row_to_record(table.value, row)
 
     def history(
         self,

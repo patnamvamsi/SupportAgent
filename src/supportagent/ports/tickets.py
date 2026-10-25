@@ -74,6 +74,10 @@ class TicketSource(Protocol):
         """
         ...
 
+    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+        """The record's current fields, or ``None`` when it doesn't exist (ADR-0010)."""
+        ...
+
     def history(
         self,
         table: SnTable,
