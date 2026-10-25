@@ -86,7 +86,9 @@ class Worker:
             logger.exception("job %s failed; retrying at its next interval", job.name)
             return None
         if result.ran:
-            logger.info("job %s ran: %d row(s)", job.name, result.rows)
+            # An idle run (outbox.execute every 2 s) logs at DEBUG: INFO is for work done.
+            level = logging.INFO if result.rows else logging.DEBUG
+            logger.log(level, "job %s ran: %d row(s)", job.name, result.rows)
         return result
 
 

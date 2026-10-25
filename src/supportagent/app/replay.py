@@ -64,16 +64,23 @@ def _fmt_decision(payload: Mapping[str, object]) -> str:
 
 
 def _fmt_llm(payload: Mapping[str, object]) -> str:
-    return (
-        f"model={payload.get('model', '?')} "
-        f"resolved={payload.get('resolved_model', '?')} "
-        f"status={payload.get('status', '?')}"
-    )
+    # The event's own status column carries ok/error; the payload names the
+    # slot, the pinned and served models (BL-010), and an error class.
+    parts = [
+        f"slot={payload.get('slot', '?')}",
+        f"model={payload.get('model', '?')}",
+        f"resolved={payload.get('resolved_model', '?')}",
+    ]
+    if payload.get("error"):
+        parts.append(f"error={payload['error']}")
+    return " ".join(parts)
 
 
 def _fmt_redact(payload: Mapping[str, object]) -> str:
-    counts = payload.get("counts_by_class", {})
-    return f"counts={counts if counts else '?'}"
+    counts = payload.get("counts_by_class")
+    if payload.get("error"):
+        return f"error={payload['error']}"
+    return f"counts={counts}" if counts else "counts=none"
 
 
 def _fmt_tool_call(payload: Mapping[str, object]) -> str:
@@ -89,7 +96,12 @@ def _fmt_gate(payload: Mapping[str, object]) -> str:
 
 
 def _fmt_send(payload: Mapping[str, object]) -> str:
-    return f"target={payload.get('target', '?')} attempts={payload.get('attempts', '?')}"
+    # Executor phases (claim, sent, retry, abort) and comms cadence phases.
+    parts = [f"phase={payload.get('phase', '?')}"]
+    for key in ("external_ref", "attempts", "plan_id", "error"):
+        if payload.get(key) is not None:
+            parts.append(f"{key.removeprefix('external_')}={payload[key]}")
+    return " ".join(parts)
 
 
 def _fmt_sync(payload: Mapping[str, object]) -> str:

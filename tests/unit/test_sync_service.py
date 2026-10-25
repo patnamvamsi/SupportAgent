@@ -17,12 +17,15 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+import pytest
+
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.app.sync import SyncService
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.external import ExternalCaseRef
 from supportagent.domain.model.ticket import ChangeRecord
+from supportagent.domain.severity import Severity
 from supportagent.ports.tickets import SnTable
 from tests.builders import T0
 
@@ -287,3 +290,64 @@ def test_journal_entry_in_the_overlap_is_delivered_once(uow: Any, clock: Any, fa
 
     delivered = [(c.source, c.fieldname) for _, changes in handler.changes for c in changes]
     assert delivered == [("journal", "work_notes"), ("audit", "priority")]
+
+
+def _raise_priority(fake_sn: Any, old: str, new: str, *, user: str = "u1") -> None:
+    later = T0 + timedelta(seconds=30)
+    fake_sn.seed_record(
+        TABLE,
+        "id_p",
+        number="INC7",
+        short_description="desc id_p",
+        priority=new,
+        state="1",
+        sys_updated_on=later,
+        sys_updated_by=user,
+        sys_mod_count=2,
+    )
+    fake_sn.seed_audit(
+        TABLE,
+        "id_p",
+        user=user,
+        ts=later,
+        fieldname="priority",
+        oldvalue=old,
+        newvalue=new,
+        checkpoint=2,
+    )
+
+
+def test_raised_priority_goes_back_through_triage(uow: Any, clock: Any, fake_sn: Any) -> None:
+    """BL-047 / ARCH §4.1: a priority raised in ServiceNow re-enters triage,
+    which re-decides the case in place (ADR-0009: severity is the priority)."""
+    handler = _RecordingHandler()
+    service = _service(uow, fake_sn, handler, clock)
+    _seed(fake_sn, "id_p", "INC7", T0)
+    service.poll_table(TABLE)
+    _raise_priority(fake_sn, "3", "1")
+    service.poll_table(TABLE)
+    assert len(handler.changes) == 1, "the change is still delivered"
+    assert [a.severity_hint for a in handler.alerts] == [Severity.P3, Severity.P1]
+
+
+@pytest.mark.parametrize(("old", "new"), [("1", "3"), ("", "2"), ("3", "3")])
+def test_lowered_or_unset_priority_is_not_an_escalation(
+    uow: Any, clock: Any, fake_sn: Any, old: str, new: str
+) -> None:
+    handler = _RecordingHandler()
+    service = _service(uow, fake_sn, handler, clock)
+    _seed(fake_sn, "id_p", "INC7", T0)
+    service.poll_table(TABLE)
+    _raise_priority(fake_sn, old, new)
+    service.poll_table(TABLE)
+    assert len(handler.alerts) == 1
+
+
+def test_our_own_priority_change_is_not_an_escalation(uow: Any, clock: Any, fake_sn: Any) -> None:
+    handler = _RecordingHandler()
+    service = _service(uow, fake_sn, handler, clock)
+    _seed(fake_sn, "id_p", "INC7", T0)
+    service.poll_table(TABLE)
+    _raise_priority(fake_sn, "3", "1", user=INTEGRATION_USER)
+    service.poll_table(TABLE)
+    assert len(handler.alerts) == 1

@@ -44,6 +44,20 @@ from supportagent.ports.inbound import InboundHandler
 from supportagent.ports.tickets import SnTable, TicketSource
 
 
+def priority_escalated(changes: Sequence[ChangeRecord]) -> bool:
+    """BL-047: an audited ``priority`` change to a higher priority (a lower number)."""
+    for change in changes:
+        if change.source != "audit" or change.fieldname != "priority":
+            continue
+        try:
+            old, new = int(change.oldvalue or ""), int(change.newvalue or "")
+        except ValueError:
+            continue  # created without a priority, or a non-numeric value
+        if new < old:
+            return True
+    return False
+
+
 class _UoW(Protocol):
     """Structural protocol for the unit of work (the service is agnostic to the
     concrete SqlUnitOfWork implementation — it only needs __enter__ /
@@ -229,4 +243,11 @@ class SyncService:
         self._handler.on_changes(
             ExternalCaseRef(table=rec.table, sys_id=rec.sys_id, number=rec.number), changes
         )
+        if priority_escalated(changes):
+            # BL-047 / ARCH §4.1: a raised priority is a severity escalation
+            # (ADR-0009: severity is the priority), so the record goes back
+            # through triage, which re-decides the case in place.
+            self._handler.on_alert(
+                self._to_alert(self._tenant_id, rec, received_at=self._clock.now())
+            )
         return True
