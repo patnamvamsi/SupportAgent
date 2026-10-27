@@ -1,0 +1,1 @@
+{"latency_ms": 8133, "raw_text": "{\"hypotheses\": [\"upstream_provider\", \"dependency_failure\", \"data_volume\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 243, "tokens_out": 363}

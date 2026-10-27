@@ -1,0 +1,13 @@
+{
+  "cases": {
+    "nightly-dag-upstream-failure": true,
+    "pool-saturation-capacity": true,
+    "pool-saturation-capacity-holdout": true,
+    "pool-saturation-failed-deploy": true,
+    "pool-saturation-no-cause": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "common",
+  "samples": 1,
+  "v": 1
+}

@@ -1,0 +1,1 @@
+{"latency_ms": 12473, "raw_text": "{\"hypotheses\": [\"capacity_decay\", \"recent_change_push\", \"traffic_spike\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 241, "tokens_out": 629}

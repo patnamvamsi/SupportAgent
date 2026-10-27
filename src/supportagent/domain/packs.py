@@ -154,6 +154,12 @@ class PackScope:
             self._rules[key] = self.packs.rule_set(self.packs.active(key))
         return self._rules[key]
 
+    def guidance(self, service: str | None, slot: SlotName) -> str:
+        """The active packs' prompt fragments for ``slot``, in pack order (ADR-0011 §1)."""
+        return "\n\n".join(
+            p.fragments[slot].strip() for p in self.active(service) if slot in p.fragments
+        )
+
     def labels_text(self, service: str | None) -> str:
         key = self.stacks.get(service or "", frozenset())
         if key not in self._labels:

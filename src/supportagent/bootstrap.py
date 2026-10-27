@@ -1529,6 +1529,7 @@ class LabPipeline:
             severity=decision.severity.value if decision.severity is not None else None,
             origin=incident.origin,
             opened_ts=int(received.timestamp()),
+            summary=f"{incident.subject}\n{incident.body}"[:1500],
         )
         artifact = rca.run(
             rca_case,

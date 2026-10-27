@@ -66,6 +66,8 @@ class WorldEntry(_Strict):
 
 class LabTruth(_Strict):
     classification: str = Field(pattern=r"^[a-z0-9_]+/[a-z0-9_]+$")
+    #: Other labels a careful analyst could defensibly pick for this ticket text.
+    also_acceptable: list[str] = Field(default_factory=list)
     severity: Literal["P1", "P2", "P3", "P4"]
     #: The hypothesis that explains the incident; ``None``: none is findable.
     root_cause: str | None
@@ -221,8 +223,9 @@ class LabScore:
 def score_outcome(scenario: LabScenario, out: LabOutcome) -> LabScore:
     truth = scenario.truth
     failures: list[str] = []
-    classification_ok = out.classification is not None and prefix_match(
-        truth.classification, out.classification
+    classification_ok = out.classification is not None and any(
+        prefix_match(label, out.classification)
+        for label in (truth.classification, *truth.also_acceptable)
     )
     if not classification_ok:
         failures.append(f"classification {out.classification} != {truth.classification}")

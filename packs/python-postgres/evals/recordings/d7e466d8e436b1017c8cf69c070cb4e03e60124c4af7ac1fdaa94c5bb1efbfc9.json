@@ -1,0 +1,1 @@
+{"latency_ms": 9759, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"POST /orders requests are hanging for about 30 seconds before returning 504, suggesting database write latency or a stuck write path.\",\n  \"confidence\": 0.75\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 994, "tokens_out": 508}

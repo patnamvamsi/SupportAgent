@@ -87,6 +87,8 @@ class RcaCase:
     severity: str | None
     origin: str
     opened_ts: int
+    #: WP-M05: the case's redacted incident text (case memory), for planning only.
+    summary: str = ""
 
     def as_cel(self) -> dict[str, object]:
         return {
@@ -348,6 +350,7 @@ class RcaService:
                     "service": case.service.name if case.service else "unknown",
                     "classification": case.classification or "unknown",
                     "severity": case.severity or "unknown",
+                    "incident": case.summary or "(no ticket text)",
                 },
                 HypothesisSet,
                 trace,
@@ -508,9 +511,12 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
+#: WP-M05: how much redacted incident text the planner sees.
+_SUMMARY_CHARS = 1500
 _CANDIDATES = (
     "SELECT c.id, c.trace_id, c.service, c.classification, c.severity, c.origin, "
-    "c.opened_ts, c.decision_json FROM cases c "
+    "c.opened_ts, c.decision_json, d.text AS summary FROM cases c "
+    "LEFT JOIN kb_docs d ON d.tenant_id = c.tenant_id AND d.ref = c.id "
     "WHERE c.tenant_id = :t AND c.status <> 'resolved' "
     "AND NOT EXISTS (SELECT 1 FROM rca_artifacts r WHERE r.case_id = c.id) "
     "AND NOT EXISTS (SELECT 1 FROM cases o WHERE o.group_id = c.group_id "
@@ -577,6 +583,7 @@ class RcaJob:
                         severity=row["severity"],
                         origin=str(row["origin"]),
                         opened_ts=int(row["opened_ts"]),
+                        summary=str(row["summary"] or "")[:_SUMMARY_CHARS],
                     )
                 )
                 if len(out) >= self._max:

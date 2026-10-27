@@ -1,0 +1,103 @@
+# The incident lab's config (WP-M05): `eval lab` records with it (--live) and CI
+# replays with it. The model id and slot budgets are part of each recording's
+# key, so change them only together with a fresh --live run.
+# supportagent.yaml — full reference for config v1 (02 §1).
+# Secrets are never inline: `*_env` keys name the environment variable that holds
+# the value; load_config(path, env) resolves them into masked SecretStr (02 §1).
+# mode: shadow | assisted | standard (CAP §4.7). v0.1 accepts shadow and assisted (ADR-0008); standard from v0.2.
+config_version: 1
+tenant:
+  id: acme
+  display_name: Acme Corp
+mode: shadow
+database:
+  url_env: SUPPORTAGENT_DB_URL        # sqlite:///data/sa.db | postgresql+psycopg://…
+servicenow:
+  instance_url: https://acme.service-now.com
+  auth:
+    kind: oauth_client_credentials    # or basic: {user_env, password_env}
+    client_id_env: SN_CLIENT_ID
+    client_secret_env: SN_CLIENT_SECRET
+  integration_user: svc_supportagent
+  tables: [incident]                 # v0.0: incident only (em_alert, sc_req_item from v0.1)
+  poll_interval_s: 60
+  overlap_s: 120
+  page_size: 200
+  qps_limit: 5
+  resolved_states: ["6", "7", "8"]   # BL-032: state values that end a case (incident defaults)
+  classification_map: {}             # BL-035: {"Database/Saturation": database/saturation, "Network": network/dns}
+identity:
+  oidc_issuer: https://login.microsoftonline.com/acme-tenant-id/v2.0
+  client_id_env: OIDC_CLIENT_ID
+  client_secret_env: OIDC_CLIENT_SECRET
+  redirect_url: https://supportagent.acme.internal/auth/callback
+  session_secret_env: SA_SESSION_SECRET  # the secret must be >= 32 bytes
+llm:
+  provider: openai                   # LM Studio (OpenAI-compatible), BL-042
+  api_key_env: LMSTUDIO_API_KEY      # LM Studio ignores the value
+  base_url: http://192.168.0.201:1234/v1                     # ollama: the local server (default http://localhost:11434); no api_key_env
+                                     # openai: any OpenAI-compatible server, e.g. LM Studio http://host:1234/v1 (BL-042)
+  slots:
+    classify:                        # v0.0 slot; propose_hypotheses/entail/draft_comms from v0.1
+      model_id: qwen/qwen3.8-27b     # the lab's pinned model: recordings are keyed on it
+      timeout_s: 90
+      max_output_tokens: 4000
+    # v0.1 RCA-lite slots (WP-110). Unconfigured, they fail closed: no proposed
+    # plan (INCONCLUSIVE) and every claim tagged speculation.
+    # propose_hypotheses: {model_id: claude-sonnet-4-5-20250929, timeout_s: 15, max_output_tokens: 200}
+    # entail: {model_id: claude-sonnet-4-5-20250929, timeout_s: 10, max_output_tokens: 50}
+  daily_budget_tokens: 2000000       # v0.1 enforces; v0.0 logs only
+  deprecation_feed: null             # v0.1: provider model-retirement feed (YAML); warns at T-90
+redaction:
+  custom_patterns: []                # {name, regex}
+  tenant_constants: []               # tenant-specific literals to redact
+calibration:
+  path: evals/artifacts/calibration.json
+  min_grade: smoke                   # smoke (v0.0); holdout for the v0.1 release, once the partner holdout exists (BL-037)
+  min_score: 0.80
+paths:
+  taxonomy: taxonomy/classification.yaml
+  hypotheses: taxonomy/hypotheses.yaml
+  catalog: catalog/services.yaml
+  prompts: prompts/
+  runbooks: runbooks/                # v0.1
+  packs: packs/                     # ADR-0011: skill packs; common = taxonomy/ + runbooks/
+routing:                             # rows reference taxonomy labels; doctor validates (ARCH §12)
+  - id: db-saturation
+    match: {classification: database/saturation, severity: [P1, P2, P3]}
+    actions: [work_note]             # ActionKind names only
+    rca: none                        # none | lite (v0.1: runbooks/, budgets in rca:) | deep (v0.2)
+    comms: null                      # comms plan template id (v0.1)
+default: {id: generic, actions: [work_note], rca: none}
+proposals:
+  ttl_hours: 24
+grants_request: []                   # v0.2: {action, system, target, requested_expiry_days}
+paging:                              # v0.1 (WP-112): attach-only; SupportAgent never creates a page
+  pagerduty:                         # for catalog paging_integration: pagerduty:<service id>
+    token_env: PAGERDUTY_TOKEN       # REST API key: read incidents, add notes
+    from_email: supportagent@acme.example   # PagerDuty's required From header for notes
+  # opsgenie: {api_key_env: OPSGENIE_API_KEY}   # for paging_integration: opsgenie:<team>
+# tools:                             # read-only evidence for RCA (WP-107, WP-M04); each optional
+#   logs_root: /var/log/apps
+#   github: {token_env: GITHUB_TOKEN}
+#   postgres:                        # catalog `databases:` names -> read-only connections
+#     databases:
+#       orders: {dsn_env: PG_ORDERS_RO}   # a role with pg_monitor only
+#     statement_timeout_ms: 5000
+#   prometheus: {base_url: "http://prometheus:9090"}
+#   kubernetes: {api_url: "https://k8s.internal:6443", token_env: K8S_RO_TOKEN}   # get/list pods, replicasets
+#   changes: {github: true, kubernetes: true}   # changes.recent sources
+rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
+  prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
+  freeze: false                      # a change freeze zeroes recent_change_push (logged)
+  max_tool_calls: 5
+  max_tokens: 3000
+  max_hypotheses: 3
+  max_claims: 5                      # entailment-checked claims; the rest are speculation
+  entail_budget_s: 20
+severity:                            # ADR-0009: where a case's severity comes from
+  strategy: source_priority          # ServiceNow priority (1-4 -> P1-P4, 5 -> P4); the LLM's only when absent
+retention:
+  events_days: 395
+  comms_days: 395
+  alerts_days: 90

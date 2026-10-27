@@ -1,0 +1,1 @@
+{"latency_ms": 4101, "raw_text": "{\n  \"classification\": \"edge/certificate\",\n  \"severity\": \"P1\",\n  \"summary\": \"Payments are failing because an expired SSL certificate is causing certificate verification failures.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 986, "tokens_out": 237}

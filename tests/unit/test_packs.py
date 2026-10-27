@@ -311,6 +311,6 @@ def test_doctor_reports_packs_and_their_eval_status() -> None:
     object.__setattr__(ctx, "known_tools", frozenset(KNOWN_TOOL_SCHEMAS))
     res = PacksCheck().run(ctx)
     assert res.status == "pass", res.detail
-    assert "python-postgres 1.0.0: evaluated; used by checkout-api" in res.detail
+    assert "python-postgres 1.1.0: evaluated; used by checkout-api" in res.detail
     assert "spark 0.0.0: placeholder, never selected" in res.detail
     assert "tools not available" not in res.detail, "WP-M04 ships every tool the pack names"

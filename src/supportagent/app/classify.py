@@ -93,12 +93,16 @@ class Classifier:
         labels = (
             self.taxonomy_labels if self.packs is None else self.packs.labels_text(case.service)
         )
+        guidance = (
+            "" if self.packs is None else self.packs.guidance(case.service, SlotName.CLASSIFY)
+        )
 
         # 2. llm-failure: the structured LLM returned no usable answer.
         llmres = self.llm.structured(
             SlotName.CLASSIFY,
             {
                 "taxonomy_labels": labels,
+                "pack_guidance": guidance,
                 "ticket_subject": evt.subject,
                 "ticket_body": evt.body,
             },
