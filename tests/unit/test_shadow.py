@@ -275,7 +275,7 @@ def test_shadow_inbound_change_without_a_case_gets_its_own_trace(
     change = ChangeRecord(
         source="audit", user="bob", ts=clock.now(), fieldname="state", newvalue="6"
     )
-    inbound.on_changes(ExternalCaseRef(table="incident", sys_id="unknown"), [change, change])
+    inbound.on_changes(ExternalCaseRef(table="incident", external_id="unknown"), [change, change])
     (event,) = captured
     assert event.kind is EventKind.SYNC
     assert event.trace_id == f"tr_{event.id}"

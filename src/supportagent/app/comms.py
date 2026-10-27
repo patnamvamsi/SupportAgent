@@ -44,6 +44,7 @@ import sqlalchemy as sa
 from supportagent.app.lifecycle import confirmed_automation_actors
 from supportagent.app.outbox import Authorization
 from supportagent.domain.comms import PlanSpec, interval_slot, render
+from supportagent.domain.connector import TicketSemantics
 from supportagent.domain.errors import AuthorizationDenied, DomainValidationError, NotFound
 from supportagent.domain.events import EventKind
 from supportagent.domain.idempotency import plan_key
@@ -61,18 +62,8 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
-from supportagent.ports.tickets import SnTable, TicketSource
+from supportagent.ports.tickets import RecordType, TicketSource
 
-#: Display values for the record_state fields customers see (ServiceNow defaults).
-_STATE_LABELS = {
-    "1": "New",
-    "2": "In Progress",
-    "3": "On Hold",
-    "6": "Resolved",
-    "7": "Closed",
-    "8": "Canceled",
-}
-_PRIORITY_LABELS = {"1": "1 - Critical", "2": "2 - High", "3": "3 - Moderate", "4": "4 - Low"}
 _ACTIVE = frozenset({"open", "triaged", "in_progress", "reopened"})
 
 
@@ -100,14 +91,6 @@ class _Writer(Protocol):
     def enqueue(
         self, authorization: Authorization, spec: ActionSpec, case_id: str, trace: TraceContext
     ) -> OutboxRow: ...
-
-
-def display_value(field: str, raw: str) -> str:
-    if field == "state":
-        return _STATE_LABELS.get(raw, raw)
-    if field == "priority":
-        return _PRIORITY_LABELS.get(raw, raw)
-    return raw
 
 
 def creation_values(
@@ -248,6 +231,7 @@ class CadenceJob:
         templates: Mapping[str, str],
         tenant_id: str,
         integration_user: str,
+        semantics: TicketSemantics,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -258,6 +242,7 @@ class CadenceJob:
         self._templates = dict(templates)
         self._tenant = tenant_id
         self._integration_user = integration_user
+        self._semantics = semantics
 
     def run(self, now: datetime) -> list[CadenceResult]:
         with self._uow:
@@ -286,8 +271,8 @@ class CadenceJob:
         if status not in ("human_owned", "resolved") and status not in _ACTIVE:
             return CadenceResult(plan_id, "not_due", f"case is {status}")
 
-        # Outside any transaction: the record and its history (ServiceNow reads).
-        table = SnTable(str(plan["external_table"] or "incident"))
+        # Outside any transaction: the record and its history (connector reads).
+        table = RecordType(str(plan["external_table"] or "incident"))
         changes = self._source.history(table, str(plan["external_id"]), 0)
         record = self._source.record(table, str(plan["external_id"]))
         fields = json.loads(str(plan["allowed_fields_json"]))
@@ -297,7 +282,7 @@ class CadenceJob:
             integration_user=self._integration_user,
             automation_actors=automation,
             created=(
-                None if record is None else record.sys_created_by,
+                None if record is None else record.created_by,
                 creation_values(record, changes, record_fields),
             ),
         )
@@ -310,7 +295,7 @@ class CadenceJob:
                     else _eta(approved_at, int(str(cadence)), slot)
                 )
             elif name in state:
-                values[name] = display_value(name, state[name])
+                values[name] = self._semantics.display(name, state[name])
         missing = sorted(set(fields) - set(values))
 
         with self._uow:
@@ -345,12 +330,12 @@ class CadenceJob:
         ).first():
             return CadenceResult(plan_id, "duplicate", f"slot {slot} already enqueued")
         table = str(plan["external_table"] or "incident")
-        sys_id = str(plan["external_id"])
+        external_id = str(plan["external_id"])
         payload = {"template_id": str(plan["template_id"]), "text": text}
         spec = ActionSpec(
             kind=ActionKind.CUSTOMER_COMMENT,
-            target=TargetRef(service=str(plan["service"]), system="servicenow", ref=sys_id),
-            scope=record_scope("servicenow", table, sys_id, ActionKind.CUSTOMER_COMMENT),
+            target=TargetRef(service=str(plan["service"]), system="servicenow", ref=external_id),
+            scope=record_scope("servicenow", table, external_id, ActionKind.CUSTOMER_COMMENT),
             payload=payload,
         )
         row = self._outbox.enqueue(
@@ -547,6 +532,5 @@ __all__ = [
     "CommsPlanner",
     "CommsPlans",
     "creation_values",
-    "display_value",
     "human_record_state",
 ]

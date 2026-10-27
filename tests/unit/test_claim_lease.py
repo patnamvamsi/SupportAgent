@@ -17,11 +17,12 @@ import pytest
 
 from supportagent.adapters.fakes.clock import FrozenClock
 from supportagent.adapters.servicenow.auth import BasicAuth
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.app.outbox import DEFAULT_LEASE_S, OutboxExecutor
 from supportagent.bootstrap import build_ticket_sink, outbox_claim_budget_s, outbox_claim_lease_s
-from supportagent.domain.errors import ConfigError, ServiceNowError
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.domain.errors import ConfigError
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.integration.test_shadow_worker import _config
 
 _AUTH = BasicAuth(user="svc", password="pw-fake")  # noqa: S106 — fake
@@ -85,5 +86,5 @@ def test_journal_post_is_never_repeated_after_a_5xx(tmp_path: Path) -> None:
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(ServiceNowError):
-        sink.append_journal(SnTable.INCIDENT, "sys-1", JournalField.WORK_NOTES, "note")
+        sink.append_journal(RecordType.INCIDENT, "sys-1", NoteVisibility.INTERNAL, "note")
     assert posts["n"] == 1  # the note may have landed: the executor reconciles instead

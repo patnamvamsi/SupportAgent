@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from supportagent.app.doctor.base import Check
+from supportagent.app.doctor.checks.connector import ConnectorCheck
 from supportagent.app.doctor.checks.endpoints import (
     AutomationActorsCheck,
     LLMCheck,
@@ -16,30 +17,24 @@ from supportagent.app.doctor.checks.local import (
     PacksCheck,
     PagingCheck,
 )
-from supportagent.app.doctor.checks.servicenow import (
-    AuditRetentionCheck,
-    AuthCheck,
-    HistoryAccessCheck,
-    IntegrationRoleCheck,
-    JournalVisibilityCheck,
-    RateLimitCheck,
-)
+from supportagent.app.doctor.connectors import connector_doctor
 
 
-def default_checks() -> list[Check]:
-    """Every v0.0 check, in the 02 §4.1 order."""
+def default_checks(connector: str = "servicenow") -> list[Check]:
+    """Every check, in the 02 §4.1 order; the connector's own checks come after the DB.
+
+    WP-M07: ``connector`` picks the registered connector doctor; the generic
+    ``connector`` check (capabilities against the mode) follows its checks.
+    """
+    plugin = connector_doctor(connector)
     return [
         ConfigCheck(),
         PacksCheck(),
         KnowledgeCheck(),
         DbCheck(),
-        AuthCheck(),
-        JournalVisibilityCheck(),
-        IntegrationRoleCheck(),
-        RateLimitCheck(),
-        HistoryAccessCheck(),
-        AuditRetentionCheck(),
-        AutomationActorsCheck(),
+        *plugin.checks,
+        ConnectorCheck(),
+        AutomationActorsCheck(plugin.discover_automation),
         PagingCheck(),
         LLMCheck(),
         McpCheck(),

@@ -26,6 +26,7 @@ from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.servicenow import FakeServiceNow
 from supportagent.adapters.files.comms_loader import load_comms_catalog
+from supportagent.adapters.servicenow.semantics import ServiceNowSemantics
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.gate import GateService
@@ -40,7 +41,7 @@ from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.rbac import RoleGrant
 from supportagent.domain.roles import Role
 from supportagent.domain.trace import TraceContext
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.unit.api_support import catalog
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -67,7 +68,7 @@ class _World:
         self.clock.advance(1)
         self.mod += 1  # sys_audit rows carry the record checkpoint
         self.sn.seed_audit(
-            SnTable.INCIDENT,
+            RecordType.INCIDENT,
             _SYS,
             user=user,
             ts=self.clock.now(),
@@ -97,7 +98,7 @@ class _World:
             return conn.execute(text(sql)).scalar()
 
     def comments(self) -> list[str]:
-        return self.sn.journal_entries(SnTable.INCIDENT, _SYS, JournalField.COMMENTS)
+        return self.sn.journal_entries(RecordType.INCIDENT, _SYS, NoteVisibility.CUSTOMER)
 
 
 @pytest.fixture
@@ -119,7 +120,7 @@ def world(db: Any, uow: Any, clock: Any, ids: Any, aead: Any) -> _World:
             {"sys": _SYS},
         )
     sn = FakeServiceNow()
-    sn.seed_record(SnTable.INCIDENT, _SYS, number="INC0000001", sys_updated_on=clock.now())
+    sn.seed_record(RecordType.INCIDENT, _SYS, number="INC0000001", updated_at=clock.now())
     events = SqlEventSink(uow=uow, cipher=aead)
     gate = GateService(
         uow=uow,
@@ -147,6 +148,7 @@ def world(db: Any, uow: Any, clock: Any, ids: Any, aead: Any) -> _World:
             templates=comms.templates,
             tenant_id=_TENANT,
             integration_user=_SVC,
+            semantics=ServiceNowSemantics(),
         ),
         plans=CommsPlans(uow=uow, clock=clock, ids=ids, events=events, tenant_id=_TENANT),
         executor=OutboxExecutor(
@@ -277,13 +279,13 @@ def test_plan_is_never_grant_approved(world: _World, db: Any) -> None:
 def _human_created(world: _World, creator: str = "ada") -> None:
     """ADR-0010: the record as a person raised it (state New, priority 3)."""
     world.sn.seed_record(
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         _SYS,
         number="INC0000001",
         state="1",
         priority="3",
-        sys_updated_on=world.clock.now(),
-        sys_created_by=creator,
+        updated_at=world.clock.now(),
+        created_by=creator,
     )
 
 
@@ -316,7 +318,7 @@ def test_creation_value_is_the_first_changes_old_value(world: _World) -> None:
     world.clock.advance(1)
     world.mod += 1
     world.sn.seed_audit(
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         _SYS,
         user=_SVC,
         ts=world.clock.now(),

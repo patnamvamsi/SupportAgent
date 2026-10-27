@@ -18,21 +18,23 @@ from supportagent.adapters.fakes.llm import FakeLLMProvider
 from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.adapters.fakes.servicenow import FakeServiceNowHTTP, SyncASGITransport
 from supportagent.adapters.servicenow.auth import BasicAuth
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
 from supportagent.app.doctor import Bundle, CheckResult, Doctor, DoctorContext
 from supportagent.app.doctor.checks.endpoints import AutomationActorsCheck, LLMCheck, OIDCCheck
 from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PagingCheck
-from supportagent.app.doctor.checks.servicenow import (
+from supportagent.app.doctor.connectors.servicenow import (
     AuditRetentionCheck,
     AuthCheck,
     HistoryAccessCheck,
     IntegrationRoleCheck,
     JournalVisibilityCheck,
     RateLimitCheck,
+    discover_automation_actors,
 )
 from supportagent.config.schema import AppConfig
-from supportagent.domain.errors import ConfigError, LLMUnavailable, ServiceNowError
+from supportagent.domain.errors import ConfigError, LLMUnavailable
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.triage import SafeDefaulted
@@ -134,7 +136,7 @@ def _ctx(  # noqa: PLR0913 — one knob per port
         load_bundle=bundle,
         load_calibration=calibration,
         schema=schema or _Schema(),
-        servicenow=ServiceNowTableProbe(http=http),
+        records=ServiceNowTableProbe(http=http),
         llm=llm or _LLM(),
         identity=identity or FakeOIDC(),
         automation=automation if automation is not None else _Actors(),
@@ -357,8 +359,8 @@ def test_doctor_servicenow_integration_role_chunks_long_in_queries(clock: Any) -
         link = {"sys_id": f"ar-m{i:03d}", "sys_security_acl": acl, "sys_user_role": role}
         sn.seed_row("sys_security_acl_role", link)
     ctx = _ctx(sn, clock=clock)
-    probe = _ShortURIs(ctx.servicenow)
-    res = IntegrationRoleCheck().run(dataclasses.replace(ctx, servicenow=probe))
+    probe = _ShortURIs(ctx.records)
+    res = IntegrationRoleCheck().run(dataclasses.replace(ctx, records=probe))
     assert res.status == "pass", res.detail
     assert "role_119" in res.detail
     assert 0 < probe.longest <= 4000
@@ -449,12 +451,12 @@ def test_doctor_automation_actors_pass(clock: Any) -> None:
         checkpoint=3,
     )
     actors = _Actors()
-    res = AutomationActorsCheck().run(_ctx(sn, clock=clock, automation=actors, discover=True))
+    res = _actors_check().run(_ctx(sn, clock=clock, automation=actors, discover=True))
     assert res.status == "pass"
     assert actors.rows == {"api.monitor": "web_service", "flow.designer": "integration"}
     assert res.data["added"] == 2
     # Re-running finds the same actors and adds nothing.
-    again = AutomationActorsCheck().run(_ctx(sn, clock=clock, automation=actors, discover=True))
+    again = _actors_check().run(_ctx(sn, clock=clock, automation=actors, discover=True))
     assert again.data["added"] == 0
 
 
@@ -462,7 +464,7 @@ def test_doctor_automation_actors_fail(clock: Any) -> None:
     actors = _Actors()
     actors.add_candidates("acme", [("flow.designer", "integration")])
     assisted = _shadow_config().model_copy(update={"mode": "assisted"})
-    res = AutomationActorsCheck().run(_ctx(clock=clock, config=assisted, automation=actors))
+    res = _actors_check().run(_ctx(clock=clock, config=assisted, automation=actors))
     assert res.status == "fail" and "must confirm" in res.detail
 
 
@@ -570,3 +572,7 @@ def test_doctor_exit_codes(clock: Any) -> None:
     assert [(r.name, r.status) for r in report.results] == [("boom", "fail"), ("after", "pass")]
     assert "kaput" in report.results[0].detail
     assert report.as_dict()["exit_code"] == 1
+
+
+def _actors_check() -> AutomationActorsCheck:
+    return AutomationActorsCheck(discover_automation_actors)

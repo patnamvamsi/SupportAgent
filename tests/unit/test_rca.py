@@ -582,7 +582,7 @@ def test_case_view_shows_contradicted_claims(
 ) -> None:
     oidc = FakeOIDC()
     client: TestClient = make_client(db, clock, ids, master_key, oidc, catalog("payments"))
-    seed_proposal(db, proposal_id="p_1", case_id="case_1", service="payments", sys_id="INC1")
+    seed_proposal(db, proposal_id="p_1", case_id="case_1", service="payments", external_id="INC1")
     tools = FakeTools({"gha.recent_runs": FAILED_RUN, "logs.grep": POOL_LOGS})
     llm = ScriptedLLM({SlotName.ENTAIL: lambda _: {"verdict": "contradicts"}})
     artifact = _service(_knowledge(ROOT / "runbooks"), tools, llm).run(_case(), Budget())

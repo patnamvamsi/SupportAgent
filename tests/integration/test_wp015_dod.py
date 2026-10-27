@@ -101,6 +101,7 @@ def test_wp015_dod_doctor_all_green_on_example_config(
         "servicenow.rate_limit",
         "servicenow.history_access",
         "servicenow.audit_retention",
+        "connector",
         "automation_actors",
         "paging",
         "llm",

@@ -1,4 +1,4 @@
-"""ServiceNow checks (02 §4.1). Every probe is a Table API read; nothing is written.
+"""ServiceNow's connector doctor (02 §4.1, WP-M07): Table API reads only, no writes.
 
 The ACL checks read ``sys_security_acl`` / ``sys_security_acl_role`` /
 ``sys_user_role``. Integration users often can't read those tables. A 403
@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import timedelta
 
-from supportagent.app.doctor.base import CheckResult, DoctorContext
-from supportagent.domain.errors import ServiceNowError
-from supportagent.ports.diagnostics import ServiceNowProbe
+from supportagent.app.doctor.base import CheckResult, ConnectorDoctor, DoctorContext
+from supportagent.domain.errors import ConnectorError
+from supportagent.ports.diagnostics import RecordProbe
 
 _FORBIDDEN = 403
+#: ARCH §8.2: who set ``assigned_to`` in the last 30 days.
+DISCOVERY_WINDOW = timedelta(days=30)
+#: Not human actors, whatever the instance says (ARCH §8.2).
+_NOT_HUMAN = frozenset({"system", "guest"})
 #: Roles whose holders are customers / self-service users (ESS has no role).
 EXTERNAL_ROLES = frozenset({"snc_external"})
 #: Roles that can write anything; an integration user should never hold them.
@@ -35,7 +40,7 @@ IN_CHUNK = 50
 
 
 def _forbidden(exc: Exception) -> bool:
-    return isinstance(exc, ServiceNowError) and exc.status == _FORBIDDEN
+    return isinstance(exc, ConnectorError) and exc.status == _FORBIDDEN
 
 
 def _in(values: Sequence[str]) -> str:
@@ -43,7 +48,7 @@ def _in(values: Sequence[str]) -> str:
 
 
 def _read_in(  # noqa: PLR0913 — one Table API read, split by its IN list
-    sn: ServiceNowProbe,
+    sn: RecordProbe,
     table: str,
     field: str,
     values: Sequence[str],
@@ -63,7 +68,7 @@ def _read_in(  # noqa: PLR0913 — one Table API read, split by its IN list
     return rows
 
 
-def _role_names(sn: ServiceNowProbe, role_ids: Sequence[str]) -> dict[str, str]:
+def _role_names(sn: RecordProbe, role_ids: Sequence[str]) -> dict[str, str]:
     rows = _read_in(sn, "sys_user_role", "sys_id", role_ids, fields=["sys_id", "name"], limit=500)
     return {r["sys_id"]: r.get("name", "") for r in rows}
 
@@ -76,7 +81,7 @@ class AuthCheck:
     def run(self, ctx: DoctorContext) -> CheckResult:
         tables = ctx.config.servicenow.tables
         for table in tables:
-            ctx.servicenow.read(table, query="", fields=["sys_id"], limit=1)
+            ctx.records.read(table, query="", fields=["sys_id"], limit=1)
         return CheckResult(
             self.name,
             "pass",
@@ -91,7 +96,7 @@ class JournalVisibilityCheck:
     name = "servicenow.journal_visibility"
 
     def run(self, ctx: DoctorContext) -> CheckResult:
-        sn = ctx.servicenow
+        sn = ctx.records
         names = sorted(
             {f"{t}.work_notes" for t in ctx.config.servicenow.tables} | {"task.work_notes"}
         )
@@ -117,7 +122,7 @@ class JournalVisibilityCheck:
                 limit=500,
             )
             names_by_id = _role_names(sn, [link["sys_user_role"] for link in links])
-        except ServiceNowError as exc:
+        except ConnectorError as exc:
             if _forbidden(exc):
                 return CheckResult(
                     self.name,
@@ -157,7 +162,7 @@ class IntegrationRoleCheck:
     name = "servicenow.integration_role"
 
     def run(self, ctx: DoctorContext) -> CheckResult:
-        sn = ctx.servicenow
+        sn = ctx.records
         user_name = ctx.config.servicenow.integration_user
         users = sn.read("sys_user", query=f"user_name={user_name}", fields=["sys_id"], limit=1).rows
         if not users:
@@ -177,7 +182,7 @@ class IntegrationRoleCheck:
                 ).rows
             ]
             roles = _role_names(sn, role_ids)
-        except ServiceNowError as exc:
+        except ConnectorError as exc:
             if _forbidden(exc):
                 return CheckResult(
                     self.name,
@@ -189,7 +194,7 @@ class IntegrationRoleCheck:
         # tables; the role findings still stand without them.
         try:
             write_acls: list[str] | None = self._write_acls(sn, role_ids)
-        except ServiceNowError as exc:
+        except ConnectorError as exc:
             if not _forbidden(exc):
                 raise
             write_acls = None
@@ -235,7 +240,7 @@ class IntegrationRoleCheck:
         )
 
     @staticmethod
-    def _write_acls(sn: ServiceNowProbe, role_ids: Sequence[str]) -> list[str]:
+    def _write_acls(sn: RecordProbe, role_ids: Sequence[str]) -> list[str]:
         acl_ids = [
             r["sys_security_acl"]
             for r in _read_in(
@@ -266,7 +271,7 @@ class RateLimitCheck:
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         sn_cfg = ctx.config.servicenow
-        probe = ctx.servicenow.read(sn_cfg.tables[0], query="", fields=["sys_id"], limit=1)
+        probe = ctx.records.read(sn_cfg.tables[0], query="", fields=["sys_id"], limit=1)
         limit_s = probe.headers.get("x-ratelimit-limit")
         remaining_s = probe.headers.get("x-ratelimit-remaining")
         if not limit_s or not limit_s.isdigit():
@@ -324,7 +329,7 @@ class HistoryAccessCheck:
     name = "servicenow.history_access"
 
     def run(self, ctx: DoctorContext) -> CheckResult:
-        sn = ctx.servicenow
+        sn = ctx.records
         table = ctx.config.servicenow.tables[0]
         blocked: list[str] = []
         journal_rows = 0
@@ -334,7 +339,7 @@ class HistoryAccessCheck:
         ):
             try:
                 rows = sn.read(history_table, query=query, fields=["sys_id"], limit=1).rows
-            except ServiceNowError as exc:
+            except ConnectorError as exc:
                 if _forbidden(exc):
                     blocked.append(history_table)
                     continue
@@ -369,13 +374,13 @@ class AuditRetentionCheck:
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         try:
-            rows = ctx.servicenow.read(
+            rows = ctx.records.read(
                 "sys_auto_flush",
                 query="tablename=sys_audit^active=true",
                 fields=["age"],
                 limit=10,
             ).rows
-        except ServiceNowError as exc:
+        except ConnectorError as exc:
             if _forbidden(exc):
                 return CheckResult(
                     self.name, "warn", "can't read sys_auto_flush (403): check sys_audit retention"
@@ -399,11 +404,60 @@ class AuditRetentionCheck:
         return CheckResult(self.name, "pass", f"sys_audit kept {days:.0f} days", data)
 
 
+def discover_automation_actors(ctx: DoctorContext) -> list[tuple[str, str]]:
+    """ARCH §8.2: recent ``assigned_to`` setters that can't log in interactively."""
+    sn_cfg = ctx.config.servicenow
+    since = (ctx.clock.now() - DISCOVERY_WINDOW).strftime("%Y-%m-%d %H:%M:%S")
+    audits = ctx.records.read(
+        "sys_audit",
+        query=(
+            f"fieldname=assigned_to^tablenameIN{','.join(sn_cfg.tables)}^sys_created_on>={since}"
+        ),
+        fields=["user"],
+        limit=10_000,
+    ).rows
+    actors = sorted(
+        {a["user"] for a in audits if a.get("user")} - _NOT_HUMAN - {sn_cfg.integration_user}
+    )
+    if not actors:
+        return []
+    users = ctx.records.read(
+        "sys_user",
+        query=f"user_nameIN{','.join(actors)}",
+        fields=["user_name", "web_service_access_only", "internal_integration_user"],
+        limit=len(actors),
+    ).rows
+    found: list[tuple[str, str]] = []
+    for user in users:
+        if user.get("internal_integration_user") == "true":
+            found.append((user["user_name"], "integration"))
+        elif user.get("web_service_access_only") == "true":
+            found.append((user["user_name"], "web_service"))
+    return sorted(found)
+
+
+#: WP-M07: ServiceNow's doctor checks, in the 02 §4.1 order.
+SERVICENOW_DOCTOR = ConnectorDoctor(
+    name="servicenow",
+    checks=(
+        AuthCheck(),
+        JournalVisibilityCheck(),
+        IntegrationRoleCheck(),
+        RateLimitCheck(),
+        HistoryAccessCheck(),
+        AuditRetentionCheck(),
+    ),
+    discover_automation=discover_automation_actors,
+)
+
+
 __all__ = [
+    "SERVICENOW_DOCTOR",
     "AuditRetentionCheck",
     "AuthCheck",
     "HistoryAccessCheck",
     "IntegrationRoleCheck",
     "JournalVisibilityCheck",
     "RateLimitCheck",
+    "discover_automation_actors",
 ]

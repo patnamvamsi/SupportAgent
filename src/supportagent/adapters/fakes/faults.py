@@ -2,7 +2,7 @@
 
 ``FaultInjectingTicketSink`` wraps any ``TicketSink``:
 
-- ``sn_500``: every call raises a retryable ``ServiceNowError`` (status 500)
+- ``sn_500``: every call raises a retryable ``ConnectorError`` (status 500)
   before reaching the inner sink.
 - ``sn_429``: the same with status 429 and ``Retry-After`` 1 s.
 - ``crash_after_send``: the write **reaches** the inner sink, and then the
@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 
-from supportagent.domain.errors import ServiceNowError, ToolError
+from supportagent.domain.errors import ConnectorError, ToolError
 from supportagent.domain.faults import Fault
 from supportagent.domain.model.external import ExternalRef
-from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tickets import NoteVisibility, RecordType, TicketSink
 from supportagent.ports.tools import Tool, ToolResult
 
 
@@ -40,9 +40,9 @@ class FaultInjectingTicketSink:
 
     def _before(self) -> None:
         if Fault.SN_500 in self._faults:
-            raise ServiceNowError("injected fault: sn_500", retryable=True, status=500)  # noqa: TRY003
+            raise ConnectorError("injected fault: sn_500", retryable=True, status=500)  # noqa: TRY003
         if Fault.SN_429 in self._faults:
-            raise ServiceNowError(  # noqa: TRY003
+            raise ConnectorError(  # noqa: TRY003
                 "injected fault: sn_429", retryable=True, retry_after_s=1.0, status=429
             )
 
@@ -52,22 +52,24 @@ class FaultInjectingTicketSink:
             raise SimulatedCrash("injected fault: crash_after_send")  # noqa: TRY003
 
     def append_journal(
-        self, table: SnTable, sys_id: str, field: JournalField, text: str
+        self, table: RecordType, external_id: str, field: NoteVisibility, text: str
     ) -> ExternalRef:
         self._before()
-        ref = self._inner.append_journal(table, sys_id, field, text)
+        ref = self._inner.append_journal(table, external_id, field, text)
         self._after_write()
         return ref
 
-    def update_fields(self, table: SnTable, sys_id: str, fields: Mapping[str, str]) -> ExternalRef:
+    def update_fields(
+        self, table: RecordType, external_id: str, fields: Mapping[str, str]
+    ) -> ExternalRef:
         self._before()
-        ref = self._inner.update_fields(table, sys_id, fields)
+        ref = self._inner.update_fields(table, external_id, fields)
         self._after_write()
         return ref
 
-    def find_marker(self, table: SnTable, sys_id: str, marker: str) -> ExternalRef | None:
+    def find_marker(self, table: RecordType, external_id: str, marker: str) -> ExternalRef | None:
         self._before()
-        return self._inner.find_marker(table, sys_id, marker)
+        return self._inner.find_marker(table, external_id, marker)
 
 
 class FaultInjectingTool:

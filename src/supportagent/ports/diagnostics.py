@@ -1,9 +1,10 @@
 """Diagnostic ports for ``supportagent doctor`` (02 §4.1, 10-wp WP-015).
 
 Each port is the narrow read the doctor checks need, so checks stay pure
-application code (no SQL, no HTTP). ``ServiceNowProbe`` deliberately has a
-single read method and nothing that writes: ``doctor`` never writes to
-ServiceNow by construction (``test_doctor_never_writes_to_servicenow``).
+application code (no SQL, no HTTP). ``RecordProbe`` (the connector's
+read-only query, WP-M07) deliberately has a single read method and nothing
+that writes: ``doctor`` never writes to the incident system by construction
+(``test_doctor_never_writes_to_servicenow``).
 """
 
 from __future__ import annotations
@@ -15,14 +16,14 @@ from typing import Protocol
 
 @dataclass(frozen=True, slots=True)
 class ProbeRows:
-    """One Table API read: the rows (string values) and the response headers."""
+    """One connector read: the rows (string values) and the response headers."""
 
     rows: list[dict[str, str]]
     headers: Mapping[str, str] = field(default_factory=dict)
 
 
-class ServiceNowProbe(Protocol):
-    """Read-only Table API access (02 §6). Raises ``ServiceNowError`` with ``status``."""
+class RecordProbe(Protocol):
+    """A connector's read-only record query (02 §6). Raises ``ConnectorError`` with ``status``."""
 
     def read(self, table: str, *, query: str, fields: Sequence[str], limit: int) -> ProbeRows: ...
 
@@ -76,6 +77,6 @@ __all__ = [
     "DiscoveryProbe",
     "ModelProbe",
     "ProbeRows",
+    "RecordProbe",
     "SchemaProbe",
-    "ServiceNowProbe",
 ]

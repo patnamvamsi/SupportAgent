@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from collections.abc import Callable
 
 from supportagent.app.doctor.base import CheckResult, DoctorContext
 from supportagent.domain.errors import ExternalServiceError
 
-#: ARCH §8.2: who set ``assigned_to`` in the last 30 days.
-DISCOVERY_WINDOW = timedelta(days=30)
-#: Not human actors, whatever the instance says (ARCH §8.2).
-_NOT_HUMAN = frozenset({"system", "guest"})
-
 
 class AutomationActorsCheck:
-    """Non-interactive ``sys_user``s that set ``assigned_to``; confirmed before assisted mode.
+    """Non-interactive identities that set a record's assignee; confirmed before assisted mode.
 
-    With ``--discover-automation`` the candidates are written to
+    The connector discovers them (``ConnectorDoctor.discover_automation``,
+    WP-M07). With ``--discover-automation`` the candidates are written to
     ``automation_actors`` with ``confirmed_by`` NULL (an admin confirms them).
     Shadow mode never acts on takeover, so unconfirmed candidates only block
     the move to ``mode: assisted``.
     """
 
     name = "automation_actors"
+
+    def __init__(self, discover: Callable[[DoctorContext], list[tuple[str, str]]]) -> None:
+        self._discover = discover
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         tenant = ctx.config.tenant.id
@@ -51,38 +50,6 @@ class AutomationActorsCheck:
         if not ctx.discover_automation and total == 0:
             detail += "; run `doctor --discover-automation` before moving to assisted mode"
         return CheckResult(self.name, "pass", detail, data)
-
-    @staticmethod
-    def _discover(ctx: DoctorContext) -> list[tuple[str, str]]:
-        sn_cfg = ctx.config.servicenow
-        since = (ctx.clock.now() - DISCOVERY_WINDOW).strftime("%Y-%m-%d %H:%M:%S")
-        audits = ctx.servicenow.read(
-            "sys_audit",
-            query=(
-                f"fieldname=assigned_to^tablenameIN{','.join(sn_cfg.tables)}"
-                f"^sys_created_on>={since}"
-            ),
-            fields=["user"],
-            limit=10_000,
-        ).rows
-        actors = sorted(
-            {a["user"] for a in audits if a.get("user")} - _NOT_HUMAN - {sn_cfg.integration_user}
-        )
-        if not actors:
-            return []
-        users = ctx.servicenow.read(
-            "sys_user",
-            query=f"user_nameIN{','.join(actors)}",
-            fields=["user_name", "web_service_access_only", "internal_integration_user"],
-            limit=len(actors),
-        ).rows
-        found: list[tuple[str, str]] = []
-        for user in users:
-            if user.get("internal_integration_user") == "true":
-                found.append((user["user_name"], "integration"))
-            elif user.get("web_service_access_only") == "true":
-                found.append((user["user_name"], "web_service"))
-        return sorted(found)
 
 
 class LLMCheck:

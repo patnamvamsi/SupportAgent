@@ -12,7 +12,7 @@ WHEN = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
 
 def healthy_instance(sn: FakeServiceNowHTTP) -> FakeServiceNowHTTP:
     """Every v0.0 doctor check passes against this instance."""
-    sn.seed_record("incident", "inc-1", number="INC0010001", caller_id="u1", sys_updated_on=WHEN)
+    sn.seed_record("incident", "inc-1", number="INC0010001", caller_id="u1", updated_at=WHEN)
     sn.seed_row("sys_user", {"sys_id": "u-svc", "user_name": INTEGRATION_USER})
     sn.seed_row("sys_user_role", {"sys_id": "r-itil", "name": "itil"})
     sn.seed_row("sys_user_role", {"sys_id": "r-ext", "name": "snc_external"})

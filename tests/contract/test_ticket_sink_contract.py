@@ -16,20 +16,20 @@ from __future__ import annotations
 from typing import Any
 
 from supportagent.domain.model.external import ExternalRef
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.builders import T0
 
 
-def _seed(env: Any, sys_id: str, **row: Any) -> None:
+def _seed(env: Any, external_id: str, **row: Any) -> None:
     """Seed the record (both impls accept a ``SnTable`` for the table)."""
     env["seed"](
-        SnTable.INCIDENT,
-        sys_id,
+        RecordType.INCIDENT,
+        external_id,
         number="INC100",
-        short_description=sys_id,
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        short_description=external_id,
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
         **row,
     )
 
@@ -41,12 +41,12 @@ def test_append_journal_returns_ref(sn_env: Any) -> None:
     _seed(env, "recA")
     marker = "[sa:contract_append_ref]"
     text = f"Investigated the issue.\n{marker}"
-    ref = env["sink"].append_journal(SnTable.INCIDENT, "recA", JournalField.WORK_NOTES, text)
+    ref = env["sink"].append_journal(RecordType.INCIDENT, "recA", NoteVisibility.INTERNAL, text)
     # shared contract: an ExternalRef is returned (shape is impl-specific)
     assert isinstance(ref, ExternalRef)
     assert ref.ref
     # ... and the appended text is externally readable, carrying the marker
-    assert env["sink"].find_marker(SnTable.INCIDENT, "recA", marker) is not None
+    assert env["sink"].find_marker(RecordType.INCIDENT, "recA", marker) is not None
 
 
 def test_find_marker_finds_appended_marker(sn_env: Any) -> None:
@@ -56,14 +56,14 @@ def test_find_marker_finds_appended_marker(sn_env: Any) -> None:
     _seed(env, "recF")
     marker = "[sa:contract_marker]"
     env["sink"].append_journal(
-        SnTable.INCIDENT, "recF", JournalField.WORK_NOTES, f"Note.\n{marker}"
+        RecordType.INCIDENT, "recF", NoteVisibility.INTERNAL, f"Note.\n{marker}"
     )
     # the applied marker is found
-    found = env["sink"].find_marker(SnTable.INCIDENT, "recF", marker)
+    found = env["sink"].find_marker(RecordType.INCIDENT, "recF", marker)
     assert found is not None
     assert isinstance(found, ExternalRef)
     # a marker that was never applied is not found
-    assert env["sink"].find_marker(SnTable.INCIDENT, "recF", "[sa:does_not_exist_999]") is None
+    assert env["sink"].find_marker(RecordType.INCIDENT, "recF", "[sa:does_not_exist_999]") is None
 
 
 def test_find_marker_needs_the_last_line(sn_env: Any) -> None:
@@ -72,13 +72,13 @@ def test_find_marker_needs_the_last_line(sn_env: Any) -> None:
     _seed(env, "recQ")
     marker = "[sa:contract_quoted]"
     env["sink"].append_journal(
-        SnTable.INCIDENT, "recQ", JournalField.WORK_NOTES, f"Saw {marker} earlier.\nThanks."
+        RecordType.INCIDENT, "recQ", NoteVisibility.INTERNAL, f"Saw {marker} earlier.\nThanks."
     )
-    assert env["sink"].find_marker(SnTable.INCIDENT, "recQ", marker) is None
+    assert env["sink"].find_marker(RecordType.INCIDENT, "recQ", marker) is None
     env["sink"].append_journal(
-        SnTable.INCIDENT, "recQ", JournalField.WORK_NOTES, f"Agent note.\n{marker}\n"
+        RecordType.INCIDENT, "recQ", NoteVisibility.INTERNAL, f"Agent note.\n{marker}\n"
     )
-    assert env["sink"].find_marker(SnTable.INCIDENT, "recQ", marker) is not None
+    assert env["sink"].find_marker(RecordType.INCIDENT, "recQ", marker) is not None
 
 
 def test_update_fields_idempotent(sn_env: Any) -> None:
@@ -89,13 +89,13 @@ def test_update_fields_idempotent(sn_env: Any) -> None:
     _seed(env, "recU", state="0")
     sink = env["sink"]
 
-    first = sink.update_fields(SnTable.INCIDENT, "recU", {"state": "1"})
+    first = sink.update_fields(RecordType.INCIDENT, "recU", {"state": "1"})
     assert isinstance(first, ExternalRef)
     assert env["write_count"]() == 1  # first call writes exactly once
-    assert env["read_field"](SnTable.INCIDENT, "recU", "state") == "1"
+    assert env["read_field"](RecordType.INCIDENT, "recU", "state") == "1"
 
-    second = sink.update_fields(SnTable.INCIDENT, "recU", {"state": "1"})
+    second = sink.update_fields(RecordType.INCIDENT, "recU", {"state": "1"})
     assert isinstance(second, ExternalRef)
     # identical re-apply is a no-op: no additional write
     assert env["write_count"]() == 1
-    assert env["read_field"](SnTable.INCIDENT, "recU", "state") == "1"
+    assert env["read_field"](RecordType.INCIDENT, "recU", "state") == "1"

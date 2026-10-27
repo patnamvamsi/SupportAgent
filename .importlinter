@@ -162,3 +162,23 @@ source_modules =
     supportagent.bootstrap
 forbidden_modules =
     supportagent.adapters.llm.providers
+
+[importlinter:contract:core-no-servicenow]
+name = core-no-servicenow
+type = forbidden
+# 14-wp WP-M07 (test_core_has_no_servicenow_types): the core reaches an
+# incident system only through the connector contract (ports.tickets,
+# domain.connector). Only bootstrap wires the ServiceNow connector; the
+# connector's own doctor checks live in app.doctor.connectors (no adapter
+# import there either). Indirect paths through bootstrap are the wiring.
+allow_indirect_imports = True
+source_modules =
+    supportagent.domain
+    supportagent.ports
+    supportagent.app
+    supportagent.config
+    supportagent.evals
+    supportagent.entrypoints
+forbidden_modules =
+    supportagent.adapters.servicenow
+    supportagent.adapters.fakes.servicenow

@@ -125,7 +125,7 @@ def seed_proposal(  # noqa: PLR0913 — one knob per column the tests vary
     created_by: str = "agent",
     created_at_ts: int = 1_000,
     payload: dict[str, object] | None = None,
-    sys_id: str = "INC0000001",
+    external_id: str = "INC0000001",
     service: str = "payments",
 ) -> str:
     """A case (if new) plus one proposal with a real canonical payload hash."""
@@ -147,7 +147,7 @@ def seed_proposal(  # noqa: PLR0913 — one knob per column the tests vary
                 "t": TENANT,
                 "fp": f"fp_{case_id}",
                 "tr": trace_id,
-                "sys": sys_id,
+                "sys": external_id,
                 "svc": service,
                 "sev": severity,
                 "dj": '{"outcome": "routed", "reason": "routed"}',

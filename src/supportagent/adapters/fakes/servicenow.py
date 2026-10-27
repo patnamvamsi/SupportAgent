@@ -1,4 +1,4 @@
-"""FakeServiceNow (04 §1): an in-memory ``TicketSource`` + ``TicketSink``.
+"""FakeServiceNow (04 §1): an in-memory ``Connector`` (``TicketSource`` + ``TicketSink``).
 
 Serves the unit/property/contract/invariant suites. The *sink* side (WP-006)
 appends journal entries in order, merges field updates, and lets
@@ -8,6 +8,8 @@ serves ``poll`` (page the records changed since a cursor) and ``history``
 (audit + journal changes for one record, ordered by time).
 
 Test seams:
+  * ``FakeServiceNow(capabilities=...)`` — a connector missing capabilities
+    (WP-M07): calling one it lacks raises ``ConnectorError``.
   * ``queue_fault(exc)`` — the next call raises ``exc`` (FIFO), simulating
     retryable / non-retryable external failures (01 §7.5, 02 §5).
   * ``records`` / ``audit_entries`` / ``journal_history`` — source-side state.
@@ -19,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
@@ -29,12 +31,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from supportagent.domain.errors import ExternalServiceError
+from supportagent.domain.connector import Capability, ConnectorManifest, TicketSemantics
+from supportagent.domain.errors import ConnectorError, ExternalServiceError
 from supportagent.domain.model.external import ExternalRef
 from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
-from supportagent.ports.tickets import JournalField, PollBatch, SnTable
+from supportagent.ports.tickets import NoteVisibility, PollBatch, RecordType
 
-_JOURNAL_FIELDS: tuple[JournalField, ...] = (JournalField.WORK_NOTES, JournalField.COMMENTS)
+_JOURNAL_FIELDS: tuple[NoteVisibility, ...] = (NoteVisibility.INTERNAL, NoteVisibility.CUSTOMER)
 
 
 class _Row(TypedDict):
@@ -62,7 +65,16 @@ _FIXED_TS = "2026-01-01 00:00:00"  # timestamps for sink-appended entries (not a
 class FakeServiceNow:
     """In-memory ticketing system (04 §1): implements ``TicketSource`` + ``TicketSink``."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        capabilities: Collection[Capability] | None = None,
+        semantics: TicketSemantics | None = None,
+    ) -> None:
+        caps = frozenset(Capability) if capabilities is None else frozenset(capabilities)
+        self._manifest = ConnectorManifest(name="servicenow", capabilities=caps)
+        # adapters are independent: the ServiceNow semantics are passed in, not imported
+        self._semantics = semantics
         self._lock = threading.Lock()
         # sink side
         self._journals: dict[tuple[str, str, str], list[tuple[str, ExternalRef]]] = {}
@@ -85,8 +97,8 @@ class FakeServiceNow:
 
     def seed_record(  # noqa: PLR0913
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         *,
         number: str | None = None,
         short_description: str | None = None,
@@ -96,16 +108,16 @@ class FakeServiceNow:
         cmdb_ci: str | None = None,
         cmdb_ci_name: str | None = None,
         caller_id: str | None = None,
-        u_alert_source: str | None = None,
-        sys_updated_on: datetime,
-        sys_updated_by: str = "u1",
-        sys_mod_count: int = 1,
-        sys_created_by: str | None = None,
+        alert_source: str | None = None,
+        updated_at: datetime,
+        updated_by: str = "u1",
+        revision: int = 1,
+        created_by: str | None = None,
     ) -> None:
         """Record a row in the table (source-side state for ``poll``)."""
         with self._lock:
-            self._rows.setdefault(table.value, {})[sys_id] = {
-                "sys_id": sys_id,
+            self._rows.setdefault(table.value, {})[external_id] = {
+                "sys_id": external_id,
                 "number": number,
                 "short_description": short_description,
                 "description": description,
@@ -114,17 +126,17 @@ class FakeServiceNow:
                 "cmdb_ci": cmdb_ci,
                 "cmdb_ci_name": cmdb_ci_name,
                 "caller_id": caller_id,
-                "u_alert_source": u_alert_source,
-                "sys_updated_on": sys_updated_on,
-                "sys_updated_by": sys_updated_by,
-                "sys_mod_count": sys_mod_count,
-                "sys_created_by": sys_created_by,
+                "u_alert_source": alert_source,
+                "sys_updated_on": updated_at,
+                "sys_updated_by": updated_by,
+                "sys_mod_count": revision,
+                "sys_created_by": created_by,
             }
 
     def seed_audit(  # noqa: PLR0913
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         *,
         user: str,
         ts: datetime,
@@ -135,7 +147,7 @@ class FakeServiceNow:
     ) -> None:
         """Record a ``sys_audit`` field edit (source-side state for ``history``)."""
         with self._lock:
-            self._audit.setdefault((table.value, sys_id), []).append(
+            self._audit.setdefault((table.value, external_id), []).append(
                 ChangeRecord(
                     source="audit",
                     user=user,
@@ -149,8 +161,8 @@ class FakeServiceNow:
 
     def seed_journal(  # noqa: PLR0913
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         *,
         user: str,
         ts: datetime,
@@ -159,7 +171,7 @@ class FakeServiceNow:
     ) -> None:
         """Record a ``sys_journal_field`` entry (source-side state for ``history``)."""
         with self._lock:
-            self._journal_hist.setdefault((table.value, sys_id), []).append(
+            self._journal_hist.setdefault((table.value, external_id), []).append(
                 ChangeRecord(
                     source="journal",
                     user=user,
@@ -172,31 +184,33 @@ class FakeServiceNow:
                 )
             )
 
-    def records(self, table: SnTable) -> list[TicketRecord]:
+    def records(self, table: RecordType) -> list[TicketRecord]:
         """A copy of the current rows on ``table`` (source-side assertions)."""
         with self._lock:
             return [self._row_to_record(table, r) for r in self._rows.get(table.value, {}).values()]
 
-    def audit_entries(self, table: SnTable, sys_id: str) -> list[ChangeRecord]:
+    def audit_entries(self, table: RecordType, external_id: str) -> list[ChangeRecord]:
         """A copy of the audit entries for ``sys_id`` (source-side assertions)."""
         with self._lock:
-            return list(self._audit.get((table.value, sys_id), []))
+            return list(self._audit.get((table.value, external_id), []))
 
-    def journal_history(self, table: SnTable, sys_id: str) -> list[ChangeRecord]:
+    def journal_history(self, table: RecordType, external_id: str) -> list[ChangeRecord]:
         """A copy of the journal entries for ``sys_id`` (source-side assertions)."""
         with self._lock:
-            return list(self._journal_hist.get((table.value, sys_id), []))
+            return list(self._journal_hist.get((table.value, external_id), []))
 
-    def journal_entries(self, table: SnTable, sys_id: str, field: JournalField) -> list[str]:
-        """A copy of the current entry texts of ``field`` on ``sys_id`` (sink side)."""
+    def journal_entries(
+        self, table: RecordType, external_id: str, visibility: NoteVisibility
+    ) -> list[str]:
+        """A copy of the current ``visibility`` note texts on ``external_id`` (sink side)."""
         with self._lock:
-            entries = self._journals.get((table.value, sys_id, field.value), [])
+            entries = self._journals.get((table.value, external_id, visibility.value), [])
             return [text for text, _ref in entries]
 
-    def fields(self, table: SnTable, sys_id: str) -> dict[str, str]:
+    def fields(self, table: RecordType, external_id: str) -> dict[str, str]:
         """A copy of the current field values on ``sys_id`` (sink side)."""
         with self._lock:
-            return dict(self._fields.get((table.value, sys_id), {}))
+            return dict(self._fields.get((table.value, external_id), {}))
 
     @property
     def write_count(self) -> int:
@@ -204,9 +218,25 @@ class FakeServiceNow:
         with self._lock:
             return self._writes
 
+    # --- Connector (WP-M07) -------------------------------------------------
+
+    @property
+    def manifest(self) -> ConnectorManifest:
+        return self._manifest
+
+    @property
+    def semantics(self) -> TicketSemantics:
+        if self._semantics is None:
+            raise ConnectorError("FakeServiceNow was built without semantics")  # noqa: TRY003
+        return self._semantics
+
+    def _require(self, capability: Capability) -> None:
+        if not self._manifest.has(capability):
+            raise ConnectorError(f"the connector has no {capability.value} capability")  # noqa: TRY003
+
     # --- TicketSource (02 §6) ----------------------------------------------
 
-    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
+    def poll(self, table: RecordType, since: datetime, limit: int, offset: int = 0) -> PollBatch:
         """Records on ``table`` with ``sys_updated_on >= since``, one page."""
         with self._lock:
             rows = list(self._rows.get(table.value, {}).values())
@@ -217,29 +247,30 @@ class FakeServiceNow:
             records = [self._row_to_record(table, r) for r in page]
         return PollBatch(records=records, next_cursor=next_cursor)
 
-    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+    def record(self, table: RecordType, external_id: str) -> TicketRecord | None:
         """The seeded row's current fields, or ``None`` (ADR-0010)."""
         with self._lock:
-            row = self._rows.get(table.value, {}).get(sys_id)
+            row = self._rows.get(table.value, {}).get(external_id)
             return None if row is None else self._row_to_record(table, row)
 
     def history(
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         after_mod_count: int,
         since: datetime | None = None,
     ) -> Sequence[ChangeRecord]:
         """Audit (checkpoint > ``after_mod_count``) + journal (``ts >= since``), by ``ts``."""
+        self._require(Capability.HISTORY)
         with self._lock:
             audit = [
                 c
-                for c in self._audit.get((table.value, sys_id), [])
+                for c in self._audit.get((table.value, external_id), [])
                 if c.checkpoint is not None and c.checkpoint > after_mod_count
             ]
             journal = [
                 c
-                for c in self._journal_hist.get((table.value, sys_id), [])
+                for c in self._journal_hist.get((table.value, external_id), [])
                 if since is None or c.ts >= since
             ]
         return sorted(audit + journal, key=lambda c: (c.ts, c.source == "audit"))
@@ -252,44 +283,52 @@ class FakeServiceNow:
 
     def append_journal(
         self,
-        table: SnTable,
-        sys_id: str,
-        field: JournalField,
+        table: RecordType,
+        external_id: str,
+        visibility: NoteVisibility,
         text: str,
     ) -> ExternalRef:
+        self._require(
+            Capability.INTERNAL_NOTES
+            if visibility is NoteVisibility.INTERNAL
+            else Capability.CUSTOMER_NOTES
+        )
         self._maybe_fault()
         with self._lock:
             self._jseq += 1
             ref = ExternalRef(system=table.value, ref=f"snj{self._jseq:04d}")
-            self._journals.setdefault((table.value, sys_id, field.value), []).append((text, ref))
+            key = (table.value, external_id, visibility.value)
+            self._journals.setdefault(key, []).append((text, ref))
             self._writes += 1
         return ref
 
     def update_fields(
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         fields: Mapping[str, str],
     ) -> ExternalRef:
+        self._require(Capability.FIELD_UPDATES)
         self._maybe_fault()
         with self._lock:
             # read-compare: a re-apply of equal values is a no-op write (01 §7.5)
-            current = self._fields.setdefault((table.value, sys_id), {})
+            current = self._fields.setdefault((table.value, external_id), {})
             changed = {k: v for k, v in fields.items() if current.get(k) != v}
             if changed:
                 current.update(changed)
                 self._writes += 1
-        return ExternalRef(system=table.value, ref=sys_id)
+        return ExternalRef(system=table.value, ref=external_id)
 
     def find_marker(
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         marker: str,
     ) -> ExternalRef | None:
+        self._require(Capability.MARKER_READ)
         with self._lock:
             for field in _JOURNAL_FIELDS:
-                for text, ref in self._journals.get((table.value, sys_id, field.value), []):
+                for text, ref in self._journals.get((table.value, external_id, field.value), []):
                     lines = [line.strip() for line in text.strip().splitlines()]
                     if lines and lines[-1] == marker:  # 01 §7.5: last line only (BL-003)
                         return ref
@@ -297,10 +336,10 @@ class FakeServiceNow:
 
     # --- internals -----------------------------------------------------------
 
-    def _row_to_record(self, table: SnTable, row: _Row) -> TicketRecord:
+    def _row_to_record(self, table: RecordType, row: _Row) -> TicketRecord:
         return TicketRecord(
             table=table.value,
-            sys_id=row["sys_id"],
+            external_id=row["sys_id"],
             number=row.get("number"),
             short_description=row.get("short_description"),
             description=row.get("description"),
@@ -311,11 +350,11 @@ class FakeServiceNow:
             cmdb_ci=row.get("cmdb_ci"),
             cmdb_ci_name=row.get("cmdb_ci_name"),
             caller_id=row.get("caller_id"),
-            u_alert_source=row.get("u_alert_source"),
-            sys_updated_on=row["sys_updated_on"],
-            sys_updated_by=row.get("sys_updated_by") or "unknown",
-            sys_mod_count=row["sys_mod_count"],
-            sys_created_by=row.get("sys_created_by"),
+            alert_source=row.get("u_alert_source"),
+            updated_at=row["sys_updated_on"],
+            updated_by=row.get("sys_updated_by") or "unknown",
+            revision=row["sys_mod_count"],
+            created_by=row.get("sys_created_by"),
         )
 
 
@@ -358,7 +397,16 @@ class FakeServiceNowHTTP:
     response, letting the suite assert the retry/backoff behaviour.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        capabilities: Collection[Capability] | None = None,
+        semantics: TicketSemantics | None = None,
+    ) -> None:
+        caps = frozenset(Capability) if capabilities is None else frozenset(capabilities)
+        self._manifest = ConnectorManifest(name="servicenow", capabilities=caps)
+        # adapters are independent: the ServiceNow semantics are passed in, not imported
+        self._semantics = semantics
         self._lock = threading.Lock()
         self._rows: dict[str, dict[str, dict[str, Any]]] = {}  # table -> sys_id -> row
         self._audit: list[dict[str, Any]] = []
@@ -409,7 +457,7 @@ class FakeServiceNowHTTP:
     def seed_record(  # noqa: PLR0913
         self,
         table: str,
-        sys_id: str,
+        external_id: str,
         *,
         number: str | None = None,
         short_description: str | None = None,
@@ -419,15 +467,15 @@ class FakeServiceNowHTTP:
         cmdb_ci: str | None = None,
         cmdb_ci_name: str | None = None,
         caller_id: str | None = None,
-        u_alert_source: str | None = None,
-        sys_updated_on: datetime | str,
-        sys_updated_by: str = "u1",
-        sys_mod_count: int = 1,
-        sys_created_by: str | None = None,
+        alert_source: str | None = None,
+        updated_at: datetime | str,
+        updated_by: str = "u1",
+        revision: int = 1,
+        created_by: str | None = None,
     ) -> None:
         with self._lock:
-            self._rows.setdefault(table, {})[sys_id] = {
-                "sys_id": sys_id,
+            self._rows.setdefault(table, {})[external_id] = {
+                "sys_id": external_id,
                 "number": number,
                 "short_description": short_description,
                 "description": description,
@@ -436,17 +484,17 @@ class FakeServiceNowHTTP:
                 "cmdb_ci": cmdb_ci,
                 "cmdb_ci.name": cmdb_ci_name,
                 "caller_id": caller_id,
-                "u_alert_source": u_alert_source,
-                "sys_updated_on": self._fmt(sys_updated_on),
-                "sys_updated_by": sys_updated_by,
-                "sys_mod_count": str(sys_mod_count),
-                "sys_created_by": sys_created_by,
+                "u_alert_source": alert_source,
+                "sys_updated_on": self._fmt(updated_at),
+                "sys_updated_by": updated_by,
+                "sys_mod_count": str(revision),
+                "sys_created_by": created_by,
             }
 
     def seed_audit(  # noqa: PLR0913
         self,
         table: str,
-        sys_id: str,
+        external_id: str,
         *,
         user: str,
         ts: datetime | str,
@@ -459,7 +507,7 @@ class FakeServiceNowHTTP:
             self._audit.append(
                 {
                     "tablename": table,
-                    "documentkey": sys_id,
+                    "documentkey": external_id,
                     "record_checkpoint": str(checkpoint) if checkpoint is not None else None,
                     "fieldname": fieldname,
                     "oldvalue": oldvalue,
@@ -472,7 +520,7 @@ class FakeServiceNowHTTP:
     def seed_journal(  # noqa: PLR0913
         self,
         table: str,
-        sys_id: str,
+        external_id: str,
         *,
         user: str,
         ts: datetime | str,
@@ -484,7 +532,7 @@ class FakeServiceNowHTTP:
                 {
                     "sys_id": f"j{len(self._journal) + 1:05d}",
                     "name": table,
-                    "element_id": sys_id,
+                    "element_id": external_id,
                     "element": element,
                     "value": value,
                     "sys_created_by": user,
@@ -534,9 +582,9 @@ class FakeServiceNowHTTP:
         if fault is not None:
             return fault
         table = request.path_params["table"]
-        sys_id = request.path_params["sys_id"]
+        external_id = request.path_params["sys_id"]
         with self._lock:
-            row = self._rows.get(table, {}).get(sys_id)
+            row = self._rows.get(table, {}).get(external_id)
         if row is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         if request.method == "GET":
@@ -546,7 +594,7 @@ class FakeServiceNowHTTP:
             # A real instance rejects non-string field values (e.g. a journal array).
             return JSONResponse({"error": "field values must be strings"}, status_code=400)
         with self._lock:
-            self._apply_patch(table, sys_id, body)
+            self._apply_patch(table, external_id, body)
             self._patch_count += 1
         return JSONResponse({"result": row})
 
@@ -591,19 +639,19 @@ class FakeServiceNowHTTP:
             return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
         return value
 
-    def _apply_patch(self, table: str, sys_id: str, body: Mapping[str, Any]) -> None:
+    def _apply_patch(self, table: str, external_id: str, body: Mapping[str, Any]) -> None:
         """Table API PATCH semantics: setting a journal field (``work_notes`` /
         ``comments``) to a string *appends* one journal entry; any other key
         sets the field (the handler has already rejected non-string values)."""
-        row = self._rows.setdefault(table, {})[sys_id]
-        journal_fields = {f.value for f in _JOURNAL_FIELDS}
+        row = self._rows.setdefault(table, {})[external_id]
+        journal_fields = {"work_notes", "comments"}  # the Table API journal elements
         for key, value in body.items():
             if key in journal_fields:
                 self._journal.append(
                     {
                         "sys_id": f"j{len(self._journal) + 1:05d}",
                         "name": table,
-                        "element_id": sys_id,
+                        "element_id": external_id,
                         "element": key,
                         "value": value,
                         "sys_created_by": "svc",

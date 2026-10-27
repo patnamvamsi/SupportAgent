@@ -38,6 +38,7 @@ from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.faults import FaultInjectingLLMProvider
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.app.classify import Classifier
 from supportagent.app.gate import GateService
 from supportagent.app.handlers import HANDLERS
@@ -46,7 +47,6 @@ from supportagent.app.replay import ReplayService
 from supportagent.app.triage import TriageService
 from supportagent.bootstrap import build_container
 from supportagent.config.schema import AppConfig
-from supportagent.domain.errors import ServiceNowError
 from supportagent.domain.events import EventKind
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef

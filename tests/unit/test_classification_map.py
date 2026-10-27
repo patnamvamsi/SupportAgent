@@ -12,7 +12,7 @@ from supportagent.adapters.files.taxonomy_loader import load_classification, loa
 from supportagent.config.loader import load_config
 from supportagent.config.schema import ServiceNow
 from supportagent.config.validation import validate_bundle
-from supportagent.domain.classification import map_servicenow_classification
+from supportagent.domain.classification import map_source_classification
 from tests.builders import SECRET_ENV
 
 REPO = Path(__file__).resolve().parents[2]
@@ -20,20 +20,20 @@ MAP = {"db/pool": "database/saturation", "network": "network/dns"}
 
 
 def test_no_map_keeps_the_lowercased_category_pair() -> None:
-    assert map_servicenow_classification("Database", "Saturation", {}) == "database/saturation"
-    assert map_servicenow_classification("Database", None, {}) is None
+    assert map_source_classification("Database", "Saturation", {}) == "database/saturation"
+    assert map_source_classification("Database", None, {}) is None
 
 
 def test_map_prefers_the_most_specific_key() -> None:
-    assert map_servicenow_classification("DB", "Pool", MAP) == "database/saturation"
-    assert map_servicenow_classification(" Network ", "Latency", MAP) == "network/dns"
-    assert map_servicenow_classification("Network", None, MAP) == "network/dns"
+    assert map_source_classification("DB", "Pool", MAP) == "database/saturation"
+    assert map_source_classification(" Network ", "Latency", MAP) == "network/dns"
+    assert map_source_classification("Network", None, MAP) == "network/dns"
 
 
 def test_unmapped_category_is_not_counted() -> None:
     # None, not the raw pair: agreement stays None instead of a false disagreement.
-    assert map_servicenow_classification("Hardware", "Disk", MAP) is None
-    assert map_servicenow_classification(None, None, MAP) is None
+    assert map_source_classification("Hardware", "Disk", MAP) is None
+    assert map_source_classification(None, None, MAP) is None
 
 
 def _sn(classification_map: dict[str, str]) -> ServiceNow:

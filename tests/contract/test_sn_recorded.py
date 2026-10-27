@@ -19,7 +19,7 @@ from supportagent.adapters.servicenow.auth import BasicAuth
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import row_to_record
 from supportagent.adapters.servicenow.source import ServiceNowSource
-from supportagent.ports.tickets import SnTable
+from supportagent.ports.tickets import RecordType
 
 _DATA = Path(__file__).resolve().parents[1] / "data" / "sn"
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -51,10 +51,10 @@ def _source(fixture: dict[str, Any], **by_table: dict[str, Any]) -> ServiceNowSo
 
 def test_recorded_poll_maps_every_record() -> None:
     fixture = _fixture("incident_poll")
-    batch = _source(fixture).poll(SnTable.INCIDENT, datetime(2000, 1, 1, tzinfo=UTC), limit=5)
+    batch = _source(fixture).poll(RecordType.INCIDENT, datetime(2000, 1, 1, tzinfo=UTC), limit=5)
     assert len(batch.records) == len(fixture["result"])
     for rec in batch.records:
-        assert _SYS_ID.match(rec.sys_id)
+        assert _SYS_ID.match(rec.external_id)
         for ref in (rec.cmdb_ci, rec.caller_id, rec.assigned_to, rec.assignment_group):
             assert ref is None or _SYS_ID.match(ref), ref
         # BL-045: a record with a CI also carries its name (the alert resource).
@@ -75,7 +75,7 @@ def test_recorded_history_merges_audit_and_journal_in_time_order() -> None:
     """02 §6 ``history`` over a real incident's audit trail, work notes and comments."""
     audit, journal = _fixture("incident_audit"), _fixture("incident_journal")
     source = _source(audit, sys_audit=audit, sys_journal_field=journal)
-    changes = source.history(SnTable.INCIDENT, "0" * 32, after_mod_count=0)
+    changes = source.history(RecordType.INCIDENT, "0" * 32, after_mod_count=0)
     assert len(changes) == len(audit["result"]) + len(journal["result"])
     assert [c.ts for c in changes] == sorted(c.ts for c in changes)
     notes = [c for c in changes if c.source == "journal"]

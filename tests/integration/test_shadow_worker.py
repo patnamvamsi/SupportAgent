@@ -93,8 +93,8 @@ def test_worker_polls_new_incident_into_shadow(
         priority="2",
         cmdb_ci="CI2002",
         caller_id="u-caller",
-        sys_updated_on=clock.now(),
-        sys_updated_by="alice",
+        updated_at=clock.now(),
+        updated_by="alice",
     )
     assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=1)]
 
@@ -121,8 +121,8 @@ def test_worker_records_human_changes_and_drops_own_echo(
         priority="3",
         cmdb_ci="CI3003",
         caller_id="u-caller",
-        sys_updated_on=clock.now(),
-        sys_updated_by="alice",
+        updated_at=clock.now(),
+        updated_by="alice",
     )
     # A record the integration user created is our own, never an inbound alert.
     sn.seed_record(
@@ -131,8 +131,8 @@ def test_worker_records_human_changes_and_drops_own_echo(
         number="INC0010002",
         short_description="created by the agent",
         caller_id="u-caller",
-        sys_updated_on=clock.now(),
-        sys_updated_by="svc_supportagent",
+        updated_at=clock.now(),
+        updated_by="svc_supportagent",
     )
     assert _polls(worker) == [JobResult(name=_POLL, ran=True, rows=1)]
     trace_id = _scalar(db, "SELECT trace_id FROM cases WHERE external_id = 'sys-1'")
@@ -147,9 +147,9 @@ def test_worker_records_human_changes_and_drops_own_echo(
         priority="2",
         cmdb_ci="CI3003",
         caller_id="u-caller",
-        sys_updated_on=clock.now(),
-        sys_updated_by="bob",
-        sys_mod_count=2,
+        updated_at=clock.now(),
+        updated_by="bob",
+        revision=2,
     )
     sn.seed_audit(
         "incident",
@@ -189,7 +189,7 @@ def test_worker_skips_when_another_replica_holds_the_lease(
         number="INC0010001",
         short_description="x",
         caller_id="u-caller",
-        sys_updated_on=clock.now(),
+        updated_at=clock.now(),
     )
     assert _polls(worker) == [JobResult(name=_POLL, ran=False)]
     assert _scalar(db, "SELECT COUNT(*) FROM cases") == 0

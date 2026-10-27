@@ -39,7 +39,7 @@ def calibrated_score(table: CalibrationTable, label: str, preclass_agrees: bool)
     return wilson_lower_bound(count.correct, count.n)
 
 
-def map_servicenow_classification(
+def map_source_classification(
     category: str | None, subcategory: str | None, mapping: Mapping[str, str]
 ) -> str | None:
     """The taxonomy label for a human-set ServiceNow category (BL-035).

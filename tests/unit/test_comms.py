@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 
 from supportagent.adapters.files.comms_loader import load_comms_catalog
-from supportagent.app.comms import display_value, human_record_state
+from supportagent.adapters.servicenow.semantics import ServiceNowSemantics
+from supportagent.app.comms import human_record_state
 from supportagent.domain.comms import AllowedField, PlanSpec, interval_slot, render
 from supportagent.domain.errors import ConfigError, DomainValidationError
 from supportagent.domain.hashing import payload_hash
@@ -118,8 +119,8 @@ def test_record_state_is_the_last_human_value() -> None:
     ]
     state = human_record_state(changes, integration_user="svc", automation_actors={"flow.designer"})
     assert state == {"state": "2", "priority": "2"}
-    assert display_value("state", "6") == "Resolved"
-    assert display_value("priority", "2") == "2 - High"
+    assert ServiceNowSemantics().display("state", "6") == "Resolved"
+    assert ServiceNowSemantics().display("priority", "2") == "2 - High"
 
 
 def test_shipped_comms_catalog_loads() -> None:

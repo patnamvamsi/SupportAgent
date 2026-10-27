@@ -65,13 +65,15 @@ def sn_env(request: pytest.FixtureRequest) -> Any:
             "seed_audit": fake.seed_audit,
             "seed_journal": fake.seed_journal,
             "write_count": lambda: fake.write_count,  # live read of the property
-            "read_field": lambda table, sys_id, field: fake.fields(table, sys_id).get(field),
+            "read_field": lambda table, external_id, field: fake.fields(table, external_id).get(
+                field
+            ),
         }
     stack = _real_stack()
     fake_http = stack["fake_http"]
 
-    def _read_field(table: Any, sys_id: str, field: str) -> Any:
-        return fake_http._rows.get(table.value, {}).get(sys_id, {}).get(field)
+    def _read_field(table: Any, external_id: str, field: str) -> Any:
+        return fake_http._rows.get(table.value, {}).get(external_id, {}).get(field)
 
     return {
         "source": stack["facade"],

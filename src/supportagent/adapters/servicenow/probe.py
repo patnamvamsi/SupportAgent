@@ -1,4 +1,4 @@
-"""``ServiceNowProbe`` over the Table API (02 §4.1 doctor checks).
+"""``RecordProbe`` over the Table API (02 §4.1 doctor checks).
 
 GET only: the class has no method that writes, so ``doctor`` can't write
 to ServiceNow whatever a check does. Values come back as strings
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.http import ServiceNowHTTP
-from supportagent.domain.errors import ServiceNowError
 from supportagent.ports.diagnostics import ProbeRows
 
 

@@ -1,22 +1,26 @@
-"""Ticket ports (01 §3, 02 §5-§6): the external read and write surface.
+"""Ticket ports (01 §3, 02 §5-§6; WP-M07): the connector contract.
 
-The application never talks to ServiceNow (or any ticketing system) directly —
-it goes through these ports. The concrete adapter (``adapters.servicenow``)
-speaks the real API; the fake (``adapters.fakes.servicenow``) serves
-unit/property/contract tests.
+The application never talks to an incident system directly: it goes through
+a **connector**, which is a ``TicketSource`` (read), a ``TicketSink``
+(write), a :class:`~supportagent.domain.connector.ConnectorManifest` (what
+it can do) and its :class:`~supportagent.domain.connector.TicketSemantics`
+(how its states and priorities map to the case lifecycle and severity).
+ServiceNow (``adapters.servicenow``) is the first connector; the fake
+(``adapters.fakes.servicenow``) serves the unit, property and contract tests.
 
 ``TicketSource`` (02 §6) is the read side: ``poll`` returns the records
-changed since a cursor, ``history`` returns the audit/journal changes for one
-record. ``TicketSink`` (01 §7.5) is the write side.
+changed since a cursor, ``history`` returns the field and note changes for
+one record. ``TicketSink`` (01 §7.5) is the write side.
 
 ``TicketSink`` is *idempotent by construction* (01 §7.5): the sink compares
 the current external state before writing, so re-applying an already-applied
 action is a no-op. Reconciliation (INV-04) reads that same state back through
-``find_marker`` — the last line of a journal entry carries the idempotency
-marker ``[sa:<key>]``, so "already sent" is detectable from the outside.
+``find_marker``: the last line of a note carries the idempotency marker
+``[sa:<key>]``, so "already sent" is detectable from the outside.
 
-No method returns a vendor type: the adapter maps raw JSON into the domain
-``TicketRecord`` / ``ChangeRecord`` (01 §3, 02 §6).
+No method returns a vendor type: the connector maps its raw records into the
+domain ``TicketRecord`` / ``ChangeRecord`` (01 §3, 02 §6), and core code
+never names a vendor field or type (``test_core_has_no_servicenow_types``).
 """
 
 from __future__ import annotations
@@ -27,22 +31,33 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
+from supportagent.domain.connector import ConnectorManifest, TicketSemantics
 from supportagent.domain.model.external import ExternalRef
 from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
 
 
-class SnTable(StrEnum):
-    """ServiceNow tables this product writes to (01 §7.5)."""
+class RecordType(StrEnum):
+    """The kinds of record a connector polls and writes (01 §7.5, WP-M07).
+
+    The values are the stored keys (cursor rows, ``cases.external_table``,
+    action scopes) and stay as they were in v0.0, so upgrading changes no
+    data; each connector maps them to its own record names.
+    """
 
     INCIDENT = "incident"
-    EM_ALERT = "em_alert"
+    ALERT = "em_alert"
 
 
-class JournalField(StrEnum):
-    """Append-only journal columns (01 §7.5)."""
+class NoteVisibility(StrEnum):
+    """Who can read an appended note (01 §7.5, WP-M07).
 
-    WORK_NOTES = "work_notes"
-    COMMENTS = "comments"
+    ``internal``: the support team only (ServiceNow ``work_notes``).
+    ``customer``: the requester too (ServiceNow ``comments``). The connector
+    maps each to its own note field.
+    """
+
+    INTERNAL = "internal"
+    CUSTOMER = "customer"
 
 
 @dataclass(frozen=True)
@@ -50,10 +65,10 @@ class PollBatch:
     """One page of ``TicketSource.poll`` (02 §6).
 
     ``records`` are the current state of each changed record in the window,
-    ordered by ``(sys_updated_on, sys_id)``. ``next_cursor`` is the maximum
-    ``sys_updated_on`` seen in the batch — the caller advances its per-table
-    cursor to it (ARCH §8.1). A full page means more may follow: the caller
-    fetches the next page with ``offset += limit``.
+    ordered by ``(updated_at, external_id)``. ``next_cursor`` is the maximum
+    ``updated_at`` seen in the batch; the caller advances its per-type cursor
+    to it (ARCH §8.1). A full page means more may follow: the caller fetches
+    the next page with ``offset += limit``.
     """
 
     records: Sequence[TicketRecord]
@@ -61,50 +76,51 @@ class PollBatch:
 
 
 class TicketSource(Protocol):
-    """One external ticketing system's read surface (02 §6)."""
+    """One incident system's read surface (02 §6)."""
 
-    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
-        """Records on ``table`` updated at or after ``since`` (one page).
+    def poll(
+        self, record_type: RecordType, since: datetime, limit: int, offset: int = 0
+    ) -> PollBatch:
+        """Records of ``record_type`` updated at or after ``since`` (one page).
 
         ``limit`` is the page size and ``offset`` the number of matching
-        records to skip (02 §6 ``sysparm_offset``). The result is ordered by
-        ``(sys_updated_on, sys_id)``, so paging by offset from a fixed
-        ``since`` reaches every record even when more than ``limit`` share
-        one second. ``next_cursor`` is the page's max ``sys_updated_on``.
+        records to skip. The result is ordered by ``(updated_at,
+        external_id)``, so paging by offset from a fixed ``since`` reaches
+        every record even when more than ``limit`` share one second.
         """
         ...
 
-    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+    def record(self, record_type: RecordType, external_id: str) -> TicketRecord | None:
         """The record's current fields, or ``None`` when it doesn't exist (ADR-0010)."""
         ...
 
     def history(
         self,
-        table: SnTable,
-        sys_id: str,
+        record_type: RecordType,
+        external_id: str,
         after_mod_count: int,
         since: datetime | None = None,
     ) -> Sequence[ChangeRecord]:
-        """Audit + journal changes for ``sys_id`` (02 §6 ``history``).
+        """Field and note changes for ``external_id`` (02 §6 ``history``).
 
-        Audit entries newer than ``after_mod_count`` (by
-        ``record_checkpoint``) plus the journal entries created at or after
-        ``since`` (all of them when ``None``), ordered by ``ts``.
+        Field changes newer than revision ``after_mod_count`` plus the notes
+        created at or after ``since`` (all of them when ``None``), ordered by
+        ``ts``. Only called when the manifest declares ``history``.
         """
         ...
 
 
 class TicketSink(Protocol):
-    """One external ticketing system (01 §7.5). All writes idempotent."""
+    """One incident system's write surface (01 §7.5). All writes idempotent."""
 
     def append_journal(
         self,
-        table: SnTable,
-        sys_id: str,
-        field: JournalField,
+        record_type: RecordType,
+        external_id: str,
+        visibility: NoteVisibility,
         text: str,
     ) -> ExternalRef:
-        """Append ``text`` as the last entry of ``field`` on ``sys_id``.
+        """Append ``text`` as the newest ``visibility`` note on ``external_id``.
 
         ``text`` already carries the ``[sa:<key>]`` marker as its last line
         (the handler appends it); the sink stores it verbatim.
@@ -113,26 +129,43 @@ class TicketSink(Protocol):
 
     def update_fields(
         self,
-        table: SnTable,
-        sys_id: str,
+        record_type: RecordType,
+        external_id: str,
         fields: Mapping[str, str],
     ) -> ExternalRef:
-        """Set ``fields`` on ``sys_id`` (read-compare first: a no-op if equal)."""
+        """Set ``fields`` on ``external_id`` (read-compare first: a no-op if equal)."""
         ...
 
     def find_marker(
         self,
-        table: SnTable,
-        sys_id: str,
+        record_type: RecordType,
+        external_id: str,
         marker: str,
     ) -> ExternalRef | None:
-        """Reconciliation read (INV-04): the entry carrying ``marker``, if any.
+        """Reconciliation read (INV-04): the note carrying ``marker``, if any.
 
-        Returns the ``ExternalRef`` of the entry that already carries the
+        Returns the ``ExternalRef`` of the note that already carries the
         marker (so ``mark_done`` can record it), or ``None`` if the action was
         never applied externally.
         """
         ...
 
 
-__all__ = ["JournalField", "PollBatch", "SnTable", "TicketSink", "TicketSource"]
+class Connector(TicketSource, TicketSink, Protocol):
+    """One incident system: read, write, what it can do, and how it maps (WP-M07)."""
+
+    @property
+    def manifest(self) -> ConnectorManifest: ...
+
+    @property
+    def semantics(self) -> TicketSemantics: ...
+
+
+__all__ = [
+    "Connector",
+    "NoteVisibility",
+    "PollBatch",
+    "RecordType",
+    "TicketSink",
+    "TicketSource",
+]

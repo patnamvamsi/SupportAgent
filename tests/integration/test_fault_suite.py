@@ -36,7 +36,7 @@ from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.triage import SafeDefaulted
 from supportagent.domain.trace import TraceContext
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.unit.test_triage_service import _SCOPE, _evt, _llm_json, _seed_grant, _wire
 
 
@@ -126,5 +126,5 @@ def test_fault_injection_suite_crash_after_send(
     result = executor.run_once(clock.now())
     assert result.status == "reconciled", result
     assert sn.write_count == 1, "INV-04: the marker prevents a second note"
-    assert len(sn.journal_entries(SnTable.INCIDENT, "INC0000001", JournalField.WORK_NOTES)) == 1
+    assert len(sn.journal_entries(RecordType.INCIDENT, "INC0000001", NoteVisibility.INTERNAL)) == 1
     assert executor.run_once(clock.now()).status == "none"

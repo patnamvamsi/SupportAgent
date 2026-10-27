@@ -1,6 +1,6 @@
 """``RetryingTicketSink`` (11-wp WP-106): bounded retries that never double-post.
 
-A retryable ``ServiceNowError`` is retried up to ``max_tries`` times. The
+A retryable ``ConnectorError`` is retried up to ``max_tries`` times. The
 wait is ``Retry-After`` when the error carries it (capped at ``max_wait_s``),
 else exponential backoff (0.5 s x 2^n).
 
@@ -19,9 +19,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TypeVar
 
-from supportagent.domain.errors import ServiceNowError
+from supportagent.domain.errors import ConnectorError
 from supportagent.domain.model.external import ExternalRef
-from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tickets import NoteVisibility, RecordType, TicketSink
 
 T = TypeVar("T")
 _RATE_LIMITED = 429
@@ -53,11 +53,11 @@ class RetryingTicketSink:
         """The longest one retried operation takes when a single try takes ``call_s`` (BL-001)."""
         return self._max_tries * call_s + (self._max_tries - 1) * self._max_wait
 
-    def _retry(self, fn: Callable[[], T], *, safe: Callable[[ServiceNowError], bool]) -> T:
+    def _retry(self, fn: Callable[[], T], *, safe: Callable[[ConnectorError], bool]) -> T:
         for attempt in range(self._max_tries):
             try:
                 return fn()
-            except ServiceNowError as exc:
+            except ConnectorError as exc:
                 last = attempt == self._max_tries - 1
                 if last or not exc.retryable or not safe(exc):
                     raise
@@ -70,21 +70,23 @@ class RetryingTicketSink:
         raise AssertionError("unreachable")  # pragma: no cover
 
     def append_journal(
-        self, table: SnTable, sys_id: str, field: JournalField, text: str
+        self, table: RecordType, external_id: str, field: NoteVisibility, text: str
     ) -> ExternalRef:
         return self._retry(
-            lambda: self._inner.append_journal(table, sys_id, field, text),
+            lambda: self._inner.append_journal(table, external_id, field, text),
             safe=lambda exc: exc.status == _RATE_LIMITED,
         )
 
-    def update_fields(self, table: SnTable, sys_id: str, fields: Mapping[str, str]) -> ExternalRef:
+    def update_fields(
+        self, table: RecordType, external_id: str, fields: Mapping[str, str]
+    ) -> ExternalRef:
         return self._retry(
-            lambda: self._inner.update_fields(table, sys_id, fields), safe=lambda _: True
+            lambda: self._inner.update_fields(table, external_id, fields), safe=lambda _: True
         )
 
-    def find_marker(self, table: SnTable, sys_id: str, marker: str) -> ExternalRef | None:
+    def find_marker(self, table: RecordType, external_id: str, marker: str) -> ExternalRef | None:
         return self._retry(
-            lambda: self._inner.find_marker(table, sys_id, marker), safe=lambda _: True
+            lambda: self._inner.find_marker(table, external_id, marker), safe=lambda _: True
         )
 
 

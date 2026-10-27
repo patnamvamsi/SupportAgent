@@ -97,13 +97,13 @@ def test_record_incident_history(client: httpx.Client) -> None:
     counts = Counter(r["element_id"] for r in resp.json()["result"])
     if not counts:
         pytest.skip("no incident has journal entries: add a few work notes first")
-    sys_id = counts.most_common(1)[0][0]
+    external_id = counts.most_common(1)[0][0]
     _record(
         client,
         "incident_audit",
         "sys_audit",
         {
-            "sysparm_query": f"tablename=incident^documentkey={sys_id}",
+            "sysparm_query": f"tablename=incident^documentkey={external_id}",
             "sysparm_fields": AUDIT_FIELDS,
         }
         | flags,
@@ -112,7 +112,7 @@ def test_record_incident_history(client: httpx.Client) -> None:
         client,
         "incident_journal",
         "sys_journal_field",
-        {"sysparm_query": f"name=incident^element_id={sys_id}"}
+        {"sysparm_query": f"name=incident^element_id={external_id}"}
         | {"sysparm_fields": JOURNAL_FIELDS}
         | flags,
     )

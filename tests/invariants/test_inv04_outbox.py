@@ -46,13 +46,13 @@ from supportagent.domain.idempotency import approval_key
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.trace import TraceContext
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 
 TENANT = "acme"
 CASE_ID = "case_inv04"
 CREATOR = "user_creator"
 APPROVER = "user_approver"
-TABLE = SnTable.INCIDENT
+TABLE = RecordType.INCIDENT
 SYS_ID = "sn123"
 
 #: The journal payload these tests drive the executor with (01 §7.5: a
@@ -189,7 +189,7 @@ def test_marker_appended_to_journal_text(  # noqa: PLR0913, PLR0917
 
     key = approval_key("appr_1")
     assert res.status == "sent"
-    entries = fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)
+    entries = fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)
     assert len(entries) == 1
     assert entries[0].splitlines()[-1] == marker(key)
     # The external write is recorded on the row (INV-04 traceability).
@@ -212,13 +212,13 @@ def test_executor_reconciles_existing_marker(  # noqa: PLR0913, PLR0917
     key = approval_key("appr_1")
     # Pre-seed the external state as if the send had already happened.
     ref = fake_sn.append_journal(
-        TABLE, SYS_ID, JournalField.WORK_NOTES, f"work note body\n{marker(key)}"
+        TABLE, SYS_ID, NoteVisibility.INTERNAL, f"work note body\n{marker(key)}"
     )
     res = ex.run_once(clock.now())
 
     assert res.status == "reconciled"
     # Exactly one entry — the executor did not append a second.
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
     assert res.external_ref == ref.as_text()
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
 
@@ -237,7 +237,7 @@ def test_idempotent_replay(  # noqa: PLR0913, PLR0917
     # The claim was committed before the send, so the row is held by the dead
     # worker until its lease expires; the sink kept its one entry.
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "claimed"
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
 
     # A clean worker must not steal a live claim, then reconciles once it is stale.
     ex_clean = _executor(db, uow, clock, ids, events, fake_sn)
@@ -247,7 +247,7 @@ def test_idempotent_replay(  # noqa: PLR0913, PLR0917
     assert res.status == "reconciled"
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
     # INV-04: exactly one journal entry across both runs (effectively-once).
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
     assert fake_sn.write_count == 1
 
 
@@ -309,7 +309,7 @@ def test_executor_retries_retryable_with_backoff(  # noqa: PLR0913, PLR0917
     assert res2.status == "sent"
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
     assert _scalar(db, "SELECT attempts FROM outbox WHERE id = :i", i=row.id) == 1
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
 
 
 def test_executor_fails_non_retryable_immediately(  # noqa: PLR0913, PLR0917
@@ -382,7 +382,7 @@ def test_executor_concurrent_claims_exclusive(  # noqa: PLR0913, PLR0917
 
     # Exactly one claims + sends; the other finds nothing due.
     assert sorted(results) == ["none", "sent"]
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
 
 
@@ -461,7 +461,7 @@ def test_executor_late_outcome_after_reclaim_is_fenced(  # noqa: PLR0913, PLR091
     assert ex1.run_once(clock.now()).status == "lost"
     assert late_results == ["reconciled"]
     assert _scalar(db, "SELECT status FROM outbox WHERE id = :i", i=row.id) == "done"
-    assert len(fake_sn.journal_entries(TABLE, SYS_ID, JournalField.WORK_NOTES)) == 1
+    assert len(fake_sn.journal_entries(TABLE, SYS_ID, NoteVisibility.INTERNAL)) == 1
 
 
 def test_executor_stale_reclaims_exhaust_budget(  # noqa: PLR0913, PLR0917
