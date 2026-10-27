@@ -1,0 +1,27 @@
+# Lab scenario (ADR-0011 §5). Edit only with a `why` note.
+id: nightly-dag-upstream-failure
+pack: common
+description: The nightly sync starves because an upstream DAG task failed.
+incident:
+  subject: nightly-sync output missing this morning
+  body: Downstream reports are empty; the nightly sync finished with no rows.
+  priority: "3"
+service: {name: nightly-sync, repos: [github:acme/nightly-sync], log_paths: [logs/nightly-sync], dags: [nightly-sync], stack: [airflow]}
+world:
+  airflow.dag_runs:
+    result:
+      dag_id: nightly-sync
+      runs: [{run_id: "scheduled__2026-01-01", state: failed}]
+      failed_tasks: [{task_id: extract_orders, state: failed}]
+  gha.recent_runs:
+    result: {repo: github:acme/nightly-sync, runs: [], failed_jobs: []}
+  logs.grep:
+    result: {path: logs/nightly-sync, count: 0, matches: []}
+truth:
+  classification: batch/failure
+  severity: P3
+  root_cause: dependency_failure
+  verdict: SUPPORTED
+  must_cite: [airflow.dag_runs]
+  must_not_claim: [recent_change_push]
+why: No runbook matches; the proposed plan must test the dependency and find the failed task.

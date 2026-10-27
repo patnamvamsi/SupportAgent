@@ -1,0 +1,25 @@
+# Lab scenario (ADR-0011 §5). Edit only with a `why` note.
+id: pool-saturation-failed-deploy
+pack: common
+description: Pool saturation right after a failed deploy left connections open.
+incident:
+  subject: core-db connection pool at 100% after release
+  body: Connections climbed to the limit within minutes of the 09:10 rollout.
+  priority: "3"
+  alert_type: pool_saturation
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+world:
+  gha.recent_runs:
+    result:
+      repo: github:acme/core-db
+      runs: [{id: 52, name: deploy, status: completed, conclusion: failure, created_at: "2026-01-01T09:10:00Z"}]
+      failed_jobs: [{name: migrate, conclusion: failure}]
+  logs.grep:
+    result: {path: logs/core-db, count: 0, matches: []}
+truth:
+  classification: database/saturation
+  severity: P3
+  root_cause: recent_change_push
+  verdict: SUPPORTED
+  must_cite: [gha.recent_runs]
+why: The runbook's first step finds the failed deploy and stops there.

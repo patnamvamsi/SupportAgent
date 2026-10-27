@@ -19,20 +19,29 @@ import typer
 from supportagent.bootstrap import (
     EvalPipeline,
     QualityPipeline,
+    build_lab_pipeline,
     create_snapshot,
     detector_recall,
     eval_config,
     load_eval_suite,
+    load_lab,
     quality_gates,
     split_problems,
     wall_clock,
 )
-from supportagent.config.loader import load_config_offline
+from supportagent.config.loader import load_config_default, load_config_offline
 from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError
 from supportagent.evals.calibration import build_calibration, build_holdout_calibration
 from supportagent.evals.cases import EvalCase
 from supportagent.evals.harness import Manifest, run_suite, select, write_report
+from supportagent.evals.lab import (
+    read_baseline,
+    run_lab,
+    select_split,
+    write_baseline,
+    write_lab_report,
+)
 from supportagent.evals.quality import baseline_from, run_quality, write_quality_report
 
 app = typer.Typer(help="Eval suites (04 §8).", no_args_is_help=True)
@@ -204,3 +213,76 @@ def snapshot_create(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"snapshot written: {out}")
+
+
+@app.command("lab")
+def lab(  # noqa: PLR0913, PLR0917 — one option per flag
+    pack: str = typer.Option("common", "--pack", help="The skill pack whose scenarios run."),
+    live: bool = typer.Option(
+        False, "--live", help="Call the configured model and record its answers (needs secrets)."
+    ),
+    samples: int = typer.Option(1, "--samples", min=1, help="Samples per scenario (majority)."),
+    split: str = typer.Option("tune", "--split", help="tune | holdout | all"),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.example.yaml"), "--config", help="Config file."
+    ),
+    write_baseline_flag: bool = typer.Option(
+        False, "--write-baseline", help="Store this run as the pack's baseline."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+    artifacts: Path = typer.Option(  # noqa: B008
+        Path("evals/artifacts"), "--artifacts", help="Report directory."
+    ),
+) -> None:
+    """The incident lab (ADR-0011 §5, WP-M02): a pack's scenarios with known root causes.
+
+    Without ``--live`` the run replays the recorded responses under the pack's
+    ``recordings/`` (deterministic, what CI runs); a response that isn't
+    recorded fails closed and is reported. Exit 0 gates pass, 1 gate fail,
+    2 usage or config error.
+    """
+    if split not in ("tune", "holdout", "all"):
+        typer.echo("error: --split is tune, holdout or all", err=True)
+        raise typer.Exit(2)
+    try:
+        cfg = load_config_default(config) if live else load_config_offline(config)
+        scenarios, gates, directory = load_lab(cfg, pack)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    selected = select_split(scenarios, split)  # type: ignore[arg-type]
+    if not selected:
+        typer.echo(f"error: pack {pack!r} has no {split} scenarios", err=True)
+        raise typer.Exit(2)
+    pipeline = build_lab_pipeline(cfg, recordings=directory / "recordings", live=live, pack_id=pack)
+    baseline_path = directory / "baseline.json"
+    report = run_lab(
+        selected,
+        pipeline,
+        pack=pack,
+        mode="live" if live else "replay",
+        model_id=pipeline.model_id,
+        samples=samples,
+        gates=gates,
+        baseline=read_baseline(baseline_path),
+    )
+    path = write_lab_report(artifacts, report, now=wall_clock().now())
+    misses = pipeline.caching.misses if pipeline.caching is not None and not live else 0
+    if write_baseline_flag:
+        write_baseline(baseline_path, report)
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), indent=2))
+    else:
+        for score in report.scores:
+            mark = "PASS" if score.passed else "FAIL"
+            typer.echo(f"{mark}  {score.scenario_id:<44} {'; '.join(score.failures)}")
+        m = report.metrics()
+        typer.echo(
+            f"lab {pack} ({report.mode}, {samples} sample(s)): {m['passed']}/{m['cases']} passed; "
+            f"false causes {m['false_cause']}; report {path}"
+        )
+        for gate in report.gates:
+            typer.echo(f"  gate {gate.name}: {'ok' if gate.ok else 'FAIL'} — {gate.detail}")
+        if misses:
+            typer.echo(f"  {misses} response(s) were not recorded: run with --live to record")
+    raise typer.Exit(0 if report.passed and not misses else 1)
