@@ -56,6 +56,7 @@ paths:
   catalog: catalog/services.yaml
   prompts: prompts/
   runbooks: runbooks/                   # v0.1
+  packs: packs/                         # ADR-0011 (WP-M01): packs/<id>/pack.yaml; common = taxonomy/ + runbooks/
   comms: templates/comms/               # v0.1: comms plan templates (plans.yaml) + message bodies
 routing:                                # rows reference taxonomy labels; CI validates (ARCH §12)
   - id: db-saturation
@@ -173,6 +174,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | Check | Release | Pass condition |
 |---|---|---|
 | config | v0.0 | All files validate; taxonomy references resolve; calibration grade ≥ `min_grade` |
+| packs | ADR-0011 | Every pack loads and validates together (unique label, hypothesis and runbook ids; preclass labels exist; fragments within budget). Lists each pack, the services that select it and its eval status. Warning: a selected pack that is not evaluated, or that names tools the build doesn't have. Added by WP-M01 |
 | db | v0.0 | Connects; migrations at head; `PRAGMA foreign_keys` = 1 on a fresh connection (SQLite) |
 | servicenow.auth | v0.0 | Token obtained; read probe on each configured table succeeds; **no write performed** |
 | servicenow.journal_visibility | v0.0 | `work_notes` not exposed to the caller role (checks `sys_dictionary` / ACL read for `snc_external`/ess roles) |

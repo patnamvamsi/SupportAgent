@@ -30,6 +30,7 @@ from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.triage import TriageDecision, TriageResult
+from supportagent.domain.packs import PackScope
 from supportagent.domain.preclass import RuleSet
 from supportagent.domain.routing import RoutingTable
 from supportagent.domain.severity import (
@@ -68,6 +69,7 @@ class Classifier:
         routing: RoutingTable,
         taxonomy_labels: str = "",
         severity: SeverityStrategy | None = None,
+        packs: PackScope | None = None,
     ) -> None:
         self.rule_set = rule_set
         self.llm = llm
@@ -78,19 +80,25 @@ class Classifier:
         self.taxonomy_labels = taxonomy_labels
         #: ADR-0009: the severity a decision routes on (default: source priority).
         self.severity = severity if severity is not None else SourcePrioritySeverity()
+        #: ADR-0011: per case, only the service's active packs' rules and labels.
+        self.packs = packs
 
     def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision:
         # 1. unresolved-service: checked first, before the LLM is consulted.
         if case.service is None:
             return safe_default("unresolved-service")
 
-        label = self.rule_set.classify(evt)
+        rules = self.rule_set if self.packs is None else self.packs.rule_set(case.service)
+        label = rules.classify(evt)
+        labels = (
+            self.taxonomy_labels if self.packs is None else self.packs.labels_text(case.service)
+        )
 
         # 2. llm-failure: the structured LLM returned no usable answer.
         llmres = self.llm.structured(
             SlotName.CLASSIFY,
             {
-                "taxonomy_labels": self.taxonomy_labels,
+                "taxonomy_labels": labels,
                 "ticket_subject": evt.subject,
                 "ticket_body": evt.body,
             },

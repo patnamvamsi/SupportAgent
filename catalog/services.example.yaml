@@ -4,6 +4,8 @@
 # then its CMDB CI to ServiceEntry.cmdb_ci; otherwise the case safe-defaults.
 # For ServiceNow, `resource` is the CI's name (cmdb_ci.name, e.g. MailServerUS) and
 # `cmdb_ci` is the CI's sys_id (BL-045): list names under resources.
+# `stack:` (ADR-0011) lists technology tags, e.g. [python, fastapi, postgres]; the
+# skill packs whose applies_to.stack shares a tag are used for that service's cases.
 version: v2026-01
 services:
   - name: nightly-sync

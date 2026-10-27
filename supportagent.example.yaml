@@ -58,6 +58,7 @@ paths:
   catalog: catalog/services.yaml
   prompts: prompts/
   runbooks: runbooks/                # v0.1
+  packs: packs/                     # ADR-0011: skill packs; common = taxonomy/ + runbooks/
 routing:                             # rows reference taxonomy labels; doctor validates (ARCH §12)
   - id: db-saturation
     match: {classification: database/saturation, severity: [P1, P2, P3]}

@@ -1,0 +1,8 @@
+# Placeholder (ADR-0011 §1): loads and is reported by doctor, but is never
+# selected for a case until it has knowledge and passes its lab gates.
+id: snowflake
+version: 0.0.0
+description: Snowflake warehouses, tasks and pipelines.
+placeholder: true
+applies_to:
+  stack: [snowflake]

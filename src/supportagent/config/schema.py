@@ -185,6 +185,9 @@ class Paths(DomainModel):
     comms: str = "templates/comms/"
     #: v0.1 (WP-115): release and promotion gate thresholds.
     gates: str = "evals/gates.yaml"
+    #: ADR-0011 (WP-M01): skill packs, ``<packs>/<id>/pack.yaml``; ``common`` is
+    #: built from taxonomy/hypotheses/runbooks above and is always active.
+    packs: str | None = None
 
 
 class RoutingMatch(DomainModel):
