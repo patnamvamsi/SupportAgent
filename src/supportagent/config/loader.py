@@ -41,6 +41,7 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (("tools", "oncall"), "opsgenie_token_env", "opsgenie_token"),
     # WP-M04: the pack tools' credentials.
     (("tools", "prometheus"), "token_env", "token"),
+    (("tools", "loki"), "token_env", "token"),
     (("tools", "kubernetes"), "token_env", "token"),
     (("paging", "pagerduty"), "token_env", "token"),
     (("paging", "opsgenie"), "api_key_env", "api_key"),

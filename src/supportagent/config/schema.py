@@ -344,6 +344,15 @@ class ToolPrometheus(DomainModel):
     token: SecretStr | None = None
 
 
+class ToolLoki(DomainModel):
+    """``logs.search`` (BL-050): Loki's HTTP API, read-only (``query_range`` only)."""
+
+    base_url: str = Field(min_length=1)
+    token: SecretStr | None = None
+    #: Multi-tenant Loki: the ``X-Scope-OrgID`` to read as.
+    org_id: str | None = None
+
+
 class ToolKubernetes(DomainModel):
     """``k8s.pod_status`` and the rollout half of ``changes.recent`` (WP-M04): read-only."""
 
@@ -426,6 +435,8 @@ class Tools(DomainModel):
     #: WP-M04: the python-postgres pack's tools.
     postgres: ToolPostgres | None = None
     prometheus: ToolPrometheus | None = None
+    #: BL-050: ``logs.search`` over Loki.
+    loki: ToolLoki | None = None
     kubernetes: ToolKubernetes | None = None
     changes: ToolChanges | None = None
     #: WP-M06: registered MCP servers and the capabilities bound to their tools.

@@ -1,0 +1,3 @@
+# Demo logs are generated on the host; only the sample is committed.
+*.log
+!checkout-api.log

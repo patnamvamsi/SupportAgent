@@ -336,7 +336,7 @@ def test_binding_replaces_the_first_party_adapter() -> None:
 def test_binding_to_an_unknown_capability_is_a_config_error() -> None:
     cfg = {
         **_BOUND_CONFIG,
-        "bindings": {"logs.search": {"mcp": "grafana", "tool": "query_prometheus"}},
+        "bindings": {"traces.search": {"mcp": "grafana", "tool": "query_prometheus"}},
     }
     with pytest.raises(ConfigError, match="not a known capability"):
         build_tool_registry(

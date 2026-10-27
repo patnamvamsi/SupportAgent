@@ -5,7 +5,7 @@ A skill pack is one technology stack's failure knowledge (ADR-0011 §1). A catal
 | Pack | Status |
 |---|---|
 | `common` | Built from `taxonomy/` and `runbooks/` (no manifest). Always active. |
-| `python-postgres` | 5 labels, 13 hypotheses, 8 preclass rules, 10 runbooks, 20 lab scenarios (4 held out). Its tools ship with WP-M04. |
+| `python-postgres` | 5 labels, 13 hypotheses, 8 preclass rules, 10 runbooks, 21 lab scenarios (5 held out). Its tools ship with WP-M04. |
 | `spark`, `snowflake` | Placeholders: loaded and reported, never selected. |
 
 ## Manifest

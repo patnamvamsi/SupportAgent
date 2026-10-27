@@ -15,6 +15,7 @@ probes: probes.yaml
 prompts: {classify: classify.md}
 tools:
   - logs.grep
+  - logs.search
   - postgres.activity
   - postgres.locks
   - postgres.slow_queries

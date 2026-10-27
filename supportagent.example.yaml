@@ -82,6 +82,7 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 #       orders: {dsn_env: PG_ORDERS_RO}   # a role with pg_monitor only
 #     statement_timeout_ms: 5000
 #   prometheus: {base_url: "http://prometheus:9090"}
+#   loki: {base_url: "http://loki:3100"}   # BL-050: logs.search (token_env, org_id optional)
 #   kubernetes: {api_url: "https://k8s.internal:6443", token_env: K8S_RO_TOKEN}   # get/list pods, replicasets
 #   changes: {github: true, kubernetes: true}   # changes.recent sources
 #   mcp_servers:                     # WP-M06: registered MCP servers (read-only, T0)

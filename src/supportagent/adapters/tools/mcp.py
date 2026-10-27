@@ -18,7 +18,8 @@ The registration contract:
   read-only (or destructive) can't back a ``read`` registration.
 - **Untrusted output.** A reply is data, never instructions: it is size
   capped, must parse into the capability's shape through a named *profile*
-  (``passthrough`` or ``grafana.query_prometheus``), and is then validated
+  (``passthrough``, ``grafana.query_prometheus`` or ``grafana.query_loki_logs``),
+  and is then validated
   against the capability schema by the registry; anything outside that shape
   is dropped. Values inside it (a label, a log line) are evidence: checks read
   them as typed fields, and they reach a model only as ``entail`` evidence
@@ -39,6 +40,7 @@ from typing import Any
 import httpx
 
 from supportagent.adapters.tools.capabilities import Capability
+from supportagent.adapters.tools.loki import render_logql, streams_result
 from supportagent.adapters.tools.prometheus import render_query, vector_result
 from supportagent.domain.errors import ConfigError, ToolError
 from supportagent.domain.tiers import Tier, TrustClass
@@ -278,6 +280,41 @@ def _grafana_prometheus_result(reply: McpReply, sent: Mapping[str, object]) -> T
     return vector_result(str(sent.get("expr", "")), raw)
 
 
+def _grafana_loki_args(
+    args: Mapping[str, object], fixed: Mapping[str, object]
+) -> dict[str, object]:
+    """BL-050: ``query_loki_logs`` over the reviewed LogQL; the window rides in ``startRfc3339``."""
+    query, window, limit = render_logql(args)
+    return {
+        "datasourceUid": "loki",
+        "direction": "backward",
+        "format": "full",
+        **fixed,
+        "logql": query,
+        "limit": limit,
+        "startRfc3339": f"now-{window}m",
+        "endRfc3339": "now",
+    }
+
+
+def _grafana_loki_result(reply: McpReply, sent: Mapping[str, object]) -> ToolResult:
+    """``mcp-grafana`` ``query_loki_logs``: ``{"data": [{timestamp, line, labels}], ...}``."""
+    structured = reply.structured or {}
+    body = structured if "data" in structured else _json_text(reply)
+    raw = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(raw, list):
+        raise ToolError("mcp: query_loki_logs reply has no entries")  # noqa: TRY003
+    entries = [
+        (e.get("timestamp", ""), str(e.get("line", "")), e.get("labels") or {})
+        for e in raw
+        if isinstance(e, dict) and isinstance(e.get("labels") or {}, dict)
+    ]
+    window = str(sent.get("startRfc3339", "")).removeprefix("now-").removesuffix("m")
+    return streams_result(
+        str(sent.get("logql", "")), int(window) if window.isdigit() else 0, entries
+    )
+
+
 def _json_text(reply: McpReply) -> object:
     try:
         return json.loads(reply.text)
@@ -288,6 +325,7 @@ def _json_text(reply: McpReply) -> object:
 PROFILES: Mapping[str, Profile] = {
     "passthrough": Profile(_passthrough_args, _passthrough_result),
     "grafana.query_prometheus": Profile(_grafana_prometheus_args, _grafana_prometheus_result),
+    "grafana.query_loki_logs": Profile(_grafana_loki_args, _grafana_loki_result),
 }
 
 

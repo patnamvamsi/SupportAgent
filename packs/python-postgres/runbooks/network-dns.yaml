@@ -8,3 +8,13 @@ steps:
     tool: logs.grep
     args: {path: "$service.log_paths[0]", pattern: "Name or service not known|Temporary failure in name resolution|NXDOMAIN"}
     check: "result.count > 0"
+  # BL-050: the same signal from Loki, where logs aren't on a file path. A
+  # deployment without logs.search skips this step (an unbound capability).
+  - id: dns-loki
+    hypothesis: dns_resolution_failure
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "Name or service not known|Temporary failure in name resolution|NXDOMAIN"'
+      service: "$service.name"
+      window_min: 60
+    check: "result.count > 0"

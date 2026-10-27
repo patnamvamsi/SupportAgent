@@ -16,10 +16,13 @@ def get_json(
     path: str,
     *,
     params: Mapping[str, str | int] | None = None,
+    headers: Mapping[str, str] | None = None,
     timeout_s: float,
 ) -> object:
     try:
-        resp = client.get(path, params=dict(params or {}), timeout=timeout_s)
+        resp = client.get(
+            path, params=dict(params or {}), headers=dict(headers or {}), timeout=timeout_s
+        )
     except httpx.HTTPError as exc:
         raise ToolError(f"GET {path}: {type(exc).__name__}", retryable=True) from exc  # noqa: TRY003
     if resp.status_code >= 400:  # noqa: PLR2004
