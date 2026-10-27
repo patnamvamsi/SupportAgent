@@ -118,6 +118,8 @@ This roadmap does **not** restate designs. Each pillar is specified once, in ARC
 
 ## 3. Phased delivery (v0.0 wk 1–4 → v0.1 wk 5–12 → v0.2 wk 13–18 → v1.0 wk 19–24)
 
+> **2026-10-27, ADR-0011:** the modular framework (skill packs, the incident lab, pack tools, RCA on, tool bindings with MCP, the connector seam, then knowledge) is sequenced **before the v0.2 phases**. WP-204 (MCP) moves into it. Plan: [14-wp-modular.md](../tech-spec/14-wp-modular.md).
+
 > Each phase ends in a **demoable increment**. Capabilities (C1–C22) and their autonomy tiers are defined in [CAPABILITIES.md](CAPABILITIES.md) §3; the release map with exit criteria is there in §5.
 > **Hard dependency (a project risk, not a capability):** a **design partner with ≥6 months of historical incidents** (tickets + alerts + logs + resolutions). The v0.0 shadow run and the v0.1 eval corpus depend on it. **Day 0 (not month 1): send the partner the data-access + legal request** — archive shape and retention, export path, who owns the corpus, licensing terms — while the Phase-0 foundations are being built.
 > **Team size (assumption to confirm):** **2–3 engineers** (platform + LLM/evals + integration, product-owner part-time). The phase split above maps to that; a solo build doubles the calendar.

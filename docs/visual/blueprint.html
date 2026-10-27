@@ -188,6 +188,22 @@ footer .wrap { padding-block: 32px 48px; color: var(--muted); font-size: 14px; b
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+
+/* build status */
+.pill { display: inline-block; font-family: var(--font-display); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; padding: 2px 8px; border-radius: 999px; white-space: nowrap; vertical-align: 2px; }
+.pill.built { background: var(--t0); color: var(--surface); }
+.pill.planned { border: 1px dashed var(--muted); color: var(--muted); }
+.pill.reserved { border: 1px dotted var(--muted); color: var(--muted); }
+pre.code { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; margin: 14px 0; }
+pre.code .c { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 14px; color: var(--muted); margin: 8px 0 0; }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--ink); vertical-align: middle; margin-right: 6px; }
+.legend span.dash::before { border-top: 2px dashed var(--muted); }
+.legend span.gate::before { border-top: 2px solid var(--gate); }
+.rule-list { counter-reset: r; list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.rule-list li { counter-increment: r; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px 12px 48px; position: relative; max-width: none; }
+.rule-list li::before { content: counter(r); position: absolute; left: 16px; top: 12px; font-family: var(--font-display); font-weight: 800; color: var(--gate); }
+.rule-list b { font-family: var(--font-display); }
 </style>
 
 <div class="rail">
@@ -196,13 +212,17 @@ html { scroll-behavior: smooth; scroll-padding-top: 64px; }
     <nav aria-label="Sections">
       <a href="#overview">Overview</a>
       <a href="#architecture">Architecture</a>
-      <a href="#trust">Trust chain</a>
-      <a href="#rca">RCA</a>
-      <a href="#lifecycle">Lifecycle</a>
-      <a href="#data">Data model</a>
-      <a href="#features">Features</a>
-      <a href="#stack">Tech stack</a>
-      <a href="#roadmap">Roadmap</a>
+      <a href="#flow">Incident flow</a>
+      <a href="#trust">Trust core</a>
+      <a href="#rca">Root cause</a>
+      <a href="#packs">Skill packs</a>
+      <a href="#tools">Tools &amp; MCP</a>
+      <a href="#connectors">Connectors</a>
+      <a href="#knowledge">Knowledge</a>
+      <a href="#extend">Extend</a>
+      <a href="#humans">Humans</a>
+      <a href="#evals">Evals</a>
+      <a href="#status">Status</a>
     </nav>
   </div>
 </div>
@@ -210,578 +230,404 @@ html { scroll-behavior: smooth; scroll-padding-top: 64px; }
 <header class="hero" id="overview">
   <div class="wrap">
     <div>
-      <p class="eyebrow">Design blueprint · spec frozen for v0.0</p>
-      <h1>An application support analyst that <em>proposes</em>, and a database that decides what executes.</h1>
-      <p class="lede">SupportAgent is a deterministic support pipeline with LLM slots. It triages ServiceNow incidents and alerts, runs bounded root-cause checks, drafts communications, and proposes actions. State-changing and customer-facing actions execute only through a database-enforced approval path.</p>
+      <p class="eyebrow">Blueprint · an application support agent framework</p>
+      <h1>The LLM decides content. <em>Code decides control.</em></h1>
+      <p class="lede">SupportAgent triages incidents and investigates their root causes the way a support analyst does: it reads the ticket, pulls evidence from the systems behind the service, and proposes what to do. A fixed trust core enforces every guarantee. Knowledge about each technology stack, the tools it can query, the incident system it works in and the documentation it can read all plug in around that core. They add capability, never authority.</p>
     </div>
     <div class="status" aria-label="Project status">
       <dl>
-        <dt>Shape</dt><dd>One Docker image, <code>supportagent.yaml</code>, env secrets</dd>
-        <dt>First adapter</dt><dd>ServiceNow (poll-based)</dd>
-        <dt>Storage</dt><dd>SQLite default, Postgres via flag</dd>
-        <dt>Team</dt><dd>2–3 engineers (assumption)</dd>
-        <dt>Timeline</dt><dd>v0.0 wk 1–4 → v1.0 wk 24</dd>
-        <dt>Blocking dep.</dt><dd>Design partner with ≥6 months of incident history</dd>
+        <dt>Built</dt><dd>v0.0 and v0.1 code: the trust core, triage, RCA-lite, comms, takeover, replay. Exit demo run on a real ServiceNow instance.</dd>
+        <dt>Next</dt><dd>The modular framework (ADR-0011): skill packs, the incident lab, pack tools, MCP, connectors, knowledge, analyst-authored extensions.</dd>
+        <dt>First pack</dt><dd>Python microservices and web servers on Postgres. Spark and Snowflake are placeholders.</dd>
+        <dt>Model</dt><dd>Any provider; runs on a local Qwen 27B today.</dd>
       </dl>
     </div>
   </div>
 </header>
 
-<section aria-labelledby="h-principle">
+<section id="architecture">
   <div class="wrap">
-    <h2 id="h-principle">The LLM decides content. Code decides control.</h2>
-    <p class="sec-intro">The LLM fills typed slots: a classification label, a severity, a summary, a hypothesis ID. Routing, tiers, budgets, approval and idempotency are deterministic code plus reviewed config. These six invariants are the only guarantees the product makes, and each one has CI tests on both database engines.</p>
+    <h2>A fixed trust core with four plug-in layers</h2>
+    <p class="sec-intro">Everything that decides <em>whether</em> something may happen is in the core. Everything that decides <em>what the agent knows and can see</em> is a plug-in. That split is what lets the framework support a Postgres web app, a Spark pipeline or a Java service without weakening any guarantee.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 500" role="img" aria-label="Four plug-in layers, connectors, skill packs, tool backends and knowledge sources, feed a fixed trust core that runs intake, triage, root cause analysis and the gate.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+            <marker id="a1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-gate"/></marker>
+          </defs>
+          <!-- plug-in layers -->
+          <rect class="box" x="20" y="20" width="225" height="128" rx="6"/>
+          <text class="t-title" x="36" y="46">Connectors</text>
+          <text class="t-sub" x="36" y="66">the incident system</text>
+          <text class="t-mono" x="36" y="92">ServiceNow ✓</text>
+          <text class="t-mono" x="36" y="110">Jira SM · Zendesk · …</text>
+          <text class="t-mono" x="36" y="128">paging · change feeds</text>
+
+          <rect class="box" x="265" y="20" width="225" height="128" rx="6"/>
+          <text class="t-title" x="281" y="46">Skill packs</text>
+          <text class="t-sub" x="281" y="66">what the agent knows, per stack</text>
+          <text class="t-mono" x="281" y="92">common · python-postgres</text>
+          <text class="t-mono" x="281" y="110">spark · snowflake (stubs)</text>
+          <text class="t-mono" x="281" y="128">labels · hypotheses · runbooks</text>
+
+          <rect class="box" x="510" y="20" width="225" height="128" rx="6"/>
+          <text class="t-title" x="526" y="46">Tool backends</text>
+          <text class="t-sub" x="526" y="66">what the agent can see</text>
+          <text class="t-mono" x="526" y="92">logs · airflow · gha ✓</text>
+          <text class="t-mono" x="526" y="110">postgres.* · metrics · k8s</text>
+          <text class="t-mono" x="526" y="128">first-party or MCP</text>
+
+          <rect class="box" x="755" y="20" width="225" height="128" rx="6" style="stroke-dasharray:5 4"/>
+          <text class="t-title" x="771" y="46">Knowledge</text>
+          <text class="t-sub" x="771" y="66">what the team wrote down</text>
+          <text class="t-mono" x="771" y="92">Git docs · Confluence</text>
+          <text class="t-mono" x="771" y="110">SharePoint · MCP</text>
+          <text class="t-mono" x="771" y="128">guidance, never evidence</text>
+
+          <!-- arrows into core -->
+          <line class="wire" x1="132" y1="148" x2="132" y2="208" marker-end="url(#a1)"/>
+          <text class="t-lab" x="140" y="182">tickets, changes</text>
+          <line class="wire" x1="377" y1="148" x2="377" y2="208" marker-end="url(#a1)"/>
+          <text class="t-lab" x="385" y="182">only the case's stack</text>
+          <line class="wire" x1="622" y1="148" x2="622" y2="208" marker-end="url(#a1)"/>
+          <text class="t-lab" x="630" y="182">evidence (untrusted)</text>
+          <line class="wire-dash" x1="867" y1="148" x2="867" y2="208" marker-end="url(#a1)"/>
+          <text class="t-lab" x="875" y="182">guidance (untrusted)</text>
+
+          <!-- core -->
+          <rect class="box-gate" x="20" y="212" width="960" height="190" rx="8"/>
+          <text class="t-title t-gate" x="40" y="240">TRUST CORE · never pluggable</text>
+          <g class="t-mono">
+            <rect class="box" x="40" y="258" width="100" height="44" rx="4"/><text class="t-mono" x="52" y="285">intake</text>
+            <rect class="box" x="152" y="258" width="112" height="44" rx="4"/><text class="t-mono" x="164" y="285">dedup·storm</text>
+            <rect class="box" x="276" y="258" width="112" height="44" rx="4"/><text class="t-mono" x="288" y="285">service+packs</text>
+            <rect class="box" x="400" y="258" width="100" height="44" rx="4"/><text class="t-mono" x="414" y="285">classify</text>
+            <rect class="box" x="512" y="258" width="88" height="44" rx="4"/><text class="t-mono" x="526" y="285">decide</text>
+            <rect class="box" x="612" y="258" width="78" height="44" rx="4"/><text class="t-mono" x="634" y="285">RCA</text>
+            <rect class="box" x="702" y="258" width="88" height="44" rx="4"/><text class="t-mono" x="714" y="285">propose</text>
+            <rect class="box-gate" x="802" y="258" width="76" height="44" rx="4"/><text class="t-mono t-gate" x="818" y="285">GATE</text>
+            <rect class="box" x="890" y="258" width="76" height="44" rx="4"/><text class="t-mono" x="902" y="285">outbox</text>
+          </g>
+          <g>
+            <line class="wire" x1="140" y1="280" x2="150" y2="280" marker-end="url(#a1)"/>
+            <line class="wire" x1="264" y1="280" x2="274" y2="280" marker-end="url(#a1)"/>
+            <line class="wire" x1="388" y1="280" x2="398" y2="280" marker-end="url(#a1)"/>
+            <line class="wire" x1="500" y1="280" x2="510" y2="280" marker-end="url(#a1)"/>
+            <line class="wire" x1="600" y1="280" x2="610" y2="280" marker-end="url(#a1)"/>
+            <line class="wire" x1="690" y1="280" x2="700" y2="280" marker-end="url(#a1)"/>
+            <line class="wire-gate" x1="790" y1="280" x2="800" y2="280" marker-end="url(#a1g)"/>
+            <line class="wire-gate" x1="878" y1="280" x2="888" y2="280" marker-end="url(#a1g)"/>
+          </g>
+          <text class="t-sub" x="40" y="336">redaction before every LLM call (INV-06) · append-only event log and replay (INV-03) · one case per fingerprint (INV-02)</text>
+          <text class="t-sub" x="40" y="358">no send without exactly one authorization, enforced by DB triggers (INV-01) · effectively-once sends (INV-04)</text>
+          <text class="t-sub" x="40" y="380">any failure ends in a safe default for a human (INV-05) · takeover · RBAC · calibration</text>
+
+          <!-- outward -->
+          <rect class="box" x="20" y="424" width="225" height="52" rx="6"/>
+          <text class="t-title" x="36" y="446">Connector (write side)</text>
+          <text class="t-sub" x="36" y="464">notes, comments, updates</text>
+          <path class="wire-gate" d="M928,402 L928,450 L249,450" marker-end="url(#a1g)"/>
+          <text class="t-lab" x="420" y="472">only authorized writes leave the core, through the connector</text>
+        </svg>
+      </div>
+      <figcaption>Plug-ins feed the core; only the core can write. Dashed: planned (ADR-0011). ✓: built today.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="flow">
+  <div class="wrap">
+    <h2>How an incident moves through the system</h2>
+    <p class="sec-intro">A linear triage loop, then one budgeted investigation loop. Every stage writes an event, so <code>replay &lt;trace&gt;</code> shows the whole path, and every stage that can fail has a named safe default that hands the case to a human.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 340" role="img" aria-label="Ten stages from intake to the outbox. Any stage that fails or is unsure routes the case to the human queue with a named reason.">
+          <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          <marker id="a2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-bad"/></marker></defs>
+          <g>
+            <rect class="box" x="20" y="30" width="170" height="74" rx="6"/><text class="t-title" x="34" y="56">1 · Intake</text><text class="t-sub" x="34" y="76">poll, webhook, alert</text><text class="t-sub" x="34" y="93">via the connector</text>
+            <rect class="box" x="215" y="30" width="170" height="74" rx="6"/><text class="t-title" x="229" y="56">2 · Normalize</text><text class="t-sub" x="229" y="76">one AlertEvent shape</text><text class="t-sub" x="229" y="93">severity from priority</text>
+            <rect class="box" x="410" y="30" width="170" height="74" rx="6"/><text class="t-title" x="424" y="56">3 · Dedup &amp; storm</text><text class="t-sub" x="424" y="76">one case per fingerprint</text><text class="t-sub" x="424" y="93">groups share one triage</text>
+            <rect class="box" x="605" y="30" width="170" height="74" rx="6"/><text class="t-title" x="619" y="56">4 · Resolve service</text><text class="t-sub" x="619" y="76">catalog: CI or resource</text><text class="t-sub" x="619" y="93">→ its stack's packs</text>
+            <rect class="box" x="800" y="30" width="180" height="74" rx="6"/><text class="t-title" x="814" y="56">5 · Classify</text><text class="t-sub" x="814" y="76">pre-classifier ‖ LLM</text><text class="t-sub" x="814" y="93">labels from active packs</text>
+          </g>
+          <g>
+            <rect class="box" x="800" y="168" width="180" height="74" rx="6"/><text class="t-title" x="814" y="194">6 · Decide</text><text class="t-sub" x="814" y="214">calibrated score,</text><text class="t-sub" x="814" y="231">severity cap, route</text>
+            <rect class="box" x="605" y="168" width="170" height="74" rx="6"/><text class="t-title" x="619" y="194">7 · Investigate</text><text class="t-sub" x="619" y="214">pack plan, tool evidence,</text><text class="t-sub" x="619" y="231">entailment-checked</text>
+            <rect class="box" x="410" y="168" width="170" height="74" rx="6"/><text class="t-title" x="424" y="194">8 · Propose</text><text class="t-sub" x="424" y="214">typed actions from</text><text class="t-sub" x="424" y="231">fixed templates</text>
+            <rect class="box-gate" x="215" y="168" width="170" height="74" rx="6"/><text class="t-title t-gate" x="229" y="194">9 · Gate</text><text class="t-sub" x="229" y="214">approval, grant or</text><text class="t-sub" x="229" y="231">comms plan — or nothing</text>
+            <rect class="box" x="20" y="168" width="170" height="74" rx="6"/><text class="t-title" x="34" y="194">10 · Outbox</text><text class="t-sub" x="34" y="214">effectively-once send,</text><text class="t-sub" x="34" y="231">marker + reconcile</text>
+          </g>
+          <g>
+            <line class="wire" x1="190" y1="67" x2="213" y2="67" marker-end="url(#a2)"/>
+            <line class="wire" x1="385" y1="67" x2="408" y2="67" marker-end="url(#a2)"/>
+            <line class="wire" x1="580" y1="67" x2="603" y2="67" marker-end="url(#a2)"/>
+            <line class="wire" x1="775" y1="67" x2="798" y2="67" marker-end="url(#a2)"/>
+            <line class="wire" x1="890" y1="104" x2="890" y2="166" marker-end="url(#a2)"/>
+            <line class="wire" x1="800" y1="205" x2="777" y2="205" marker-end="url(#a2)"/>
+            <line class="wire" x1="605" y1="205" x2="582" y2="205" marker-end="url(#a2)"/>
+            <line class="wire" x1="410" y1="205" x2="387" y2="205" marker-end="url(#a2)"/>
+            <line class="wire-gate" x1="215" y1="205" x2="192" y2="205" marker-end="url(#a2)"/>
+          </g>
+          <rect class="box-bad" x="215" y="274" width="765" height="54" rx="6"/>
+          <text class="t-bad" x="231" y="296">Human queue: a safe default with a named reason</text>
+          <text class="t-lab" x="231" y="316">unresolved-service · llm-failure · classifier-conflict · low-calibrated-score · unconfirmed-high-severity · storm-member</text>
+          <line class="wire-bad" x1="890" y1="242" x2="890" y2="274" marker-end="url(#a2b)"/>
+        </svg>
+      </div>
+      <figcaption>Stages 4, 5 and 7 are where the plug-ins matter: the resolved service picks the skill packs, the packs supply the labels and the investigation plan, and the tool backends supply the evidence.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="trust">
+  <div class="wrap">
+    <h2>The trust core: six guarantees, each with a test</h2>
+    <p class="sec-intro">These are the only things SupportAgent claims. Each has a test ID that must pass in CI on both SQLite and Postgres. If a test can't be written, the guarantee isn't claimed.</p>
     <div class="grid g3">
-      <div class="card"><span class="inv-id">INV-01 · Gate</span><h4>Nothing executes without one valid authorization</h4><p>A single-use, hash-bound approval; an approved literal-scope grant (internal kinds only); or an approved comms plan (customer comms only). Enforced by DB triggers.</p></div>
-      <div class="card"><span class="inv-id">INV-02 · Dedup</span><h4>One unresolved case per fingerprint</h4><p>A partial unique index plus an upsert. Holds under concurrency and while a human owns the case. Human-filed tickets are never merged.</p></div>
-      <div class="card"><span class="inv-id">INV-03 · Trace</span><h4>Every decision is an event</h4><p>Every side effect, LLM call, tool call and routing decision is an append-only <code>events</code> row with a trace ID. Any case is replayable.</p></div>
-      <div class="card"><span class="inv-id">INV-04 · Idempotency</span><h4>Retries are effectively-once</h4><p>At-least-once delivery with unique outbox keys and read-before-write reconciliation against the target. Zero double-sends is measured in a soak test.</p></div>
-      <div class="card"><span class="inv-id">INV-05 · Safe default</span><h4>Failure routes to a human</h4><p>An LLM timeout, garbage output, classifier conflict or tool failure ends in the human queue with zero unapproved side effects. No crash.</p></div>
-      <div class="card"><span class="inv-id">INV-06 · Redaction</span><h4>Flagged secrets never reach a provider</h4><p>Redaction runs inside the LLM client, so no call site can skip it. Canary tests prove the wiring; detector recall is measured separately.</p></div>
+      <div class="card"><span class="inv-id">INV-01 · authorization</span><h4>No unapproved action</h4><p>A write executes only if its outbox row points at exactly one valid authorization: a single-use approval matching the payload hash, an in-scope policy grant, or an approved comms plan. Database triggers enforce it.</p></div>
+      <div class="card"><span class="inv-id">INV-02 · dedup</span><h4>One case per fingerprint</h4><p>Duplicates increment a counter; a severity escalation re-triages the same case in place. A partial unique index enforces it.</p></div>
+      <div class="card"><span class="inv-id">INV-03 · trace</span><h4>Everything is an event</h4><p>Every side effect, LLM call, tool call and decision is an append-only event with a trace id, so any case can be replayed.</p></div>
+      <div class="card"><span class="inv-id">INV-04 · idempotency</span><h4>Effectively-once sends</h4><p>Re-running a send with the same key is a no-op: a marker on every note plus read-before-write reconciliation.</p></div>
+      <div class="card"><span class="inv-id">INV-05 · failure</span><h4>Fail to a human, not a crash</h4><p>Any LLM, tool or config failure ends in a safe default with zero unapproved side effects.</p></div>
+      <div class="card"><span class="inv-id">INV-06 · redaction</span><h4>No secrets reach a model</h4><p>Redaction runs inside the only path to an LLM provider, so no call site can skip it. A canary corpus proves it.</p></div>
+    </div>
+    <h3>Autonomy tiers</h3>
+    <div class="tierband">
+      <div class="k0"><span class="tier t0">T0</span><h4>Read &amp; analyze</h4><p>Log reads, job status, RCA, drafting, retrieval.</p><p class="rule">Autonomous, traced, budgeted</p></div>
+      <div class="k1"><span class="tier t1">T1</span><h4>Internal, low blast radius</h4><p>Internal work notes, attaching to an existing page.</p><p class="rule">Customer-approved grant or approval</p></div>
+      <div class="k2"><span class="tier t2">T2</span><h4>State-changing</h4><p>Customer comments, ticket updates, job re-runs.</p><p class="rule">Human approval (or a comms plan)</p></div>
+      <div class="k3"><span class="tier t3">T3</span><h4>Self-modification</h4><p>New packs, runbooks, prompts, routing.</p><p class="rule">Eval-gated, reviewed, rollback</p></div>
     </div>
   </div>
 </section>
 
-<section id="architecture" aria-labelledby="h-arch">
+<section id="rca">
   <div class="wrap">
-    <h2 id="h-arch">How a ticket moves through the system</h2>
-    <p class="sec-intro">Loop A (triage) is linear: no LLM branching. Every step either hands off to the next or drops to a safe default. Loop B (RCA) is the only free-running loop, and it is budgeted.</p>
-
+    <h2>Root cause analysis: a plan of checks, not a chat</h2>
+    <p class="sec-intro">The investigation tests declared hypotheses with machine-checkable evidence. The LLM may suggest which hypotheses to test, but it may only pick from the active packs, and it never grades its own conclusion.</p>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1000 300" role="img" aria-label="Pipeline: ServiceNow poll, dedup, classify, route, propose, authorize, outbox, back to ServiceNow or email; side paths to storm grouping, safe default, RCA and comms plan; a sync loop returns changes from ServiceNow.">
-          <defs>
-            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-            <marker id="a1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-gate"/></marker>
-            <marker id="a1m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-muted"/></marker>
-          </defs>
-
-          <!-- sync loop -->
-          <path class="wire-dash" d="M937 60 V26 H62 V58" marker-end="url(#a1m)"/>
-          <text class="t-lab" x="500" y="20" text-anchor="middle">sync loop: per-change sys_audit history → lifecycle, takeover, feedback (our own writes filtered out)</text>
-
-          <!-- main row -->
-          <rect class="box" x="10" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="62" y="88" text-anchor="middle">ServiceNow</text>
-          <text class="t-sub" x="62" y="106" text-anchor="middle">poll every 60s</text>
-
-          <rect class="box" x="135" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="187" y="88" text-anchor="middle">Dedup</text>
-          <text class="t-sub" x="187" y="106" text-anchor="middle">unique index</text>
-
-          <rect class="box" x="260" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="312" y="88" text-anchor="middle">Classify</text>
-          <text class="t-sub" x="312" y="106" text-anchor="middle">rules ∥ LLM</text>
-
-          <rect class="box" x="385" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="437" y="88" text-anchor="middle">Route</text>
-          <text class="t-sub" x="437" y="106" text-anchor="middle">config table</text>
-
-          <rect class="box" x="510" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="562" y="88" text-anchor="middle">Propose</text>
-          <text class="t-sub" x="562" y="106" text-anchor="middle">typed actions</text>
-
-          <rect class="box-gate" x="635" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title t-gate" x="687" y="88" text-anchor="middle">Authorize</text>
-          <text class="t-sub" x="687" y="106" text-anchor="middle">approval · grant · plan</text>
-
-          <rect class="box" x="760" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="812" y="88" text-anchor="middle">Outbox</text>
-          <text class="t-sub" x="812" y="106" text-anchor="middle">DB triggers</text>
-
-          <rect class="box" x="885" y="60" width="105" height="64" rx="5"/>
-          <text class="t-title" x="937" y="88" text-anchor="middle">ServiceNow</text>
-          <text class="t-sub" x="937" y="106" text-anchor="middle">or email</text>
-
-          <path class="wire" d="M115 92 H133" marker-end="url(#a1)"/>
-          <path class="wire" d="M240 92 H258" marker-end="url(#a1)"/>
-          <path class="wire" d="M365 92 H383" marker-end="url(#a1)"/>
-          <path class="wire" d="M490 92 H508" marker-end="url(#a1)"/>
-          <path class="wire-gate" d="M615 92 H633" marker-end="url(#a1g)"/>
-          <path class="wire-gate" d="M740 92 H758" marker-end="url(#a1g)"/>
-          <path class="wire" d="M865 92 H883" marker-end="url(#a1)"/>
-
-          <!-- side paths -->
-          <path class="wire" d="M187 124 V198" marker-end="url(#a1)"/>
-          <text class="t-lab" x="193" y="166">storm</text>
-          <rect class="box-sunk" x="130" y="200" width="115" height="56" rx="5"/>
-          <text class="t-title" x="187" y="224" text-anchor="middle">Storm grouping</text>
-          <text class="t-sub" x="187" y="242" text-anchor="middle">case_groups, no LLM</text>
-
-          <path class="wire" d="M312 124 V198" marker-end="url(#a1)"/>
-          <text class="t-lab" x="318" y="166">unsure</text>
-          <rect class="box-sunk" x="255" y="200" width="115" height="56" rx="5"/>
-          <text class="t-title" x="312" y="224" text-anchor="middle">Safe default</text>
-          <text class="t-sub" x="312" y="242" text-anchor="middle">human queue</text>
-
-          <path class="wire" d="M437 124 V198" marker-end="url(#a1)"/>
-          <text class="t-lab" x="443" y="166">rca: lite</text>
-          <rect class="box-sunk" x="380" y="200" width="115" height="56" rx="5"/>
-          <text class="t-title" x="437" y="224" text-anchor="middle">Loop B: RCA</text>
-          <text class="t-sub" x="437" y="242" text-anchor="middle">budgeted, read-only</text>
-
-          <path class="wire" d="M562 124 V198" marker-end="url(#a1)"/>
-          <text class="t-lab" x="568" y="166">comms</text>
-          <rect class="box-sunk" x="505" y="200" width="115" height="56" rx="5"/>
-          <text class="t-title" x="562" y="224" text-anchor="middle">Comms plan</text>
-          <text class="t-sub" x="562" y="242" text-anchor="middle">cadence, template</text>
-
-          <path class="wire-gate" d="M620 228 H687 V126" marker-end="url(#a1g)"/>
-          <text class="t-lab" x="694" y="200">plan approval</text>
-
-          <text class="t-lab" x="10" y="290">Solid: Loop A hand-off. Amber: the authorization path. Dashed: data coming back from ServiceNow.</text>
+        <svg viewBox="0 0 1000 300" role="img" aria-label="Hypotheses from the active skill packs, plus similar past cases and documentation as guidance, form a budgeted plan. Each step runs a tool and a compiled check. Claims are entailment-checked and reduced to one of three verdicts.">
+          <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+          <rect class="box" x="20" y="24" width="230" height="64" rx="6"/><text class="t-title" x="36" y="50">Active skill packs</text><text class="t-sub" x="36" y="70">hypotheses, runbooks, probes</text>
+          <rect class="box" x="20" y="104" width="230" height="64" rx="6"/><text class="t-title" x="36" y="130">Case memory</text><text class="t-sub" x="36" y="150">similar past cases, cited by id</text>
+          <rect class="box" x="20" y="184" width="230" height="64" rx="6" style="stroke-dasharray:5 4"/><text class="t-title" x="36" y="210">Documentation</text><text class="t-sub" x="36" y="230">reorders and suggests; not evidence</text>
+          <line class="wire" x1="250" y1="56" x2="298" y2="130" marker-end="url(#a3)"/>
+          <line class="wire" x1="250" y1="136" x2="298" y2="136" marker-end="url(#a3)"/>
+          <line class="wire-dash" x1="250" y1="216" x2="298" y2="144" marker-end="url(#a3)"/>
+          <rect class="box" x="300" y="90" width="200" height="96" rx="6"/><text class="t-title" x="316" y="116">Plan (budgeted)</text><text class="t-sub" x="316" y="136">≤ N tool calls, tokens,</text><text class="t-sub" x="316" y="153">hypotheses; stop_if rules</text><text class="t-sub" x="316" y="170">runbook = the plan</text>
+          <line class="wire" x1="500" y1="138" x2="548" y2="138" marker-end="url(#a3)"/>
+          <rect class="box" x="550" y="90" width="200" height="96" rx="6"/><text class="t-title" x="566" y="116">Evidence step</text><text class="t-sub" x="566" y="136">tool call (read-only)</text><text class="t-sub" x="566" y="153">→ CEL check on the</text><text class="t-sub" x="566" y="170">typed result</text>
+          <path class="wire" d="M650,186 C650,232 560,232 560,196" marker-end="url(#a3)"/>
+          <text class="t-lab" x="590" y="246">next step</text>
+          <line class="wire" x1="750" y1="138" x2="798" y2="138" marker-end="url(#a3)"/>
+          <rect class="box-gate" x="800" y="40" width="180" height="200" rx="6"/>
+          <text class="t-title" x="816" y="66">reduce()</text>
+          <text class="t-mono" x="816" y="96">SUPPORTED</text><text class="t-sub" x="816" y="114">check passed + entailed</text>
+          <text class="t-mono" x="816" y="146">CONSISTENT_</text><text class="t-mono" x="816" y="162">UNCONFIRMED</text><text class="t-sub" x="816" y="180">fits, not proven</text>
+          <text class="t-mono" x="816" y="210">INCONCLUSIVE</text><text class="t-sub" x="816" y="228">say so; ask a human</text>
         </svg>
       </div>
-      <figcaption>Every action leaves through the Authorize → Outbox path, including comms. Classify drops to the safe default on a classifier conflict, a calibrated score below the floor, or an LLM-only P1/P2. Storm grouping links cases across services under one group, so a storm gets one triage and one RCA rather than one per alert.</figcaption>
-    </figure>
-
-    <h3>Where redaction lives</h3>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 780 180" role="img" aria-label="Five LLM call sites all pass through LLMClient.structured, which renders, redacts, then sends to the provider. The placeholder map stays local.">
-          <defs>
-            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-          </defs>
-          <rect class="box" x="10" y="12" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="29" text-anchor="middle">classify</text>
-          <rect class="box" x="10" y="44" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="61" text-anchor="middle">propose_hypotheses</text>
-          <rect class="box" x="10" y="76" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="93" text-anchor="middle">entail</text>
-          <rect class="box" x="10" y="108" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="125" text-anchor="middle">rerank</text>
-          <rect class="box" x="10" y="140" width="140" height="26" rx="4"/><text class="t-mono" x="80" y="157" text-anchor="middle">draft_comms</text>
-
-          <path class="wire" d="M150 25 L208 74" marker-end="url(#a2)"/>
-          <path class="wire" d="M150 57 L208 82" marker-end="url(#a2)"/>
-          <path class="wire" d="M150 89 H208" marker-end="url(#a2)"/>
-          <path class="wire" d="M150 121 L208 96" marker-end="url(#a2)"/>
-          <path class="wire" d="M150 153 L208 104" marker-end="url(#a2)"/>
-
-          <rect class="box" x="210" y="40" width="330" height="100" rx="6"/>
-          <text class="t-mono" x="225" y="60">LLMClient.structured()</text>
-          <rect class="box-sunk" x="225" y="74" width="85" height="44" rx="4"/><text class="t-title" x="267" y="101" text-anchor="middle">render</text>
-          <rect class="box-gate" x="330" y="74" width="85" height="44" rx="4"/><text class="t-title t-gate" x="372" y="101" text-anchor="middle">redact</text>
-          <rect class="box-sunk" x="435" y="74" width="90" height="44" rx="4"/><text class="t-title" x="480" y="101" text-anchor="middle">send</text>
-          <path class="wire" d="M310 96 H328" marker-end="url(#a2)"/>
-          <path class="wire" d="M415 96 H433" marker-end="url(#a2)"/>
-
-          <path class="wire" d="M540 90 H598" marker-end="url(#a2)"/>
-          <rect class="box" x="600" y="64" width="160" height="52" rx="5"/>
-          <text class="t-title" x="680" y="86" text-anchor="middle">LLM provider</text>
-          <text class="t-sub" x="680" y="104" text-anchor="middle">pinned snapshot ID</text>
-
-          <text class="t-lab" x="372" y="160" text-anchor="middle">placeholder map stays local, never in the trace</text>
-        </svg>
-      </div>
-      <figcaption>There is one path to a provider. Adding a new LLM slot means calling <code>structured()</code>, which redacts by construction. A CI canary test plants synthetic secrets in tickets and logs and checks that none appear in any captured provider request.</figcaption>
+      <figcaption>Every claim passes the entailment checker against the evidence it cites, and fails closed. Nothing about cause is sent to a customer. INCONCLUSIVE is a correct answer when the evidence isn't there.</figcaption>
     </figure>
   </div>
 </section>
 
-<section id="trust" aria-labelledby="h-trust">
+<section id="packs">
   <div class="wrap">
-    <h2 id="h-trust">The trust chain</h2>
-    <p class="sec-intro">Every action kind has a tier, assigned at registration and never inferred at runtime. The tier decides which authorization paths exist for that kind.</p>
+    <h2>Skill packs: what the agent knows, per technology stack <span class="pill planned">planned · WP-M01</span></h2>
+    <p class="sec-intro">A Postgres web app, a Spark job and a Java service fail in different ways. A skill pack bundles one stack's failure knowledge. A catalog service declares its stack, and only the matching packs reach the prompts and the plan, so the model sees "connection pool exhaustion in the app's pool" instead of six generic guesses.</p>
+<pre class="code"><span class="c"># packs/python-postgres/pack.yaml</span>
+id: python-postgres
+version: 1.0.0
+applies_to: {stack: [python, fastapi, flask, django, gunicorn, uvicorn, celery, postgres]}
+taxonomy:   taxonomy.yaml          <span class="c"># db/pool_exhaustion, app/worker_timeout, …</span>
+hypotheses: hypotheses.yaml        <span class="c"># lock_contention, missing_index_after_migration, …</span>
+preclass:   preclass_rules.yaml    <span class="c"># "psycopg.OperationalError", "WORKER TIMEOUT", OOMKilled</span>
+tools:      [logs.search, postgres.activity, postgres.locks, postgres.slow_queries,
+             metrics.query, k8s.pod_status, changes.recent]
+runbooks:   runbooks/              <span class="c"># typed plans, validated against tool schemas</span>
+prompts:    {classify: classify.md, propose_hypotheses: propose_hypotheses.md}
+knowledge:  {spaces: [platform], labels: [postgres, python]}   <span class="c"># reserved</span>
+evals:      evals/                 <span class="c"># lab scenarios with known root causes</span></pre>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Pack</th><th>Covers</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><code>common</code></td><td>Cross-stack causes: recent change, capacity decay, dependency failure, upstream provider, traffic spike, data volume</td><td><span class="pill built">built</span> (today's taxonomy, moving into a pack)</td></tr>
+        <tr><td><code>python-postgres</code></td><td>Pool exhaustion, slow queries after migrations, lock contention, disk and WAL, replication lag, autovacuum, worker timeouts, OOM, bad config, Celery backlog, certs, DNS, traffic spikes</td><td><span class="pill planned">first pack</span> 15 lab scenarios</td></tr>
+        <tr><td><code>spark</code>, <code>snowflake</code></td><td>Manifest stubs</td><td><span class="pill reserved">placeholder</span> loads, reported "not evaluated", can't be enabled</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
 
-    <div class="tierband" role="list">
-      <div class="k0" role="listitem"><span class="tier t0">T0</span><h4>Read and analyze</h4><p>Log reads, job status, RCA, drafting, case-memory retrieval.</p><p class="rule">Autonomous, traced, budgeted.</p></div>
-      <div class="k1" role="listitem"><span class="tier t1">T1</span><h4>Internal, low blast radius</h4><p><code>work_note</code>, <code>enrich_page</code>, <code>watch_list_add_internal</code>.</p><p class="rule">Allowed after the customer admin approves the default grants at setup.</p></div>
-      <div class="k2" role="listitem"><span class="tier t2">T2</span><h4>State-changing or customer-facing</h4><p>Job re-runs, ticket updates, <code>customer_comment</code>, customer email.</p><p class="rule">Always gated. Customer-facing kinds are never grant-authorized.</p></div>
-      <div class="k3" role="listitem"><span class="tier t3">T3</span><h4>Self-modification</h4><p>Learned runbooks, KB articles, prompt patches.</p><p class="rule">Gated, eval-gated on a disjoint holdout, versioned, one-command rollback.</p></div>
+<section id="tools">
+  <div class="wrap">
+    <h2>Tools: capabilities bound to backends, including MCP <span class="pill planned">planned · WP-M04, M06</span></h2>
+    <p class="sec-intro">Packs name what they need to look at, a capability with one result schema. A deployment decides where it comes from. The same pack then works on Prometheus or Datadog, on a self-hosted database or a managed one, through a first-party adapter or an MCP server.</p>
+<pre class="code"><span class="c"># supportagent.yaml</span>
+tools:
+  postgres.activity: {first_party: postgres, dsn_env: PG_READONLY_DSN}
+  metrics.query:     {first_party: prometheus, base_url: http://prometheus:9090}
+  logs.search:       {mcp: grafana-loki, tool: query_logs}</pre>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Capability</th><th>Backends</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><code>logs</code>, <code>airflow</code>, <code>gha</code>, <code>cron</code>, <code>oncall</code></td><td>first-party</td><td><span class="pill built">built</span></td></tr>
+        <tr><td><code>postgres.activity</code> · <code>.locks</code> · <code>.slow_queries</code> · <code>.replication</code> · <code>.storage</code></td><td>first-party; read-only role, statement timeout, no DDL or DML</td><td><span class="pill planned">WP-M04</span></td></tr>
+        <tr><td><code>metrics.query</code>, <code>k8s.pod_status</code>, <code>changes.recent</code></td><td>Prometheus, Kubernetes, deploy feed; or MCP</td><td><span class="pill planned">WP-M04</span></td></tr>
+        <tr><td>Any MCP tool</td><td>registered with declared tools only and a fixed trust class; output is untrusted; read-only by default</td><td><span class="pill planned">WP-M06</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="connectors">
+  <div class="wrap">
+    <h2>Connectors: the incident system is a plug-in <span class="pill planned">planned · WP-M07</span></h2>
+    <p class="sec-intro">ServiceNow is the first connector, and it is battle-tested against a real instance. The core will speak a normalized model, so a second system (Jira Service Management, Zendesk, PagerDuty or Opsgenie incidents) doesn't touch triage, the gate or takeover. A connector is built only when a customer needs it.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Concept</th><th>In the core</th><th>ServiceNow connector</th></tr></thead>
+      <tbody>
+        <tr><td>Record</td><td><code>record_type</code>, <code>external_id</code></td><td>table, <code>sys_id</code></td></tr>
+        <tr><td>Notes</td><td><code>NoteVisibility.INTERNAL</code> / <code>CUSTOMER</code></td><td><code>work_notes</code> / <code>comments</code></td></tr>
+        <tr><td>Severity</td><td><code>Severity</code> P1–P4 (ADR-0009)</td><td>priority 1–5</td></tr>
+        <tr><td>Lifecycle</td><td>open · in progress · resolved</td><td>state codes</td></tr>
+        <tr><td>Takeover signals</td><td><code>assignee_changed</code>, <code>status_changed</code> with a classified actor</td><td><code>sys_audit</code> rows</td></tr>
+        <tr><td>Capabilities</td><td>a manifest: history, internal notes, markers, creation audit</td><td>all supported</td></tr>
+      </tbody>
+    </table></div>
+    <p class="callout">A connector that lacks a capability gets stricter behaviour, not weaker. With no change history, there is no automatic takeover detection, so every write needs a human approval.</p>
+  </div>
+</section>
+
+<section id="knowledge">
+  <div class="wrap">
+    <h2>Knowledge: documentation as guidance, never as evidence <span class="pill reserved">reserved · WP-M08</span></h2>
+    <p class="sec-intro">Teams keep runbooks and procedures in Git, Confluence or SharePoint. The agent will retrieve them to guide an investigation or a request, under five rules that keep a stale or hostile page from steering it.</p>
+    <ol class="rule-list">
+      <li><b>Guidance, not evidence.</b> A doc can raise a hypothesis and suggest a check. SUPPORTED still needs tool evidence; a doc-only claim is labelled "documented guidance".</li>
+      <li><b>No authority.</b> A procedure maps onto the existing typed actions, and each one passes the gate. Doc text is never executed.</li>
+      <li><b>Untrusted input.</b> Docs are redacted at ingest and handled like log text, with injection canaries in the evals.</li>
+      <li><b>Cited and replayable.</b> Each chunk carries page, version, URL, owner and a content hash; the trace records what was read.</li>
+      <li><b>Scoped by pack and service.</b> Visibility follows the doc, so an internal page never reaches a customer draft.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="extend">
+  <div class="wrap">
+    <h2>Extend it without being a developer <span class="pill planned">planned · WP-M09</span></h2>
+    <p class="sec-intro">A support analyst who spots a gap describes it in plain language to a coding harness, ideally with a real incident or two. The harness proposes a pack change, a tool or an MCP binding that fits the framework, proves it in the lab, and opens a pull request. The analyst doesn't need to learn the framework.</p>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 200" role="img" aria-label="An analyst's description of a gap is classified, scaffolded with generators, turned into lab scenarios, evaluated, and opened as a reviewed pull request.">
+          <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+          <rect class="box" x="20" y="40" width="160" height="96" rx="6"/><text class="t-title" x="34" y="66">Analyst</text><text class="t-sub" x="34" y="86">"it never checks</text><text class="t-sub" x="34" y="103">Celery queue depth"</text><text class="t-sub" x="34" y="120">+ 2 real incidents</text>
+          <rect class="box" x="210" y="40" width="160" height="96" rx="6"/><text class="t-title" x="224" y="66">Classify gap</text><text class="t-sub" x="224" y="86">knowledge → pack</text><text class="t-sub" x="224" y="103">evidence → tool / MCP</text><text class="t-sub" x="224" y="120">action → engineering</text>
+          <rect class="box" x="400" y="40" width="160" height="96" rx="6"/><text class="t-title" x="414" y="66">Scaffold</text><text class="t-sub" x="414" y="86">pack new · tool new</text><text class="t-sub" x="414" y="103">templates, not</text><text class="t-sub" x="414" y="120">invented structure</text>
+          <rect class="box" x="590" y="40" width="160" height="96" rx="6"/><text class="t-title" x="604" y="66">Prove it</text><text class="t-sub" x="604" y="86">incidents → scenarios</text><text class="t-sub" x="604" y="103">validate + lab run</text><text class="t-sub" x="604" y="120">no regressions</text>
+          <rect class="box-gate" x="780" y="40" width="200" height="96" rx="6"/><text class="t-title t-gate" x="794" y="66">Pull request (T3)</text><text class="t-sub" x="794" y="86">eval report attached</text><text class="t-sub" x="794" y="103">human review</text><text class="t-sub" x="794" y="120">versioned, rollback</text>
+          <line class="wire" x1="180" y1="88" x2="208" y2="88" marker-end="url(#a4)"/>
+          <line class="wire" x1="370" y1="88" x2="398" y2="88" marker-end="url(#a4)"/>
+          <line class="wire" x1="560" y1="88" x2="588" y2="88" marker-end="url(#a4)"/>
+          <line class="wire" x1="750" y1="88" x2="778" y2="88" marker-end="url(#a4)"/>
+          <text class="t-lab" x="210" y="170">The harness learns the conventions from a project skill in the repo; the generators and validators make the result correct by construction.</text>
+        </svg>
+      </div>
+      <figcaption>Extensions add knowledge or read-only evidence. Anything that needs a new write action, a new authorization path or a redaction exception is refused and routed to engineering.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="humans">
+  <div class="wrap">
+    <h2>Humans stay in control</h2>
+    <p class="sec-intro">Trust is earned in stages, and a person can always take the case back.</p>
+    <div class="grid g3">
+      <div class="card"><h4>Shadow → assisted → standard</h4><p>Shadow records what the agent would have done and sends nothing. Assisted acts within grants and approvals (built in v0.1, ADR-0008). Standard comes later. Promotion is a human decision informed by agreement stats.</p></div>
+      <div class="card"><h4>Approvals with identity</h4><p>Approvers sign in through your identity provider (OIDC with PKCE). An approval is single-use and bound to the payload hash the approver saw; nobody approves their own proposal.</p></div>
+      <div class="card"><h4>Takeover</h4><p>When a person changes the assignee or status, the case becomes human-owned: the agent stops proposing and sending, and turns due updates into drafts for the owner.</p></div>
+      <div class="card"><h4>Customer comms plans</h4><p>One approval covers a cadence of updates from a fixed template. Fields come only from values a person set, including when they raised the ticket (ADR-0010), never from model inference.</p></div>
+      <div class="card"><h4>Severity from the source</h4><p>Severity routes on the incident system's priority (ADR-0009), with the model's guess only as a fallback. A raised priority re-triages the case.</p></div>
+      <div class="card"><h4>Replay anything</h4><p><code>supportagent replay &lt;trace&gt;</code> prints every step: what was read, what the model returned, what was decided, who approved, what was sent.</p></div>
     </div>
-
-    <h3>Three ways into the outbox, and what the trigger refuses</h3>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 920 270" role="img" aria-label="Approval, policy grant and comms plan each feed the INSERT trigger, which either writes an immutable outbox row or aborts. The executor re-hashes the payload before sending.">
-          <defs>
-            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-            <marker id="a3b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-bad"/></marker>
-            <marker id="a3g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-gate"/></marker>
-          </defs>
-          <rect class="box" x="10" y="18" width="220" height="56" rx="5"/>
-          <text class="t-title" x="24" y="41">Approval</text>
-          <text class="t-sub" x="24" y="60">single-use, payload-hash bound</text>
-          <rect class="box" x="10" y="100" width="220" height="56" rx="5"/>
-          <text class="t-title" x="24" y="123">Policy grant</text>
-          <text class="t-sub" x="24" y="142">approved, literal scope, internal kinds</text>
-          <rect class="box" x="10" y="182" width="220" height="56" rx="5"/>
-          <text class="t-title" x="24" y="205">Comms plan</text>
-          <text class="t-sub" x="24" y="224">approved, template-bound, customer comms</text>
-
-          <path class="wire" d="M230 46 L298 104" marker-end="url(#a3)"/>
-          <path class="wire" d="M230 128 H298" marker-end="url(#a3)"/>
-          <path class="wire" d="M230 210 L298 152" marker-end="url(#a3)"/>
-
-          <rect class="box-gate" x="300" y="84" width="190" height="88" rx="6"/>
-          <text class="t-title t-gate" x="395" y="112" text-anchor="middle">INSERT trigger</text>
-          <text class="t-sub" x="395" y="132" text-anchor="middle">exactly one valid</text>
-          <text class="t-sub" x="395" y="149" text-anchor="middle">authorization</text>
-
-          <path class="wire-gate" d="M490 128 H558" marker-end="url(#a3g)"/>
-          <text class="t-lab" x="524" y="120" text-anchor="middle">valid</text>
-          <rect class="box" x="560" y="100" width="160" height="56" rx="5"/>
-          <text class="t-title" x="640" y="123" text-anchor="middle">Outbox row</text>
-          <text class="t-sub" x="640" y="142" text-anchor="middle">immutable after insert</text>
-
-          <path class="wire" d="M720 128 H758" marker-end="url(#a3)"/>
-          <rect class="box" x="760" y="100" width="150" height="56" rx="5"/>
-          <text class="t-title" x="835" y="123" text-anchor="middle">Executor</text>
-          <text class="t-sub" x="835" y="142" text-anchor="middle">re-hash, then send</text>
-
-          <path class="wire-bad" d="M395 172 V206" marker-end="url(#a3b)"/>
-          <rect class="box-bad" x="300" y="208" width="190" height="50" rx="5"/>
-          <text class="t-bad" x="395" y="230" text-anchor="middle">RAISE ABORT</text>
-          <text class="t-sub" x="395" y="248" text-anchor="middle">INV-01 violated</text>
-
-          <text class="t-lab" x="510" y="222">refused: rejected / expired / reused approval,</text>
-          <text class="t-lab" x="510" y="238">hash mismatch, pending or out-of-scope grant,</text>
-          <text class="t-lab" x="510" y="254">customer kind via grant, revoked plan, create_page</text>
-        </svg>
-      </div>
-      <figcaption>The trigger is the enforcement point, not the prompt or middleware. A second trigger blocks any UPDATE to payload or authorization columns, and approving your own proposal or grant is refused by the schema. All of this was run against SQLite during the spec review.</figcaption>
-    </figure>
-
-    <h3>Proposal state</h3>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 900 190" role="img" aria-label="Proposal states: proposed, pending approval, approved, executed; pending can also become rejected or expired after 24 hours.">
-          <defs>
-            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-          </defs>
-          <rect class="box" x="10" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="80" y="66" text-anchor="middle">proposed</text>
-          <rect class="box" x="210" y="40" width="170" height="44" rx="22"/><text class="t-mono" x="295" y="66" text-anchor="middle">pending_approval</text>
-          <rect class="box-gate" x="450" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="520" y="66" text-anchor="middle">approved</text>
-          <rect class="box" x="670" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="740" y="66" text-anchor="middle">executed</text>
-          <path class="wire" d="M150 62 H208" marker-end="url(#a4)"/><text class="t-lab" x="179" y="32" text-anchor="middle">submit</text>
-          <path class="wire" d="M380 62 H448" marker-end="url(#a4)"/><text class="t-lab" x="414" y="32" text-anchor="middle">approver ≠ creator</text>
-          <path class="wire" d="M590 62 H668" marker-end="url(#a4)"/><text class="t-lab" x="629" y="32" text-anchor="middle">outbox insert</text>
-
-          <rect class="box-sunk" x="150" y="130" width="130" height="40" rx="20"/><text class="t-mono" x="215" y="155" text-anchor="middle">rejected</text>
-          <rect class="box-sunk" x="320" y="130" width="130" height="40" rx="20"/><text class="t-mono" x="385" y="155" text-anchor="middle">expired</text>
-          <path class="wire" d="M265 84 L230 128" marker-end="url(#a4)"/><text class="t-lab" x="186" y="112">reason required</text>
-          <path class="wire" d="M325 84 L370 128" marker-end="url(#a4)"/><text class="t-lab" x="360" y="112">24h TTL</text>
-          <text class="t-lab" x="740" y="108" text-anchor="middle">an approval authorizes once</text>
-        </svg>
-      </div>
-      <figcaption>Silence is never consent: an unapproved proposal expires. The move to <code>executed</code> happens in the same transaction as the outbox insert, so the same approval cannot authorize a second row.</figcaption>
-    </figure>
-
-    <div class="callout"><strong>Paging is enrich-only in v0.x.</strong> The customer's own monitoring pages people. <code>enrich_page</code> attaches context to an existing page. <code>create_page</code> exists only so the trigger can forbid it, and <code>doctor</code> refuses to triage a service that has no external paging integration.</div>
   </div>
 </section>
 
-<section id="rca" aria-labelledby="h-rca">
+<section id="evals">
   <div class="wrap">
-    <h2 id="h-rca">Root cause analysis: a plan of checks, not a chat</h2>
-    <p class="sec-intro">A runbook is the plan when one matches. Otherwise the LLM may only pick hypothesis IDs from a fixed taxonomy, and each needs a registered probe. Evidence checks are CEL expressions compiled in CI, never Python strings.</p>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 920 200" role="img" aria-label="RCA: match a runbook or let the LLM pick taxonomy IDs with registered probes; run each step with a read-only tool and a CEL check under a budget; reduce to one of three categorical outcomes.">
-          <defs>
-            <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-          </defs>
-          <rect class="box" x="10" y="74" width="130" height="52" rx="5"/>
-          <text class="t-mono" x="75" y="98" text-anchor="middle">kb.match(case)</text>
-          <text class="t-sub" x="75" y="116" text-anchor="middle">runbook?</text>
+    <h2>Evals: reliability measured in six layers</h2>
+    <p class="sec-intro">The system's outputs are typed: a label, a severity, hypothesis ids, a verdict, cited evidence. So most evals are scored deterministically against ground truth, with no model grading another model. The false-cause rate, a confident wrong root cause, has the strictest gate.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>Layer</th><th>Proves</th><th>Runs</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td>Invariants (INV-01..06, both engines)</td><td>it can't act without authority, leak or double-send, whatever the model does</td><td>every PR</td><td><span class="pill built">built</span></td></tr>
+        <tr><td class="num">2</td><td>Contracts (connectors and tools, fake vs real; recorded fixtures)</td><td>the plugs behave like the real systems</td><td>every PR</td><td><span class="pill built">built</span> for ServiceNow</td></tr>
+        <tr><td class="num">3</td><td>Incident lab (pack scenarios with known root causes)</td><td>it finds the right cause for this stack</td><td>every PR from cached responses; nightly live</td><td><span class="pill planned">WP-M02</span></td></tr>
+        <tr><td class="num">4</td><td>Scenario simulation (full stack, faults injected)</td><td>the loop stays safe under storms, takeovers, outages</td><td>nightly</td><td>partly built</td></tr>
+        <tr><td class="num">5</td><td>Calibration (lab results → routing thresholds)</td><td>when it's unsure, a human gets the case</td><td>with each baseline</td><td><span class="pill built">mechanism built</span></td></tr>
+        <tr><td class="num">6</td><td>Production feedback (shadow agreement, human diffs)</td><td>it stays right live; misses become new scenarios</td><td>weekly</td><td><span class="pill built">capture built</span></td></tr>
+      </tbody>
+    </table></div>
+<pre class="code"><span class="c"># a lab scenario: the incident, the world the tools will see, and the truth</span>
+id: pg-pool-exhaustion-after-scale-out
+incident: {subject: "checkout API 500s", priority: 2, ci: checkout-api}
+world:
+  logs.search:       ["psycopg.OperationalError: connection pool exhausted", …]
+  postgres.activity: {total: 498, max_connections: 500}
+  metrics.query:     {gunicorn_workers: {before: 8, after: 32}}
+  changes.recent:    [{kind: hpa_scale, at: -40m}, {kind: deploy, service: search-api, at: -2h}]   <span class="c"># a trap</span>
+truth:
+  classification: db/pool_exhaustion
+  root_cause: pool_exhaustion
+  verdict: SUPPORTED
+  must_cite: [logs.search, postgres.activity]
+  must_not_claim: [recent_change_push]</pre>
+    <p>Scenarios include distractors, cases with no findable cause (the right answer is INCONCLUSIVE), prompt injection in logs and docs, and a held-out split never used for tuning. A pack can't be enabled for assisted mode until it passes its gates.</p>
+  </div>
+</section>
 
-          <path class="wire" d="M140 90 L198 46" marker-end="url(#a5)"/><text class="t-lab" x="160" y="58">yes</text>
-          <path class="wire" d="M140 110 L198 154" marker-end="url(#a5)"/><text class="t-lab" x="160" y="150">no</text>
-
-          <rect class="box" x="200" y="18" width="190" height="52" rx="5"/>
-          <text class="t-title" x="295" y="40" text-anchor="middle">Runbook steps</text>
-          <text class="t-sub" x="295" y="58" text-anchor="middle">YAML, ordered, $service.* args</text>
-          <rect class="box" x="200" y="130" width="190" height="52" rx="5"/>
-          <text class="t-title" x="295" y="152" text-anchor="middle">LLM picks IDs</text>
-          <text class="t-sub" x="295" y="170" text-anchor="middle">taxonomy only → registered probes</text>
-
-          <path class="wire" d="M390 44 L448 88" marker-end="url(#a5)"/>
-          <path class="wire" d="M390 156 L448 112" marker-end="url(#a5)"/>
-
-          <rect class="box" x="450" y="70" width="170" height="60" rx="5"/>
-          <text class="t-title" x="535" y="94" text-anchor="middle">Run step</text>
-          <text class="t-sub" x="535" y="113" text-anchor="middle">read-only tool + CEL check</text>
-          <path class="wire" d="M500 70 C 500 30, 570 30, 570 68" marker-end="url(#a5)"/>
-          <text class="t-lab" x="535" y="26" text-anchor="middle">next step, until budget or stop_if</text>
-
-          <path class="wire" d="M620 100 H668" marker-end="url(#a5)"/>
-          <rect class="box" x="670" y="74" width="90" height="52" rx="5"/>
-          <text class="t-mono" x="715" y="104" text-anchor="middle">reduce()</text>
-
-          <path class="wire" d="M760 92 L788 44" marker-end="url(#a5)"/>
-          <path class="wire" d="M760 100 H788" marker-end="url(#a5)"/>
-          <path class="wire" d="M760 108 L788 156" marker-end="url(#a5)"/>
-          <rect class="box" x="790" y="26" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="46" text-anchor="middle">SUPPORTED</text>
-          <rect class="box" x="790" y="84" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="104" text-anchor="middle" style="font-size:9.5px">CONSISTENT_UNCONF.</text>
-          <rect class="box" x="790" y="142" width="120" height="32" rx="4"/><text class="t-mono" x="850" y="162" text-anchor="middle">INCONCLUSIVE</text>
-        </svg>
+<section id="status">
+  <div class="wrap">
+    <h2>Status and what comes next</h2>
+    <div class="grid g2">
+      <div class="card"><h4>Built and running</h4>
+        <ul class="plain">
+          <li>v0.0 and v0.1 code: 54 pull requests, 545 unit tests plus contract, integration, invariant and e2e suites on two engines.</li>
+          <li>Staging on a LAN host: Postgres, Keycloak, a local Qwen 27B, a ServiceNow developer instance.</li>
+          <li>Exit demo passed live: grant-posted work note, OIDC approval of a comms plan, the first customer update, full replay.</li>
+          <li>ADRs 0001 to 0011, including severity from the source (0009), creation values (0010) and this modular framework (0011). ADR-0003 waits for the shadow import.</li>
+        </ul>
       </div>
-      <figcaption>Outcomes describe evidence, not cause. SUPPORTED means evidence consistent with the hypothesis exists. RCA outcomes never drive customer comms in v0.x; statements about cause are written by a human.</figcaption>
-    </figure>
-
-    <div class="grid g2" style="margin-top:18px">
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>reduce() condition, in order</th><th>Outcome</th></tr></thead>
-          <tbody>
-            <tr><td>Two passing steps whose hypotheses exclude each other</td><td><code>INCONCLUSIVE</code></td></tr>
-            <tr><td>At least one passing step, no declared conflict</td><td><code>SUPPORTED</code></td></tr>
-            <tr><td>All steps ran, none passed</td><td><code>CONSISTENT_UNCONFIRMED</code></td></tr>
-            <tr><td>Budget exhausted, a tool failed, plan incomplete</td><td><code>INCONCLUSIVE</code></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h4>Budgets and guards</h4>
-        <ul class="plain" style="font-size:15.5px">
-          <li>Lite: ≤ 5 tool calls, ≤ 3k tokens, ≤ 3 hypotheses. Deep: ≤ 25 calls (provisional).</li>
-          <li>Each claim gets an entailment check: <code>supports</code>, <code>contradicts</code> or <code>unknown</code>. Anything but <code>supports</code> is tagged speculation.</li>
-          <li>A hypothesis can only be SUPPORTED by a registered tool. No change feed means no "recent change" support.</li>
-          <li>During a change freeze, the recent-change prior is zeroed and logged.</li>
+      <div class="card"><h4>Next, in order (14-wp-modular.md)</h4>
+        <ul class="plain">
+          <li><b>M01</b> pack framework · <b>M02</b> incident lab · <b>M03</b> python-postgres pack</li>
+          <li><b>M04</b> pack tools · <b>M05</b> RCA on, first baseline on Qwen</li>
+          <li><b>M06</b> tool bindings and MCP · <b>M07</b> connector seam</li>
+          <li><b>M08</b> knowledge (RAG) · <b>M09</b> analyst-authored extensions</li>
         </ul>
       </div>
     </div>
-  </div>
-</section>
-
-<section id="lifecycle" aria-labelledby="h-life">
-  <div class="wrap">
-    <h2 id="h-life">Case lifecycle and human takeover</h2>
-    <p class="sec-intro">ServiceNow is polled with an overlap window, and changes are read from <code>sys_audit</code> history with their actor. Only a human actor counts as takeover; assignment rules and other automation users are excluded by a list confirmed at onboarding.</p>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 900 190" role="img" aria-label="Case states open, triaged, in progress, human owned, resolved; reopened returns to in progress; the dedup index covers every state except resolved.">
-          <defs>
-            <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
-          </defs>
-          <rect class="box" x="10" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="75" y="66" text-anchor="middle">open</text>
-          <rect class="box" x="185" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="250" y="66" text-anchor="middle">triaged</text>
-          <rect class="box" x="360" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="425" y="66" text-anchor="middle">in_progress</text>
-          <rect class="box-gate" x="535" y="40" width="140" height="44" rx="22"/><text class="t-mono" x="605" y="66" text-anchor="middle">human_owned</text>
-          <rect class="box-sunk" x="740" y="40" width="130" height="44" rx="22"/><text class="t-mono" x="805" y="66" text-anchor="middle">resolved</text>
-          <path class="wire" d="M140 62 H183" marker-end="url(#a6)"/><text class="t-lab" x="162" y="32" text-anchor="middle">classified</text>
-          <path class="wire" d="M315 62 H358" marker-end="url(#a6)"/><text class="t-lab" x="337" y="32" text-anchor="middle">work</text>
-          <path class="wire" d="M490 62 H533" marker-end="url(#a6)"/><text class="t-lab" x="512" y="32" text-anchor="middle">human actor</text>
-          <path class="wire" d="M675 62 H738" marker-end="url(#a6)"/><text class="t-lab" x="707" y="32" text-anchor="middle">resolved</text>
-          <path class="wire" d="M805 84 C 805 130, 425 130, 425 86" marker-end="url(#a6)"/>
-          <text class="t-lab" x="615" y="124" text-anchor="middle">reopened</text>
-          <path class="wire-dash" d="M10 160 H675"/>
-          <path class="wire-dash" d="M10 152 V168 M675 152 V168"/>
-          <text class="t-lab" x="342" y="182" text-anchor="middle">covered by the dedup index (status ≠ resolved): duplicates attach here, never a second case</text>
-        </svg>
-      </div>
-      <figcaption>Under <code>human_owned</code> the agent stops proposing and sending, and shows due cadence updates as drafts for the owner. It resumes only on explicit hand-back: the ticket is reassigned to the integration user, or a human clicks "hand back".</figcaption>
-    </figure>
-  </div>
-</section>
-
-<section id="data" aria-labelledby="h-data">
-  <div class="wrap">
-    <h2 id="h-data">Data model</h2>
-    <p class="sec-intro">Every table carries <code>tenant_id</code> from day one. Amber marks where an invariant is enforced in the schema. Triggers ship in both SQLite and PL/pgSQL dialects.</p>
-    <div class="schema">
-      <div class="card">
-        <h4>Cases and dedup</h4>
-        <p class="tbl"><b>cases</b> <span>fingerprint, classification, severity, status, group_id, service, duplicate_count</span><br><span class="enf">UNIQUE (tenant, fingerprint) WHERE status ≠ resolved</span></p>
-        <p class="tbl"><b>case_groups</b> <span>rule, member_count, opened/closed</span></p>
-        <p class="tbl"><b>alerts</b> <span>case_id, adapter, payload_ref (encrypted)</span></p>
-      </div>
-      <div class="card">
-        <h4>Gate and outbox</h4>
-        <p class="tbl"><b>proposals</b> <span>action_kind, scope, payload_hash, status, created_by</span></p>
-        <p class="tbl"><b>approvals</b> <span>proposal_id, approver_id → users, payload_hash</span><br><span class="enf">trg_no_self_approval</span></p>
-        <p class="tbl"><b>outbox</b> <span>idempotency_key UNIQUE, approval_id UNIQUE | policy_grant_id | comms_plan_id</span><br><span class="enf">exactly one auth · INSERT + UPDATE triggers</span></p>
-      </div>
-      <div class="card">
-        <h4>Identity and grants</h4>
-        <p class="tbl"><b>users</b> <span>id = OIDC sub</span></p>
-        <p class="tbl"><b>role_assignments</b> <span>viewer · analyst · approver · admin</span></p>
-        <p class="tbl"><b>policy_grants</b> <span>literal scope, status requested → approved, requested_by, granted_by, valid_to</span><br><span class="enf">CHECK granted_by ≠ requested_by</span></p>
-      </div>
-      <div class="card">
-        <h4>Comms</h4>
-        <p class="tbl"><b>comms_plans</b> <span>template_id, allowed_fields (with source), cadence, plan_hash, approval_id</span></p>
-        <p class="tbl"><b>comms</b> <span>history only; outbox_id UNIQUE</span></p>
-      </div>
-      <div class="card">
-        <h4>Sync and catalog</h4>
-        <p class="tbl"><b>sync_cursors</b> <span>per table, DB lease</span></p>
-        <p class="tbl"><b>sync_seen</b> <span>PK (sys_id, sys_mod_count)</span></p>
-        <p class="tbl"><b>services</b> <span>repos, log_paths, dags, cmdb_ci, oncall, owners, depends_on</span></p>
-        <p class="tbl"><b>automation_actors</b> <span>confirmed_by → users</span></p>
-      </div>
-      <div class="card">
-        <h4>Trace, knowledge, learning</h4>
-        <p class="tbl"><b>events</b> <span>append-only; trace/span ids, model, tokens, latency</span></p>
-        <p class="tbl"><b>nodes · edges</b> <span>derived graph: cites, resolved_by, similar</span></p>
-        <p class="tbl"><b>feedback</b> <span>approval · diff · outcome</span></p>
-        <p class="tbl"><b>versions</b> <span>eval_report, holdout_disjoint_check</span></p>
-      </div>
+    <h3>Tech stack</h3>
+    <div class="stack">
+      <div><dt>Language</dt><dd>Python 3.12, strict typing, hexagonal layout <small>8 import contracts keep adapters out of the core</small></dd></div>
+      <div><dt>Storage</dt><dd>SQLite or Postgres 16 <small>one migration history; triggers in both dialects</small></dd></div>
+      <div><dt>API &amp; UI</dt><dd>FastAPI, server-rendered admin UI <small>OIDC sign-in, CSRF, RBAC</small></dd></div>
+      <div><dt>LLM</dt><dd>Anthropic, OpenAI-compatible (LM Studio, vLLM), Ollama <small>pinned models, structured output, redaction inside the client</small></dd></div>
+      <div><dt>Checks</dt><dd>CEL predicates compiled at load <small>evidence is machine-checked, not judged</small></dd></div>
+      <div><dt>Deploy</dt><dd>One container (API + worker) or split <small>Docker Compose today; Helm later</small></dd></div>
     </div>
-    <p style="color:var(--muted);font-size:15px;margin-top:16px">Retention is per-tenant config. Raw payloads are encrypted with a per-tenant key, so deleting a tenant destroys the key and leaves backups unreadable.</p>
-  </div>
-</section>
-
-<section id="features" aria-labelledby="h-feat">
-  <div class="wrap">
-    <h2 id="h-feat">Features</h2>
-    <p class="sec-intro">Twenty-two capabilities, grouped in four layers: cognition, execution, extension and learning. Filter by the release in which each one lands.</p>
-    <div class="chips" role="group" aria-label="Filter by release">
-      <button type="button" id="f-all" data-f="all" aria-pressed="true">All</button>
-      <button type="button" id="f-v00" data-f="v0.0" aria-pressed="false">v0.0</button>
-      <button type="button" id="f-v01" data-f="v0.1" aria-pressed="false">v0.1</button>
-      <button type="button" id="f-v02" data-f="v0.2" aria-pressed="false">v0.2</button>
-      <button type="button" id="f-v03" data-f="v0.3" aria-pressed="false">v0.3</button>
-    </div>
-    <p class="count" id="feat-count" aria-live="polite">Showing 22 of 22</p>
-    <div class="tbl-wrap">
-      <table id="feat-table">
-        <thead><tr><th>ID</th><th>Capability</th><th>Tier</th><th>Release</th><th>What it does</th></tr></thead>
-        <tbody>
-          <tr data-r="v0.1"><td class="num">C1</td><td>Incident triage</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Classification, severity and routing, with a rules cross-check and an LLM-only P1/P2 cap</td></tr>
-          <tr data-r="v0.1 v0.2"><td class="num">C2</td><td>Root cause analysis</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 lite</span><span class="rel">v0.2 deep</span></td><td>Budgeted plan of read-only checks reduced to a categorical outcome</td></tr>
-          <tr data-r="v0.2"><td class="num">C3</td><td>Cross-incident correlation</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.2</span></td><td>Links incidents that share a change or resource; one deep RCA for all</td></tr>
-          <tr data-r="v0.1"><td class="num">C4</td><td>Comms engine</td><td><span class="tier t1">T1</span> <span class="tier t2">T2</span></td><td><span class="rel">v0.1</span></td><td>Approved plans with cadence; auto-sent fields only from human-set record state</td></tr>
-          <tr data-r="v0.1 v0.2"><td class="num">C5</td><td>Duty loop</td><td><span class="tier t1">T1</span></td><td><span class="rel">v0.1 basic</span><span class="rel">v0.2 PIR</span></td><td>SLA countdowns, stale-owner pings, post-incident review drafts</td></tr>
-          <tr data-r="v0.2"><td class="num">C6</td><td>Job re-run decisions</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.2</span></td><td>Evidence-mandatory Airflow / GitHub Actions re-run proposals</td></tr>
-          <tr data-r="v0.2"><td class="num">C7</td><td>Service requests</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.2</span></td><td>Catalog mapping and templates; parameter questions are gated customer comments</td></tr>
-          <tr data-r="v0.1"><td class="num">C8</td><td>Ticket operations</td><td><span class="tier t2">T2</span></td><td><span class="rel">v0.1</span></td><td>ServiceNow work notes, comments and field updates, always via the outbox</td></tr>
-          <tr data-r="v0.2"><td class="num">C9</td><td>MCP tool integration</td><td><span class="tier tx">per tool</span></td><td><span class="rel">v0.2</span></td><td>Declared tools only, trust-classed at registration</td></tr>
-          <tr data-r="v0.1"><td class="num">C10</td><td>Runbooks and playbooks</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 static</span></td><td>Executable YAML runbooks with CEL checks, plus prose for humans</td></tr>
-          <tr data-r="v0.1"><td class="num">C11</td><td>Feedback capture</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Approval reasons, proposal-vs-reality diffs and outcomes from audit history</td></tr>
-          <tr data-r="v0.1"><td class="num">C12</td><td>Case memory</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>"We've seen this before", always with a case ID citation</td></tr>
-          <tr data-r="v0.2"><td class="num">C13</td><td>Runbook distillation</td><td><span class="tier t3">T3</span></td><td><span class="rel">v0.2</span></td><td>Recurring approved sequences become draft runbooks, gated on a disjoint holdout</td></tr>
-          <tr data-r="v0.3"><td class="num">C14</td><td>Prompt/KB evolution</td><td><span class="tier t3">T3</span></td><td><span class="rel opt">v0.3 optional</span></td><td>Research track: feedback → candidate patch → eval gate → rollback</td></tr>
-          <tr data-r="v0.2"><td class="num">C15</td><td>Knowledge capture</td><td><span class="tier t3">T3</span></td><td><span class="rel">v0.2</span></td><td>Resolved cases become draft KB articles for human review</td></tr>
-          <tr data-r="v0.0 v0.1"><td class="num">C16</td><td>Shadow mode and trust ramp</td><td><span class="tier tx">—</span></td><td><span class="rel">v0.0 run</span><span class="rel">v0.1 gate</span></td><td>Runs without acting; promotion gated on a confidence lower bound</td></tr>
-          <tr data-r="v0.2"><td class="num">C17</td><td>Simulate / dry-run</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.2</span></td><td>Predicted effects and blast radius on the approval screen</td></tr>
-          <tr data-r="v0.0"><td class="num">C18</td><td>PII/secret redaction</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.0</span></td><td>Inside the LLM client; canary-tested, recall measured</td></tr>
-          <tr data-r="v0.1"><td class="num">C19</td><td>Sync and human takeover</td><td><span class="tier t0">T0</span> <span class="tier t1">T1</span></td><td><span class="rel">v0.1</span></td><td>Audit-history sync; human actors take over, the agent goes quiet</td></tr>
-          <tr data-r="v0.1"><td class="num">C20</td><td>Alert-storm handling</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1</span></td><td>Deterministic case groups and an LLM spend breaker</td></tr>
-          <tr data-r="v0.0 v0.1 v0.2"><td class="num">C21</td><td>Approver RBAC</td><td><span class="tier tx">policy</span></td><td><span class="rel">v0.0 identity</span><span class="rel">v0.1 roles</span><span class="rel">v0.2 two-person</span></td><td>OIDC identities, no self-approval, two-person rule for high risk</td></tr>
-          <tr data-r="v0.1 v0.2"><td class="num">C22</td><td>Value baselines</td><td><span class="tier t0">T0</span></td><td><span class="rel">v0.1 shadow</span><span class="rel">v0.2 assisted</span></td><td>Counterfactual in shadow; treatment-vs-control MTTA/MTTR when assisted</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
-<section id="stack" aria-labelledby="h-stack">
-  <div class="wrap">
-    <h2 id="h-stack">Tech stack</h2>
-    <p class="sec-intro">Chosen for one container that a stranger can start in under 15 minutes on a ServiceNow developer instance, and for invariants that live in the database.</p>
-    <dl class="stack">
-      <div><dt>Language</dt><dd>Python 3.12<small>uv, ruff, pytest, Typer CLI</small></dd></div>
-      <div><dt>API and UI</dt><dd>FastAPI + HTMX admin<small>approvals, stats, graph view; no SPA build</small></dd></div>
-      <div><dt>Contracts</dt><dd>Pydantic v2<small>AlertEvent, TriageResult, Action; one action-kind enum</small></dd></div>
-      <div><dt>Storage</dt><dd>SQLite default, Postgres via flag<small>SQLAlchemy + Alembic; triggers in both dialects</small></dd></div>
-      <div><dt>Search</dt><dd>SQLite FTS5 (BM25)<small>normalized-signature index; optional sqlite-vec</small></dd></div>
-      <div><dt>LLM</dt><dd>Thin LLMClient<small>OpenAI / Anthropic / Ollama; JSON-schema output; pinned snapshot IDs</small></dd></div>
-      <div><dt>Runbook checks</dt><dd>CEL (cel-python)<small>compiled in CI against tool result schemas</small></dd></div>
-      <div><dt>Tools</dt><dd>First-party in-process<small>logs, Airflow, GitHub Actions, ServiceNow, one change feed; MCP SDK in v0.2</small></dd></div>
-      <div><dt>Scheduling</dt><dd>DB-backed lease<small>cadence, expiry sweeps, sync polls; safe with replicas</small></dd></div>
-      <div><dt>Durability</dt><dd>Litestream<small>WAL replication from v0.1; CI-tested PITR in v0.2</small></dd></div>
-      <div><dt>Tracing</dt><dd>Own append-only store<small>optional OTLP export to Tempo or LangSmith</small></dd></div>
-      <div><dt>Packaging</dt><dd>One Docker image<small><code>doctor</code>, <code>eval</code>, <code>replay</code>, <code>stats</code> CLIs</small></dd></div>
-    </dl>
-    <div class="notused" aria-label="Deliberately not used">
-      <span><b>Not LangGraph/CrewAI:</b> the state machine is the product</span>
-      <span><b>Not Kafka:</b> the outbox suffices</span>
-      <span><b>Not K8s/Helm:</b> single container first; Helm in v0.3</span>
-      <span><b>No managed vector DB:</b> FTS5 + signatures first</span>
-      <span><b>LangSmith:</b> export target, not a dependency</span>
-    </div>
-  </div>
-</section>
-
-<section id="roadmap" aria-labelledby="h-road">
-  <div class="wrap">
-    <h2 id="h-road">Roadmap</h2>
-    <p class="sec-intro">Twenty-four weeks for 2–3 engineers. Every numeric threshold is provisional until the v0.0 shadow run on the partner's real tickets sets it.</p>
-    <figure>
-      <div class="fig-scroll">
-        <svg viewBox="0 0 980 470" role="img" aria-label="Gantt chart of phases 0 to 12 across 24 weeks, grouped into releases v0.0 through v1.0.">
-          <!-- week grid: x = 190 + (w-1)*32, width per week 32 -->
-          <g class="t-lab">
-            <text x="206" y="22" text-anchor="middle">1</text>
-            <text x="334" y="22" text-anchor="middle">5</text>
-            <text x="494" y="22" text-anchor="middle">10</text>
-            <text x="654" y="22" text-anchor="middle">15</text>
-            <text x="814" y="22" text-anchor="middle">20</text>
-            <text x="942" y="22" text-anchor="middle">24</text>
-            <text x="10" y="22">week</text>
-          </g>
-          <path class="wire-dash" d="M318 30 V460 M574 30 V460 M766 30 V460"/>
-          <text class="t-lab" x="254" y="452" text-anchor="middle">v0.0</text>
-          <text class="t-lab" x="446" y="452" text-anchor="middle">v0.1</text>
-          <text class="t-lab" x="670" y="452" text-anchor="middle">v0.2</text>
-          <text class="t-lab" x="862" y="452" text-anchor="middle">v1.0</text>
-
-          <g>
-            <text class="t-sub" x="10" y="52">P0 Foundations</text><rect x="190" y="40" width="32" height="18" rx="3" style="fill:var(--accent)"/>
-            <text class="t-sub" x="10" y="78">P1 Trust chain</text><rect x="222" y="66" width="96" height="18" rx="3" style="fill:var(--accent)"/>
-            <text class="t-sub" x="10" y="104">P2 Takeover + comms</text><rect x="318" y="92" width="96" height="18" rx="3" style="fill:var(--t1)"/>
-            <text class="t-sub" x="10" y="130">P3 Evals + CI gate</text><rect x="350" y="118" width="96" height="18" rx="3" style="fill:var(--t1)"/>
-            <text class="t-sub" x="10" y="156">P4 Resilience</text><rect x="382" y="144" width="96" height="18" rx="3" style="fill:var(--t1)"/>
-            <text class="t-sub" x="10" y="182">P5 Memory, RCA, storm</text><rect x="414" y="170" width="96" height="18" rx="3" style="fill:var(--t1)"/>
-            <text class="t-sub" x="10" y="208">P6 Shadow + product</text><rect x="478" y="196" width="96" height="18" rx="3" style="fill:var(--t1)"/>
-            <text class="t-sub" x="10" y="234">P7 Job re-runs</text><rect x="574" y="222" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="260">P8 Service requests</text><rect x="606" y="248" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="286">P9 Deep RCA + sources</text><rect x="638" y="274" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="312">P9b MCP</text><rect x="638" y="300" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="338">P10 Runbook learning</text><rect x="670" y="326" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="364">P10b Trust + assisted</text><rect x="670" y="352" width="96" height="18" rx="3" style="fill:var(--t2)"/>
-            <text class="t-sub" x="10" y="390">P11 Prompt evolution</text><rect x="766" y="378" width="96" height="18" rx="3" class="box-bad" style="stroke:var(--t3)"/>
-            <text class="t-lab" x="868" y="391">optional</text>
-            <text class="t-sub" x="10" y="416">P12 Hardening</text><rect x="862" y="404" width="96" height="18" rx="3" style="fill:var(--t3)"/>
-          </g>
-        </svg>
-      </div>
-      <figcaption>Overlapping bars are parallel workstreams. Prompt evolution (dashed) is the first thing to slip, and the v1.0 exit does not depend on it.</figcaption>
-    </figure>
-
-    <div class="tbl-wrap" style="margin-top:20px">
-      <table>
-        <thead><tr><th>Release</th><th>Weeks</th><th>Exit story</th></tr></thead>
-        <tbody>
-          <tr><td><span class="rel">v0.0</span></td><td class="num">1–4</td><td>Full trust chain on ServiceNow with OIDC identity. INV-01..06 green on both engines against the partner's real tickets. A shadow run on their last 50 incidents sets the provisional thresholds.</td></tr>
-          <tr><td><span class="rel">v0.1</span></td><td class="num">5–12</td><td>Triage, gated comms, RCA-lite, case memory, takeover, storm handling. Quality gates pass on a 150–250-case holdout; the shadow promotion gate passes on the lower bound.</td></tr>
-          <tr><td><span class="rel">v0.2</span></td><td class="num">13–18</td><td>An evidenced Airflow re-run executes under a customer-approved grant; a runbook is distilled and holdout-gated; assisted mode runs with a control group.</td></tr>
-          <tr><td><span class="rel">v1.0</span></td><td class="num">19–24</td><td>The value story: treatment-vs-control MTTA, time-to-first-update and MTTR deltas with confidence intervals, plus a full audit report from any trace.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
     <h3>Dependencies outside engineering</h3>
-    <div class="grid g3">
-      <div class="card"><h4>Partner incident history</h4><p>≥6 months of tickets, alerts, logs and resolutions. The request goes out on day 0. Fallback: live shadow traffic, then a second partner.</p></div>
-      <div class="card"><h4>Assisted-mode decision</h4><p>The value number needs the partner to switch on a treatment set. That is a commercial milestone, agreed during v0.1.</p></div>
-      <div class="card"><h4>External paging</h4><p>Every catalog service needs a pager integration before triage starts, because the agent never creates pages.</p></div>
-    </div>
+    <ul class="plain">
+      <li>A design partner's incidents: the last 50 for the shadow import and thresholds, and a labelled holdout set for the release gate.</li>
+      <li>A self-hosted CI runner on the LAN host for nightly live evals.</li>
+    </ul>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">Generated from ARCHITECTURE.md (normative, frozen), CAPABILITIES.md and ROADMAP.md after three design-review rounds. Where this page and the spec disagree, the spec wins.</div>
+  <div class="wrap">Generated from ARCHITECTURE.md, CAPABILITIES.md, ROADMAP.md and ADR-0001 to ADR-0011. Where this page and the spec disagree, the spec wins. Built items are marked; everything else is planned under ADR-0011.</div>
 </footer>
-
-<script>
-(function () {
-  var buttons = document.querySelectorAll('.chips button');
-  var rows = document.querySelectorAll('#feat-table tbody tr');
-  var count = document.getElementById('feat-count');
-  function apply(f) {
-    var shown = 0;
-    rows.forEach(function (r) {
-      var rel = (r.getAttribute('data-r') || '').split(' ');
-      var on = f === 'all' || rel.indexOf(f) !== -1;
-      r.hidden = !on;
-      if (on) shown++;
-    });
-    count.textContent = 'Showing ' + shown + ' of ' + rows.length;
-    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-f') === f)); });
-    try { localStorage.setItem('sa-feature-filter', f); } catch (e) {}
-  }
-  buttons.forEach(function (b) { b.addEventListener('click', function () { apply(b.getAttribute('data-f')); }); });
-  var saved = 'all';
-  try { saved = localStorage.getItem('sa-feature-filter') || 'all'; } catch (e) {}
-  apply(saved);
-})();
-</script>

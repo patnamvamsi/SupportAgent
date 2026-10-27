@@ -14,6 +14,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0008](0008-assisted-mode-in-v0-1.md) | Assisted mode ships in v0.1 | accepted |
 | [0009](0009-severity-from-source-priority.md) | Severity comes from the source priority | accepted |
 | [0010](0010-creation-values-are-human-set.md) | A human creator's values at creation are human-set | accepted |
+| [0011](0011-modular-framework.md) | A modular framework: skill packs, tool bindings, connectors, knowledge, evals that gate them, analyst-authored extensions | accepted (direction) |
 
 ## Naming
 
