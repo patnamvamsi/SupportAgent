@@ -45,6 +45,8 @@ Each invariant has a **test ID** that must be green in CI. If a test can't be wr
 
 ## 3. Component overview
 
+> **Modularity (ADR-0011).** The pipeline below is the **trust core**, and it stays fixed. Four plug-in layers attach to it: **skill packs** (stack-specific taxonomy, hypotheses, preclass rules, runbooks and prompt fragments, selected by the catalog's `stack:`), **tool bindings** (a capability bound to a first-party adapter or an MCP server), **connectors** (the incident system; ServiceNow is the first), and **knowledge sources** (docs as guidance, never evidence). Plug-ins add capability, never authority. Plan: [14-wp-modular.md](../tech-spec/14-wp-modular.md).
+
 ```
  inbound            core (the product)                                            outbound
  ──────────┬─────────────────────────────────────────────────────────────────────┴──────────
@@ -210,6 +212,8 @@ Grouping is evaluated by the 1,000-alert storm soak (§19): 0 duplicate cases, b
 ---
 
 ## 5. Loop B — RCA (budgeted hypothesis–evidence)
+
+> **ADR-0011:** the hypotheses, probes and runbooks come from the case's active skill packs (`common` plus the service's stack packs). Retrieved docs may reorder hypotheses and suggest checks, but SUPPORTED still requires tool evidence.
 
 The only free-running loop. It is **one algorithm**: a *plan* of steps, executed in order, each step testing one declared hypothesis. Where a runbook matches, the runbook **is** the plan. Where none matches, the LLM may propose hypotheses — but **only IDs from the fixed hypothesis taxonomy** (§12), each paired with a **registered probe** (tool + args + `check`); a proposed hypothesis with no registered probe is skipped and logged, never invented. Termination and evidence are **machine-checkable** (CEL predicates, CI-compiled), not an LLM judging prose.
 
@@ -556,6 +560,8 @@ CREATE TABLE comms (                              -- the comms HISTORY / renderi
 
 ## 7. Tools
 
+> **ADR-0011:** packs name tool **capabilities** with one result schema each. A deployment binds every capability to a first-party adapter or an MCP tool, under the WP-204 registration contract. An unbound capability is skipped.
+
 - **First-party (in-process):** `logs`, `airflow`, `github_actions`, `servicenow`, each registered with a **trust class** (`read` / `execute` / `state-changing`) and a tier; `state-changing` ⇒ T2 ⇒ gate. **`cron` re-invoke is a code-execution capability** and is deferred until a constrained runner is specified.
 - **Service catalog (v0.0 config artifact, required):** one `services` row per service, `{name, repos, log_paths, dags, cmdb_ci, oncall_schedule, owners, depends_on}`. It is what makes runbook binding *real*: `$service.repos` resolves to **the service's registered repos**, not whatever string the ticket body contained (§5.1). A case's service is resolved from the alert's `resource` or the ticket's CMDB CI **through the catalog**, and an unresolvable service gets the safe default. The catalog also feeds the **action-target injection validator**: every state-changing action's target must resolve to a catalog entry bound to the case's service, or the action is **dropped and logged**. The LLM cannot invent action targets, and a poisoned ticket body cannot redirect one. `depends_on` feeds storm grouping (§4.3).
 - **Inbound transport security:** inbound webhooks (the generic webhook adapter) require **HMAC signature verification (or mTLS)**, **replay protection** (timestamp + nonce, 5-minute window), and a source allowlist. Rejections are logged as `webhook_rejected` audit events. ServiceNow is **poll-based (§8.1)**, so it has no webhook path.
@@ -649,6 +655,8 @@ Distilled/evolved artifacts are gated on an **eval holdout that is disjoint from
 ---
 
 ## 11. Evals — invariants vs quality, and an honest data story
+
+> **ADR-0011:** reliability is measured in six layers (invariants, contracts, pack evals in the incident lab, scenario simulation, calibration, production feedback). Lab scenarios carry ground-truth root causes and are scored structurally; the false-cause rate is the strictest gate. A pack is enabled for assisted mode only after it passes its gates.
 
 - **Two suites, clearly separated:**
   - **Invariants suite (INV-01..06):** hard gates, single sample, must pass, red blocks merge, run against **both engines**. INV-01–05 are code behavior. **INV-06 (LLM-bound canaries) is the one that touches the LLM path**, and it is still a *measured* wiring property (canary tokens must be absent from captured provider requests), not prompt quality. This is the "invariant regressions never ship" story, and it is *true*, because invariants are code behavior, not prompt behavior.

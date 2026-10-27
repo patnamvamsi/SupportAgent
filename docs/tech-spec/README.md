@@ -20,7 +20,7 @@ The design docs (`docs/spec/`) state guarantees, contracts, a data model and a r
 | Test strategy, fakes, fixtures, test-ID registry, CI pipeline | [04-test-strategy.md](04-test-strategy.md) |
 | Coding standards, TDD loop, design patterns, review checklist | [05-engineering-standards.md](05-engineering-standards.md) |
 | Versioning of the app, schema, config, taxonomies, prompts, eval snapshots, API | [06-versioning-and-release.md](06-versioning-and-release.md) |
-| Ordered, dependency-mapped work packages with acceptance tests, per release | [10-wp-v0.0.md](10-wp-v0.0.md), [11-wp-v0.1.md](11-wp-v0.1.md), [12-wp-v0.2.md](12-wp-v0.2.md), [13-wp-v0.3.md](13-wp-v0.3.md) |
+| Ordered, dependency-mapped work packages with acceptance tests, per release | [10-wp-v0.0.md](10-wp-v0.0.md), [11-wp-v0.1.md](11-wp-v0.1.md), [12-wp-v0.2.md](12-wp-v0.2.md), [13-wp-v0.3.md](13-wp-v0.3.md), [14-wp-modular.md](14-wp-modular.md) (ADR-0011) |
 
 **Depth by release.** v0.0 and v0.1 are specified to file and test level. v0.2 and v0.3 are specified to work-package level with acceptance tests, because the v0.0 shadow run re-sets thresholds and may reshape them (ARCH header). Each later release gets a refinement pass (`tech-spec 1.x`) before its first work package starts.
 

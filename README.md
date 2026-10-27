@@ -37,7 +37,7 @@ SupportAgent/
     │   ├── critique-v2.md
     │   └── critique-v3.md
     ├── visual/
-    │   └── blueprint.html       visual guide: architecture, trust chain, features, stack, roadmap
+    │   └── blueprint.html       visual guide: trust core, plug-in layers, RCA, packs, evals, status
     ├── CHANGELOG.md             disposition of every review finding
     └── PITCH.md                 positioning and sales narrative
 ```
