@@ -99,20 +99,14 @@ from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
-from supportagent.adapters.tools import airflow as airflow_tool
-from supportagent.adapters.tools import changes as changes_tool
-from supportagent.adapters.tools import cron as cron_tool
-from supportagent.adapters.tools import gha as gha_tool
-from supportagent.adapters.tools import kubernetes as kubernetes_tool
-from supportagent.adapters.tools import logs as logs_tool
-from supportagent.adapters.tools import oncall as oncall_tool
-from supportagent.adapters.tools import prometheus as prometheus_tool
 from supportagent.adapters.tools.airflow import AirflowTool
+from supportagent.adapters.tools.capabilities import CAPABILITIES
 from supportagent.adapters.tools.changes import RecentChangesTool
 from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
 from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
+from supportagent.adapters.tools.mcp import McpBoundTool, McpHttpClient, verify_server
 from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
@@ -831,16 +825,7 @@ def _worker_owner() -> str:
 #: validated against these whether or not the tool is configured; an
 #: unconfigured tool's step simply can't run (ARCH §5.5).
 KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = {
-    LogsTool.name: logs_tool.SCHEMA,
-    CronStatusTool.name: cron_tool.SCHEMA,
-    AirflowTool.name: airflow_tool.SCHEMA,
-    GitHubActionsTool.name: gha_tool.SCHEMA,
-    OnCallTool.name: oncall_tool.SCHEMA,
-    # WP-M04: the python-postgres pack's tools.
-    **{tool.name: tool.result_schema for tool in POSTGRES_TOOLS},
-    PrometheusQueryTool.name: prometheus_tool.SCHEMA,
-    PodStatusTool.name: kubernetes_tool.SCHEMA,
-    RecentChangesTool.name: changes_tool.SCHEMA,
+    name: capability.result_schema for name, capability in CAPABILITIES.items()
 }
 
 
@@ -1334,6 +1319,7 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         discover_automation=discover_automation,
         load_packs=lambda: _pack_set(config),
         known_tools=frozenset(KNOWN_TOOL_SCHEMAS),
+        mcp_servers=_mcp_probes(config, transport),
     )
 
 
@@ -1437,8 +1423,11 @@ class LabPipeline:
         *,
         provider: LLMProvider | None = None,
         decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+        tools_for: Callable[[LabScenario], WorldTools] = WorldTools.of,
     ) -> None:
         self._config = _lab_config(config)
+        #: WP-M06: the scenario's tools; a test swaps in another backend (e.g. MCP).
+        self._tools_for = tools_for
         self.model_id = self._config.llm.slots[SlotName.CLASSIFY.value].model_id
         self._clock = ReplayClock()
         self._ids = UlidIdGenerator()
@@ -1506,7 +1495,7 @@ class LabPipeline:
         classification = decision.classification
         if classification is None and decision.llm_suggestion is not None:
             classification = decision.llm_suggestion.classification
-        tools = WorldTools(scenario.world)
+        tools = self._tools_for(scenario)
         rca_cfg = cfg.rca
         rca = RcaService(
             knowledge=build_rca_knowledge(cfg, tools.names),
@@ -1936,10 +1925,69 @@ def build_tool_registry(
             else None
         )
         tools.append(OnCallTool(pagerduty=pd, opsgenie=og))
+    tools = [t for t in tools if t.name not in cfg.bindings]  # WP-M06: a binding replaces it
+    tools.extend(_mcp_bound_tools(cfg, _mcp_clients(cfg, transport)))
     redactor = Redactor(detectors=built_in_detectors())
     return ToolRegistry(
         tools, events=events, ids=ids, clock=clock, redact=lambda text: redactor.redact(text).text
     )
+
+
+def _mcp_clients(cfg: Tools, transport: httpx.BaseTransport | None) -> dict[str, McpHttpClient]:
+    """WP-M06: one client per registered MCP server (no request until first use)."""
+    clients: dict[str, McpHttpClient] = {}
+    for name, server in cfg.mcp_servers.items():
+        headers = (
+            {"Authorization": f"Bearer {server.token.get_secret_value()}"} if server.token else {}
+        )
+        http = httpx.Client(
+            headers=headers,
+            transport=transport,
+            timeout=server.timeout_s,
+            follow_redirects=False,
+        )
+        clients[name] = McpHttpClient(
+            server=name, url=server.url, client=http, declared=frozenset(server.tools)
+        )
+    return clients
+
+
+def _mcp_bound_tools(cfg: Tools, clients: Mapping[str, McpHttpClient]) -> list[Tool]:
+    tools: list[Tool] = []
+    for capability, binding in sorted(cfg.bindings.items()):
+        known = CAPABILITIES.get(capability)
+        if known is None:
+            raise ConfigError(  # noqa: TRY003
+                f"tools.bindings.{capability}: not a known capability "
+                f"({', '.join(sorted(CAPABILITIES))})"
+            )
+        server = cfg.mcp_servers[binding.mcp]
+        tools.append(
+            McpBoundTool(
+                known,
+                client=clients[binding.mcp],
+                tool=binding.tool,
+                profile=binding.profile,
+                fixed_args=binding.args,
+                trust_class=server.trust_class,
+                tier=server.tier,
+            )
+        )
+    return tools
+
+
+def _mcp_probes(
+    config: AppConfig, transport: httpx.BaseTransport | None
+) -> dict[str, Callable[[], Sequence[str]]]:
+    """``doctor``: per MCP server, the registration problems (handshake + ``tools/list``)."""
+    cfg = config.tools
+    clients = _mcp_clients(cfg, transport)
+
+    def probe(name: str) -> Callable[[], Sequence[str]]:
+        server = cfg.mcp_servers[name]
+        return lambda: verify_server(clients[name], server.trust_class, timeout_s=server.timeout_s)
+
+    return {name: probe(name) for name in clients}
 
 
 def wall_clock() -> Clock:

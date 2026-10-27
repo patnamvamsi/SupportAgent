@@ -107,6 +107,9 @@ def load_config_offline(path: Path) -> AppConfig:
     for db in _postgres_databases(raw).values():
         if isinstance(db, dict) and isinstance(db.get("dsn_env"), str):
             env[db["dsn_env"]] = placeholder
+    for server in _mcp_servers(raw).values():
+        if isinstance(server, dict) and isinstance(server.get("token_env"), str):
+            env[server["token_env"]] = placeholder
     resolved = _resolve_secrets(raw, env)
     llm = resolved.get("llm")
     if isinstance(llm, dict):
@@ -191,7 +194,16 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
     for db in _postgres_databases(resolved).values():
         if isinstance(db, dict) and "dsn_env" in db:
             db["dsn"] = _resolve_variable(db.pop("dsn_env"), "dsn_env", env)
+    # WP-M06: each MCP server carries its own ``token_env``.
+    for server in _mcp_servers(resolved).values():
+        if isinstance(server, dict) and "token_env" in server:
+            server["token"] = _resolve_variable(server.pop("token_env"), "token_env", env)
     return resolved
+
+
+def _mcp_servers(raw: dict[str, Any]) -> dict[str, Any]:
+    node = _section(raw, ("tools", "mcp_servers"))
+    return node if node is not None else {}
 
 
 def _postgres_databases(raw: dict[str, Any]) -> dict[str, Any]:

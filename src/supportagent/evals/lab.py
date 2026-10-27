@@ -149,6 +149,10 @@ class WorldTools:
         self._world = dict(world)
         self.calls: list[str] = []
 
+    @classmethod
+    def of(cls, scenario: LabScenario) -> WorldTools:
+        return cls(scenario.world)
+
     @property
     def names(self) -> frozenset[str]:
         return frozenset(self._world)

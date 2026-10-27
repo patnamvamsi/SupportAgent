@@ -84,6 +84,13 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 #   prometheus: {base_url: "http://prometheus:9090"}
 #   kubernetes: {api_url: "https://k8s.internal:6443", token_env: K8S_RO_TOKEN}   # get/list pods, replicasets
 #   changes: {github: true, kubernetes: true}   # changes.recent sources
+#   mcp_servers:                     # WP-M06: registered MCP servers (read-only, T0)
+#     grafana:
+#       url: "http://mcp-grafana:8000/mcp"
+#       token_env: MCP_GRAFANA_SERVER_TOKEN
+#       tools: [query_prometheus]      # the only tools ever called on it
+#   bindings:                        # a capability served by an MCP tool instead
+#     metrics.query: {mcp: grafana, tool: query_prometheus, profile: grafana.query_prometheus, args: {datasourceUid: prometheus}}
 rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
   prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
   freeze: false                      # a change freeze zeroes recent_change_push (logged)
