@@ -91,6 +91,12 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 #       tools: [query_prometheus]      # the only tools ever called on it
 #   bindings:                        # a capability served by an MCP tool instead
 #     metrics.query: {mcp: grafana, tool: query_prometheus, profile: grafana.query_prometheus, args: {datasourceUid: prometheus}}
+# knowledge:                         # WP-M08: team docs as RCA guidance, never evidence
+#   sources:
+#     - {kind: git_markdown, space: wiki, path: /srv/kb/wiki}   # *.md, optional front matter
+#   top_k: 3                           # one chunk per doc
+#   max_suggested: 2                   # probes docs may add to a plan
+#   stale_after_days: 365              # older docs are shown but suggest nothing
 rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
   prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
   freeze: false                      # a change freeze zeroes recent_change_push (logged)

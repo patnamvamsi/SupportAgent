@@ -60,6 +60,7 @@ from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_ca
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
+from supportagent.adapters.files.knowledge_loader import load_markdown_source
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.identity.oidc import OIDCClient
@@ -125,6 +126,7 @@ from supportagent.app.queries import AdminQueries
 from supportagent.app.rca import (
     Budget,
     BufferedEvents,
+    DocPolicy,
     Knowledge,
     RcaCase,
     RcaJob,
@@ -157,6 +159,7 @@ from supportagent.domain.errors import (
     LLMUnavailable,
 )
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
+from supportagent.domain.knowledge import KnowledgeIndex, chunk_document
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
@@ -891,6 +894,8 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         freeze=rca.freeze,
         max_claims=rca.max_claims,
         entail_budget_s=rca.entail_budget_s,
+        docs=build_knowledge_index(config),
+        doc_policy=doc_policy(config),
     )
     rows = [*config.routing, *([config.default] if config.default else [])]
     return RcaJob(
@@ -1320,6 +1325,7 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         load_packs=lambda: _pack_set(config),
         known_tools=frozenset(KNOWN_TOOL_SCHEMAS),
         mcp_servers=_mcp_probes(config, transport),
+        load_knowledge=lambda: build_knowledge_index(config),
     )
 
 
@@ -1441,6 +1447,8 @@ class LabPipeline:
             resilient=False,
         )
         self._packs = _pack_set(self._config)
+        redactor = Redactor(detectors=built_in_detectors())
+        self._redact: Callable[[str], str] = lambda text: redactor.redact(text).text
         #: Set by a caching decorator so N samples are N calls (``CachingLLMProvider.sample``).
         self.caching: CachingLLMProvider | None = None
 
@@ -1497,6 +1505,14 @@ class LabPipeline:
             classification = decision.llm_suggestion.classification
         tools = self._tools_for(scenario)
         rca_cfg = cfg.rca
+        docs = KnowledgeIndex(
+            [
+                chunk
+                for doc in scenario.docs
+                for chunk in chunk_document(doc.meta(), doc.body, redact=self._redact)
+            ],
+            stale_after_days=cfg.knowledge.stale_after_days,
+        )
         rca = RcaService(
             knowledge=build_rca_knowledge(cfg, tools.names),
             tools=tools,
@@ -1508,6 +1524,8 @@ class LabPipeline:
             freeze=rca_cfg.freeze,
             max_claims=rca_cfg.max_claims,
             entail_budget_s=rca_cfg.entail_budget_s,
+            docs=docs,
+            doc_policy=doc_policy(cfg),
         )
         rca_case = RcaCase(
             id=case.id,
@@ -1545,6 +1563,7 @@ class LabPipeline:
             tool_calls=len(tools.calls),
             tokens=int(artifact.budget.get("tokens", 0)),
             reason=artifact.reason,
+            retrieved=tuple(str(g["doc"]) for g in artifact.guidance),
         )
 
 
@@ -1861,6 +1880,27 @@ def _pack_tools(
             )
         )
     return tools
+
+
+def build_knowledge_index(config: AppConfig) -> KnowledgeIndex | None:
+    """WP-M08: every configured knowledge source, redacted and chunked; ``None`` if none."""
+    knowledge = config.knowledge
+    if not knowledge.sources:
+        return None
+    redactor = Redactor(detectors=built_in_detectors())
+    chunks = [
+        chunk
+        for source in knowledge.sources
+        for chunk in load_markdown_source(
+            Path(source.path), space=source.space, redact=lambda t: redactor.redact(t).text
+        )
+    ]
+    return KnowledgeIndex(chunks, stale_after_days=knowledge.stale_after_days)
+
+
+def doc_policy(config: AppConfig) -> DocPolicy:
+    k = config.knowledge
+    return DocPolicy(top_k=k.top_k, max_chars=k.max_guidance_chars, max_suggested=k.max_suggested)
 
 
 def build_tool_registry(

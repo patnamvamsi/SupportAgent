@@ -1,7 +1,8 @@
 """The incident lab (ADR-0011 §5, WP-M02): scenarios with known root causes.
 
 A **scenario** is an incident, the service it hit (with its catalog ``stack``),
-the **world** each tool capability returns, and the **truth**: the label, the
+the **world** each tool capability returns, the team **docs** RCA may read
+(WP-M08: helpful, wrong, stale or injected), and the **truth**: the label, the
 severity, the root-cause hypothesis, the verdict RCA should reach, the tools
 the conclusion must cite, and traps it must not claim.
 
@@ -20,7 +21,7 @@ import json
 import math
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -28,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from supportagent.domain.classification import prefix_match
 from supportagent.domain.errors import ConfigError, ToolError
+from supportagent.domain.knowledge import DocMeta
 from supportagent.domain.model.catalog import ServiceEntry
 from supportagent.domain.trace import TraceContext
 from supportagent.ports.tools import ToolResult
@@ -64,6 +66,31 @@ class WorldEntry(_Strict):
         return self
 
 
+class LabDoc(_Strict):
+    """A team doc in the scenario's knowledge (WP-M08), as the markdown source would load it."""
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,80}$")
+    space: str = "wiki"
+    title: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+    visibility: Literal["internal", "customer"] = "internal"
+    last_updated: date | None = None
+    services: list[str] = Field(default_factory=list)
+    hypotheses: list[str] = Field(default_factory=list, max_length=5)
+
+    def meta(self) -> DocMeta:
+        return DocMeta(
+            doc_id=self.id,
+            space=self.space,
+            title=self.title,
+            version="lab",
+            last_updated=self.last_updated,
+            visibility=self.visibility,
+            services=tuple(self.services),
+            hypotheses=tuple(self.hypotheses),
+        )
+
+
 class LabTruth(_Strict):
     classification: str = Field(pattern=r"^[a-z0-9_]+/[a-z0-9_]+$")
     #: Other labels a careful analyst could defensibly pick for this ticket text.
@@ -74,6 +101,8 @@ class LabTruth(_Strict):
     verdict: Verdict
     must_cite: list[str] = Field(default_factory=list)
     must_not_claim: list[str] = Field(default_factory=list)
+    #: WP-M08: the doc ids a good search returns for this incident (recall@k).
+    guidance: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _consistent(self) -> LabTruth:
@@ -92,8 +121,19 @@ class LabScenario(_Strict):
     incident: LabIncident
     service: dict[str, Any]
     world: dict[str, WorldEntry] = Field(default_factory=dict)
+    docs: list[LabDoc] = Field(default_factory=list)
     truth: LabTruth
     why: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _guidance_known(self) -> LabScenario:
+        ids = [d.id for d in self.docs]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate doc ids")  # noqa: TRY003
+        unknown = sorted(set(self.truth.guidance) - set(ids))
+        if unknown:
+            raise ValueError(f"truth.guidance names unknown docs {unknown}")  # noqa: TRY003
+        return self
 
     @property
     def service_entry(self) -> ServiceEntry:
@@ -191,6 +231,8 @@ class LabOutcome:
     tool_calls: int
     tokens: int
     reason: str = ""
+    #: WP-M08: the doc ids the knowledge search returned.
+    retrieved: tuple[str, ...] = ()
 
 
 class LabPipeline(Protocol):
@@ -212,6 +254,8 @@ class LabScore:
     tool_calls: int
     tokens: int
     failures: tuple[str, ...]
+    #: WP-M08: share of the truth's guidance docs retrieved; ``None``: none expected.
+    retrieval_recall: float | None = None
 
     @property
     def passed(self) -> bool:
@@ -259,6 +303,12 @@ def score_outcome(scenario: LabScenario, out: LabOutcome) -> LabScore:
     # Abstention: no cause is findable, and the system claimed none (whichever
     # non-SUPPORTED verdict the truth expects).
     abstained = (out.verdict == truth.verdict) if truth.root_cause is None else None
+    recall = None
+    if truth.guidance:
+        found = set(truth.guidance) & set(out.retrieved)
+        recall = len(found) / len(truth.guidance)
+        if recall < 1.0:
+            failures.append(f"docs not retrieved: {sorted(set(truth.guidance) - found)}")
     return LabScore(
         scenario_id=scenario.id,
         split=scenario.split,
@@ -273,6 +323,7 @@ def score_outcome(scenario: LabScenario, out: LabOutcome) -> LabScore:
         tool_calls=out.tool_calls,
         tokens=out.tokens,
         failures=tuple(failures),
+        retrieval_recall=recall,
     )
 
 
@@ -305,6 +356,11 @@ def majority(scores: Sequence[LabScore]) -> LabScore:
         tool_calls=round(sum(s.tool_calls for s in scores) / len(scores)),
         tokens=round(sum(s.tokens for s in scores) / len(scores)),
         failures=tuple(dict.fromkeys(f for s in scores for f in s.failures)),
+        retrieval_recall=(
+            sum(r for r in recalls) / len(recalls)
+            if (recalls := [s.retrieval_recall for s in scores if s.retrieval_recall is not None])
+            else None
+        ),
     )
 
 
@@ -330,6 +386,8 @@ class LabGates(_Strict):
     max_false_cause_rate: float = 0.0
     #: A scenario that passed in the baseline must still pass.
     no_regressions: bool = True
+    #: WP-M08: mean recall@k of the guidance docs, over scenarios that expect any.
+    min_retrieval_recall: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +412,10 @@ class LabReport:
     def passed(self) -> bool:
         return all(g.ok for g in self.gates)
 
+    def retrieval_recall(self) -> tuple[float | None, int]:
+        recalls = [s.retrieval_recall for s in self.scores if s.retrieval_recall is not None]
+        return (sum(recalls) / len(recalls) if recalls else None), len(recalls)
+
     def rate(self, flag: str) -> tuple[int, int]:
         return sum(bool(getattr(s, flag)) for s in self.scores), len(self.scores)
 
@@ -374,6 +436,10 @@ class LabReport:
             "traps_hit": self.rate("trap_hit")[0],
             "citations": {"rate": _r(cite_ok, n)},
             "abstention": {"rate": _r(sum(abstain), len(abstain)), "cases": len(abstain)},
+            "retrieval_recall": {
+                "mean": round(r, 4) if (r := self.retrieval_recall()[0]) is not None else None,
+                "cases": self.retrieval_recall()[1],
+            },
             "mean_tool_calls": _mean([s.tool_calls for s in self.scores]),
             "mean_tokens": _mean([s.tokens for s in self.scores]),
         }
@@ -437,6 +503,15 @@ def evaluate(report: LabReport, gates: LabGates, baseline: Mapping[str, bool] | 
     else:
         checks.append(
             GateCheck("min_cases", True, f"{n} < {gates.min_cases}: lower-bound gates not applied")
+        )
+    recall, recall_cases = report.retrieval_recall()
+    if recall is not None:
+        checks.append(
+            GateCheck(
+                "retrieval_recall",
+                recall >= gates.min_retrieval_recall,
+                f"{recall:.3f} over {recall_cases} case(s) (min {gates.min_retrieval_recall})",
+            )
         )
     if baseline is not None:
         now = {s.scenario_id: s.passed for s in report.scores}
@@ -520,6 +595,7 @@ def cited_tools(evidence: Sequence[Any], cites: Collection[str]) -> frozenset[st
 
 __all__ = [
     "GateCheck",
+    "LabDoc",
     "LabGates",
     "LabIncident",
     "LabOutcome",

@@ -23,7 +23,7 @@ runbooks: runbooks/            # runbook YAMLs, compiled against tool schemas
 probes: probes.yaml            # one probe per hypothesis
 tools: [postgres.activity]     # capabilities; unknown ones are reported as unbound
 prompts: {classify: classify.md}   # fragments, at most 2000 characters each
-knowledge: {spaces: [], labels: []}   # reserved (WP-M08)
+knowledge: {spaces: [], labels: []}   # WP-M08: knowledge spaces this pack's cases may read
 evals: evals/                  # lab scenarios (WP-M02); absent: "not evaluated"
 ```
 
@@ -36,3 +36,8 @@ When a stack pack and `common` both have a runbook for a case's label, the stack
 ## Knowledge vs model
 
 `tests/unit/test_python_postgres_pack.py` runs every scenario with an oracle that classifies correctly and plans nothing, so it tests only the pack's knowledge (runbook order, checks, thresholds). `supportagent eval lab --pack python-postgres --live` then measures the model on top.
+
+## Team docs (WP-M08)
+
+A pack's `knowledge.spaces` and a catalog service's `docs:` name the knowledge spaces RCA may search for a case. A doc can name hypotheses in its front matter (`hypotheses: [pg_slow_query_regression]`); when a search returns it, those hypotheses' probes join the plan, and the tools decide. A doc never makes a claim SUPPORTED on its own. Lab scenarios carry `docs:` fixtures (helpful, wrong-cause, stale and injected), with `truth.guidance` naming the docs a good search should return.
+

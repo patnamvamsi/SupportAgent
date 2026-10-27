@@ -1,0 +1,81 @@
+# Lab scenario (ADR-0011 §5, WP-M08). Edit only with a `why` note.
+id: docs-worker-timeout-slow-query
+pack: python-postgres
+split: tune
+description: Worker timeouts after a migration; only the team doc points at the slow query.
+incident:
+  subject: checkout-api worker timeouts since the 04:00 release
+  priority: '2'
+  body: '[CRITICAL] WORKER TIMEOUT (pid:418) on /orders/history; p95 latency up since the 04:00 release'
+service:
+  name: checkout-api
+  stack: [python, fastapi, gunicorn, postgres]
+  databases: [orders]
+  log_paths: [logs/checkout-api]
+  repos: [github:acme/checkout]
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+  docs: [wiki]
+docs:
+- id: checkout-timeouts-runbook
+  title: Checkout API worker timeouts
+  last_updated: 2025-11-02
+  services: [checkout-api]
+  hypotheses: [pg_slow_query_regression]
+  body: |
+    # Worker timeouts on checkout-api
+    Gunicorn worker timeouts right after a release are usually a slow query a
+    migration introduced: a dropped or unused index on the orders history query.
+    ## How to check
+    Look at pg_stat_statements for the orders database: a query whose mean time
+    jumped above a second after the release is the cause. Upstream latency and
+    locks are normally fine in this case.
+- id: billing-export-cron
+  title: Billing export cron
+  last_updated: 2025-09-12
+  body: |
+    # Nightly billing export
+    The billing export cron writes CSVs to the finance bucket at 02:00. If it
+    fails, re-run it from the scheduler; it is idempotent.
+world:
+  metrics.query:
+    result:
+      query: upstream p95
+      series:
+      - labels: {}
+        value: 0.31
+      count: 1
+      max_value: 0.31
+  postgres.locks:
+    result:
+      database: orders
+      blocked: 0
+      blockers: []
+  postgres.activity:
+    result:
+      database: orders
+      total: 140
+      max_connections: 500
+      by_state: {active: 132, idle in transaction: 8}
+      idle_in_transaction: 8
+      waiting: 0
+      oldest_xact_age_s: 4.0
+  postgres.slow_queries:
+    result:
+      database: orders
+      available: true
+      queries:
+      - queryid: '7702'
+        calls: 18000
+        mean_ms: 4210.5
+        total_ms: 75789000.0
+        query: SELECT * FROM order_history WHERE customer_id = $1 ORDER BY created_at DESC
+truth:
+  classification: app/worker_timeout
+  severity: P2
+  root_cause: pg_slow_query_regression
+  verdict: SUPPORTED
+  must_cite: [postgres.slow_queries]
+  must_not_claim: [slow_upstream, pg_lock_contention, pg_idle_in_transaction_leak]
+  guidance: [checkout-timeouts-runbook]
+why: 'The runbook checks upstream, locks and leaks, all negative; the team doc adds the slow-query probe, and pg_stat_statements shows a 4.2 s mean on the history query.'

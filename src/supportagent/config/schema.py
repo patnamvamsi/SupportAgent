@@ -506,6 +506,34 @@ class SeverityConfig(DomainModel):
     strategy: Literal["source_priority"] = "source_priority"
 
 
+class KnowledgeSource(DomainModel):
+    """One knowledge source (WP-M08): a Git markdown folder, scoped as ``space``."""
+
+    kind: Literal["git_markdown"]
+    space: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,62}$")
+    path: str = Field(min_length=1)
+
+
+class KnowledgeConfig(DomainModel):
+    """Docs as RCA guidance (ADR-0011 §4): where they come from and how much to read."""
+
+    sources: list[KnowledgeSource] = Field(default_factory=list)
+    #: Chunks per search (one per doc).
+    top_k: int = Field(default=3, ge=1, le=10)
+    #: Planner context budget for the retrieved text.
+    max_guidance_chars: int = Field(default=1500, ge=200, le=6000)
+    #: Probes docs may add to a plan, beyond the runbook's or the planner's.
+    max_suggested: int = Field(default=2, ge=0, le=5)
+    stale_after_days: int = Field(default=365, ge=1)
+
+    @model_validator(mode="after")
+    def _spaces_unique(self) -> KnowledgeConfig:
+        spaces = [s.space for s in self.sources]
+        if len(spaces) != len(set(spaces)):
+            raise ValueError("knowledge source spaces must be unique")  # noqa: TRY003
+        return self
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -536,6 +564,8 @@ class AppConfig(DomainModel):
     paging: Paging = Field(default_factory=Paging)
     #: ADR-0009: where severity comes from.
     severity: SeverityConfig = Field(default_factory=SeverityConfig)
+    #: WP-M08: knowledge sources (docs as guidance, never evidence).
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

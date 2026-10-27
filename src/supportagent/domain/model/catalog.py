@@ -32,6 +32,8 @@ class ServiceEntry(DomainModel):
     #: WP-M04: where its pods run, for ``k8s.pod_status`` and rollouts.
     k8s_namespace: str | None = None
     k8s_selector: str | None = None
+    #: WP-M08: the knowledge spaces this service's docs live in.
+    docs: list[str] = Field(default_factory=list)
 
 
 class Catalog(DomainModel):

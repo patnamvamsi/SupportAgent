@@ -1,0 +1,61 @@
+# Lab scenario (ADR-0011 §5, WP-M08). Edit only with a `why` note.
+id: docs-stale-replica
+pack: python-postgres
+split: tune
+description: A 2023 doc sends the investigation to a replica that was decommissioned since.
+incident:
+  subject: checkout-api worker timeouts on order history
+  priority: '3'
+  body: '[CRITICAL] WORKER TIMEOUT (pid:903) while serving order history pages'
+service:
+  name: checkout-api
+  stack: [python, fastapi, gunicorn, postgres]
+  databases: [orders]
+  log_paths: [logs/checkout-api]
+  repos: [github:acme/checkout]
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+  docs: [wiki]
+docs:
+- id: order-history-replica
+  title: Order history reads from the replica
+  last_updated: 2023-03-14
+  services: [checkout-api]
+  hypotheses: [pg_replication_lag]
+  body: |
+    # Order history timeouts
+    Order history pages read from orders-replica-1. When workers time out on
+    them, check replication lag first; lag over 30 s stalls the page.
+world:
+  metrics.query:
+    result:
+      query: upstream p95
+      series:
+      - labels: {}
+        value: 0.28
+      count: 1
+      max_value: 0.28
+  postgres.locks:
+    result:
+      database: orders
+      blocked: 0
+      blockers: []
+  postgres.activity:
+    result:
+      database: orders
+      total: 75
+      max_connections: 500
+      by_state: {active: 72, idle in transaction: 3}
+      idle_in_transaction: 3
+      waiting: 0
+      oldest_xact_age_s: 1.5
+  postgres.replication:
+    error: "database 'orders-replica-1' is not configured"
+truth:
+  classification: app/worker_timeout
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim: [pg_replication_lag]
+  guidance: [order-history-replica]
+why: 'The replica was decommissioned in 2024; the stale doc is shown but suggests nothing, so the runbook alone runs, every check is negative, and the investigation completes.'
