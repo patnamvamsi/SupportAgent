@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from supportagent.app.doctor.base import Check
-from supportagent.app.doctor.checks.endpoints import AutomationActorsCheck, LLMCheck, OIDCCheck
+from supportagent.app.doctor.checks.endpoints import (
+    AutomationActorsCheck,
+    LLMCheck,
+    McpCheck,
+    OIDCCheck,
+)
 from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PacksCheck, PagingCheck
 from supportagent.app.doctor.checks.servicenow import (
     AuditRetentionCheck,
@@ -30,6 +35,7 @@ def default_checks() -> list[Check]:
         AutomationActorsCheck(),
         PagingCheck(),
         LLMCheck(),
+        McpCheck(),
         OIDCCheck(),
     ]
 

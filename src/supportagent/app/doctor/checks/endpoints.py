@@ -1,10 +1,11 @@
-"""Endpoint checks (02 §4.1): ``automation_actors``, ``llm``, ``oidc``."""
+"""Endpoint checks (02 §4.1): ``automation_actors``, ``llm``, ``oidc``; ``mcp`` (WP-M06)."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
 from supportagent.app.doctor.base import CheckResult, DoctorContext
+from supportagent.domain.errors import ExternalServiceError
 
 #: ARCH §8.2: who set ``assigned_to`` in the last 30 days.
 DISCOVERY_WINDOW = timedelta(days=30)
@@ -124,3 +125,32 @@ class OIDCCheck:
 
 
 __all__ = ["AutomationActorsCheck", "LLMCheck", "OIDCCheck"]
+
+
+class McpCheck:
+    """WP-M06: each registered MCP server answers, lists every declared tool, and agrees
+    with the trust class it was registered with."""
+
+    name = "mcp"
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        if not ctx.mcp_servers:
+            return CheckResult(self.name, "pass", "no MCP servers registered")
+        bindings = ctx.config.tools.bindings
+        failures: list[str] = []
+        lines: list[str] = []
+        for name, probe in sorted(ctx.mcp_servers.items()):
+            bound = sorted(c for c, b in bindings.items() if b.mcp == name)
+            try:
+                problems = list(probe())
+            except ExternalServiceError as exc:
+                failures.append(f"{name}: unreachable ({exc})")
+                continue
+            if problems:
+                failures.append(f"{name}: " + "; ".join(problems))
+                continue
+            lines.append(f"{name} serves {', '.join(bound) if bound else 'no capability'}")
+        data: dict[str, object] = {"servers": sorted(ctx.mcp_servers)}
+        if failures:
+            return CheckResult(self.name, "fail", " · ".join(failures + lines), data)
+        return CheckResult(self.name, "pass", " · ".join(lines), data)

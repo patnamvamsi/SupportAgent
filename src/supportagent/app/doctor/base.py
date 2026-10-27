@@ -76,6 +76,9 @@ class DoctorContext:
     #: ADR-0011: the skill packs, and the tool capabilities the build knows.
     load_packs: Callable[[], PackSet] | None = None
     known_tools: frozenset[str] = frozenset()
+    #: WP-M06: per registered MCP server, a probe returning its registration problems
+    #: (raises ``ExternalServiceError`` when the server can't be reached).
+    mcp_servers: Mapping[str, Callable[[], Sequence[str]]] = field(default_factory=dict)
 
 
 class Check(Protocol):

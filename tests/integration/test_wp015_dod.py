@@ -103,6 +103,7 @@ def test_wp015_dod_doctor_all_green_on_example_config(
         "automation_actors",
         "paging",
         "llm",
+        "mcp",
         "oidc",
     ], "every 02 §4.1 v0.0 check runs, in table order"
     assert report.exit_code == 0

@@ -1,0 +1,51 @@
+# WP-M06: a small observability stack for the MCP binding (ADR-0011 §2).
+#
+# Prometheus scrapes itself and Grafana. Grafana has one provisioned
+# Prometheus datasource (uid ``prometheus``) and serves anonymous *Viewer*
+# access only, so the MCP server behind it can read but never write.
+# ``mcp-grafana`` speaks streamable HTTP on :8810/mcp and requires a bearer
+# token (MCP_GRAFANA_SERVER_TOKEN, generated into .env; see README.md).
+name: supportagent-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports: ["9390:9090"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    ports: ["3300:3000"]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+  mcp-grafana:
+    image: grafana/mcp-grafana:2.0.2
+    command:
+      - "-t"
+      - "streamable-http"
+      - "-address"
+      - "0.0.0.0:8000"
+      - "-allowed-hosts"
+      - "*"
+      - "-disable-write"
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      MCP_GRAFANA_SERVER_TOKEN: ${MCP_GRAFANA_SERVER_TOKEN:?set in .env}
+    ports: ["8810:8000"]
+    depends_on: [grafana]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:

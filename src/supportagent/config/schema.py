@@ -18,6 +18,7 @@ from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.base import DomainModel
 from supportagent.domain.severity import Severity
+from supportagent.domain.tiers import Tier, TrustClass, class_agrees_with_tier
 from supportagent.domain.webhook import validate_mapping
 
 # 02 §1: model_id must be a dated snapshot; a floating alias has no date or
@@ -359,8 +360,63 @@ class ToolChanges(DomainModel):
     kubernetes: bool = True
 
 
+class McpServer(DomainModel):
+    """A registered MCP server (WP-M06): its declared tools and the trust it gets.
+
+    Class and tier are the operator's, fixed here, never taken from the server.
+    Read-only by default: until the action gate covers MCP tools, only
+    ``read`` / T0 registrations load.
+    """
+
+    url: str = Field(pattern=r"^https?://")
+    token: SecretStr | None = None
+    #: The only tools the client will call on this server.
+    tools: list[str] = Field(min_length=1)
+    trust_class: TrustClass = TrustClass.READ
+    tier: Tier = Tier.T0
+    timeout_s: float = Field(default=15.0, gt=0, le=120)
+
+    @field_validator("trust_class", mode="before")
+    @classmethod
+    def _coerce_class(cls, value: object) -> object:
+        return TrustClass(value) if isinstance(value, str) else value
+
+    @field_validator("tier", mode="before")
+    @classmethod
+    def _coerce_tier(cls, value: object) -> object:
+        return Tier(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _read_only(self) -> McpServer:
+        if not class_agrees_with_tier(self.trust_class, self.tier):
+            raise ValueError(  # noqa: TRY003
+                f"class {self.trust_class.value!r} can't hold tier {self.tier.value} (ARCH §7)"
+            )
+        if self.trust_class is not TrustClass.READ:
+            raise ValueError(  # noqa: TRY003
+                "only read MCP tools can be registered until the action gate covers MCP (WP-M06)"
+            )
+        return self
+
+
+class ToolBinding(DomainModel):
+    """A capability served by an MCP tool instead of the first-party adapter (WP-M06)."""
+
+    mcp: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
+    #: How capability args and replies map to the tool's: ``passthrough`` or a named
+    #: profile (``adapters.tools.mcp.PROFILES``).
+    profile: str = "passthrough"
+    #: Fixed tool arguments from the reviewed config (e.g. a datasource uid).
+    args: dict[str, str | int | bool] = Field(default_factory=dict)
+
+
 class Tools(DomainModel):
-    """First-party read tools (ARCH §7, WP-107). A tool is registered when configured."""
+    """First-party read tools (ARCH §7, WP-107). A tool is registered when configured.
+
+    WP-M06: ``bindings`` moves a capability onto a tool of a registered MCP
+    server (``mcp_servers``); a binding replaces the first-party adapter.
+    """
 
     logs_root: str | None = None
     cron_status_dir: str | None = None
@@ -372,6 +428,24 @@ class Tools(DomainModel):
     prometheus: ToolPrometheus | None = None
     kubernetes: ToolKubernetes | None = None
     changes: ToolChanges | None = None
+    #: WP-M06: registered MCP servers and the capabilities bound to their tools.
+    mcp_servers: dict[str, McpServer] = Field(default_factory=dict)
+    bindings: dict[str, ToolBinding] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _bindings_resolve(self) -> Tools:
+        for capability, binding in self.bindings.items():
+            server = self.mcp_servers.get(binding.mcp)
+            if server is None:
+                raise ValueError(  # noqa: TRY003
+                    f"tools.bindings.{capability}: no mcp server {binding.mcp!r}"
+                )
+            if binding.tool not in server.tools:
+                raise ValueError(  # noqa: TRY003
+                    f"tools.bindings.{capability}: tool {binding.tool!r} is not declared "
+                    f"for mcp server {binding.mcp!r}"
+                )
+        return self
 
 
 class PagingPagerDuty(DomainModel):

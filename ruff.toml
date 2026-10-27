@@ -45,6 +45,8 @@ banned-api = {
 # BL-012: the ServiceNow recorder takes its instance and credentials from the
 # environment (`make record-sn`); it never runs in the default suites.
 "tests/integration/test_record_sn.py" = ["TID251"]
+# WP-M06: the opt-in live MCP contract reads its endpoints from the environment.
+"tests/contract/test_mcp_grafana_live.py" = ["TID251"]
 
 [lint.isort]
 known-first-party = ["supportagent"]

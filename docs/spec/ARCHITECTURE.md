@@ -569,7 +569,7 @@ CREATE TABLE comms (                              -- the comms HISTORY / renderi
   - **v0.1:** logs, Airflow, GitHub Actions, ServiceNow, plus **exactly one change source the design partner already has** (one of: Argo CD, Terraform Cloud runs, Consul, or ServiceNow change records, chosen at onboarding; CAP §6 item 7).
   - **v0.2:** the feature-flag source and metrics/APM (Prometheus / Datadog / CloudWatch, read-only), as partner needs dictate.
   - The prior honesty rule (§5.5) handles the gap: without a flag source, `recent_change_push` via flag flips cannot be SUPPORTED, only INCONCLUSIVE.
-- **MCP extension (v0.2):** official MCP Python SDK client; registration is config (endpoint + declared tools + classes); undeclared tools are denied. **Tool output is data, never instructions.** The **primary injection surface is the inbound ticket body**, not MCP tools. Defences: inbound text treated as untrusted, injection canaries on inbound cases, and the catalog-based action-target validator above.
+- **MCP extension (WP-M06, ADR-0012):** a minimal synchronous streamable-HTTP client, conformance-tested against the official SDK's server; registration is config (endpoint, declared tools, class and tier); undeclared tools are denied; read-only registrations only until the action gate covers MCP. **Tool output is data, never instructions.** The **primary injection surface is the inbound ticket body**, not MCP tools. Defences: inbound text treated as untrusted, injection canaries on inbound cases, and the catalog-based action-target validator above.
 - **Load-time validation:** a tool declared `class: read` at `tier: T2`, or `state-changing` at `tier: T0`, **fails config validation** (trust class and tier must agree).
 - **ServiceNow integration user:** least-privilege role, scoped to the configured tables and journal fields. `doctor` reports any write permission beyond `work_notes`, `comments` and the mapped fields.
 
@@ -857,7 +857,7 @@ automation_actors(tenant_id, sys_user, kind, confirmed_by→users)              
 | Storage | SQLite default, Postgres via flag (invariant suite must pass on both, §2) · SQLAlchemy · **Alembic** migrations (triggers in both dialects) |
 | Search | SQLite FTS5 (BM25) + normalized-signature index + optional sqlite-vec |
 | LLM | thin client: OpenAI / Anthropic / Ollama · structured output via JSON schema |
-| Tools | MCP (official SDK) + first-party in-process tools |
+| Tools | MCP (streamable-HTTP client, ADR-0012) + first-party in-process tools |
 | Runbook checks | **CEL** (`cel-python`) — runbook `check:` expressions compiled in CI against tool result schemas (§5); *not* Python eval |
 | Durability | **Litestream** (continuous WAL → local/S3) for the SQLite system of record: ops item v0.1, CI-tested PITR v0.2 (§8.1, §15) |
 | Scheduling | **DB-backed lease** (comms cadence, expiry sweeps, sync polls) |
