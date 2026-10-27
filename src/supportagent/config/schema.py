@@ -325,6 +325,40 @@ class ToolOnCall(DomainModel):
     opsgenie_token: SecretStr | None = None
 
 
+class ToolPostgresDatabase(DomainModel):
+    """One read-only connection (WP-M04): a role with SELECT on the ``pg_stat_*`` views."""
+
+    dsn: SecretStr
+
+
+class ToolPostgres(DomainModel):
+    """``postgres.*`` (WP-M04): catalog ``databases:`` names map to these connections."""
+
+    databases: dict[str, ToolPostgresDatabase] = Field(min_length=1)
+    statement_timeout_ms: int = Field(default=5000, ge=100, le=60000)
+
+
+class ToolPrometheus(DomainModel):
+    base_url: str = Field(min_length=1)
+    token: SecretStr | None = None
+
+
+class ToolKubernetes(DomainModel):
+    """``k8s.pod_status`` and the rollout half of ``changes.recent`` (WP-M04): read-only."""
+
+    api_url: str = Field(min_length=1)
+    token: SecretStr
+    verify_tls: bool = True
+    ca_file: str | None = None
+
+
+class ToolChanges(DomainModel):
+    """``changes.recent`` (WP-M04): which configured sources feed it."""
+
+    github: bool = True
+    kubernetes: bool = True
+
+
 class Tools(DomainModel):
     """First-party read tools (ARCH §7, WP-107). A tool is registered when configured."""
 
@@ -333,6 +367,11 @@ class Tools(DomainModel):
     airflow: ToolAirflow | None = None
     github: ToolGitHub | None = None
     oncall: ToolOnCall | None = None
+    #: WP-M04: the python-postgres pack's tools.
+    postgres: ToolPostgres | None = None
+    prometheus: ToolPrometheus | None = None
+    kubernetes: ToolKubernetes | None = None
+    changes: ToolChanges | None = None
 
 
 class PagingPagerDuty(DomainModel):

@@ -6,6 +6,8 @@
 # `cmdb_ci` is the CI's sys_id (BL-045): list names under resources.
 # `stack:` (ADR-0011) lists technology tags, e.g. [python, fastapi, postgres]; the
 # skill packs whose applies_to.stack shares a tag are used for that service's cases.
+# WP-M04: `databases:` (tools.postgres names this service may read), `k8s_namespace:`
+# and `k8s_selector:` (for k8s.pod_status and the rollouts in changes.recent).
 version: v2026-01
 services:
   - name: nightly-sync

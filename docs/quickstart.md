@@ -34,6 +34,19 @@ export PAGERDUTY_TOKEN=...      # paging: attach-only (enrich_page, page lookups
 
 Create a dedicated user (for example `svc_supportagent`) with the `itil` role, and nothing broader: `doctor` warns about `admin`, `security_admin` or any role it can't read. Sync also reads each changed record's history, so the user needs **read access to `sys_audit` and `sys_journal_field`**. ServiceNow restricts both tables by default. Create a role (for example `x_supportagent_history`), add a read ACL for it on each table (`sys_audit` and `sys_journal_field`, both the table and its fields), and grant it to the user. `doctor` fails `servicenow.history_access` until this is done.
 
+### Read-only evidence for RCA (optional)
+
+Each tool is registered only when its `tools:` section is configured, and each needs read access only:
+
+| Tool | Grant |
+|---|---|
+| `postgres.*` | a Postgres role with `pg_monitor` (no table privileges); one `dsn_env` per database, listed in the service's catalog `databases:` |
+| `metrics.query` | a Prometheus read token, if your Prometheus needs one |
+| `k8s.pod_status`, rollouts in `changes.recent` | a service account with `get`/`list` on `pods` and `replicasets` in the service's namespace |
+| `changes.recent` (deploys) | the GitHub token already used by `gha.recent_runs` |
+
+The Postgres tools run fixed `SELECT`s over the `pg_stat_*` views in a read-only session with a statement timeout; no SQL comes from a runbook or a ticket.
+
 ## 3. Database and checks
 
 ```bash
