@@ -44,7 +44,15 @@ _GIT_SCRUB: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b"), "<IP>"),
     (re.compile(r"\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b", re.IGNORECASE), "<IP>"),
     (re.compile(r"(?<![\w<])\+?\d[\d ().-]{7,}\d\b"), "<PHONE>"),
-    (re.compile(r"\b(?:[a-z0-9-]+\.){2,}[a-z]{2,}\b", re.IGNORECASE), "<HOST>"),
+    # Host names end in a domain suffix; dotted code paths (psycopg.errors.DiskFull) don't.
+    (
+        re.compile(
+            r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|cloud|co|uk|de|in|us|eu|"
+            r"internal|local|localdomain|lan|corp|intra|intranet|example|test|svc|cluster)\b",
+            re.IGNORECASE,
+        ),
+        "<HOST>",
+    ),
 )
 #: The only trust class and tier an extension may declare (ARCH §7, ADR-0011 §6).
 EXTENSION_TRUST_CLASS = "read"

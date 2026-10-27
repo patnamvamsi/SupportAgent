@@ -203,6 +203,15 @@ def test_scenario_from_incident_is_redacted(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="no subject"):
         scenario_from_incident("p", {"description": "x"}, redact=str)
 
+    # Error signatures survive: a dotted code path is not a host name.
+    kept = scenario_from_incident(
+        "p",
+        {"subject": "s", "body": "psycopg.errors.DiskFull on orders-db.shop.svc.cluster.local"},
+        redact=str,
+    )
+    (text,) = kept.files.values()
+    assert "psycopg.errors.DiskFull on <HOST>" in text
+
 
 def test_extension_cannot_declare_write_tier() -> None:
     """Read/T0 only: a generator refuses, a manifest can't name actions, MCP must be read."""
