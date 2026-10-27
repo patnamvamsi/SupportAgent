@@ -1,0 +1,56 @@
+# Lab scenario (ADR-0011 §5). Edit only with a `why` note.
+# WP-M09 walkthrough: from `scenario new --from-incident` (INC0107, synthetic),
+# redacted, ground truth filled in by hand.
+id: pg-disk-full
+pack: python-postgres
+split: tune
+description: The orders volume fills up; every write fails with DiskFull while reads work.
+incident:
+  subject: orders writes failing on orders-db
+  body: 'POST /orders returns 500. psycopg.errors.DiskFull: could not extend file "base/16384/24576": No space left on device. Reads still work. Paged by <EMAIL_1>.'
+  priority: '1'
+service:
+  name: checkout-api
+  stack: [python, fastapi, gunicorn, postgres]
+  databases: [orders]
+  log_paths: [logs/checkout-api]
+  repos: ['github:acme/checkout']
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  metrics.query:
+    result:
+      query: postgres volume free ratio
+      series:
+      - labels: {mountpoint: /var/lib/postgresql}
+        value: 0.004
+      count: 1
+      max_value: 0.004
+  postgres.storage:
+    result:
+      database: orders
+      size_bytes: 498000000000
+      tables:
+      - name: order_events
+        live: 9600
+        dead: 300
+        dead_ratio: 0.03
+        last_autovacuum: null
+      max_dead_ratio: 0.03
+  postgres.activity:
+    result:
+      database: orders
+      total: 120
+      max_connections: 500
+      by_state: {active: 30, idle: 90}
+      idle_in_transaction: 0
+      waiting: 0
+      oldest_xact_age_s: 2.0
+truth:
+  classification: database/failure
+  severity: P1
+  root_cause: pg_disk_full
+  verdict: SUPPORTED
+  must_cite: [metrics.query]
+  must_not_claim: [pg_table_bloat]
+why: The data volume is 99.6% full and the error is DiskFull. The database is large but not bloated (3% dead tuples), so bloat is a trap.

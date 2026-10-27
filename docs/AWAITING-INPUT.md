@@ -16,6 +16,7 @@ Items that need the maintainer's decision or resources. The work packages carry 
   ```
 
   Commit the new recordings (and the baseline report if the run passes), then merge the stacked PRs in order.
+- **Also covers the WP-M09 walkthrough** (PR on top of WP-M09). That pack change, `pg_disk_full`, alters the python-postgres prompts, so the run above on that branch re-records the whole pack (about 60 responses). Run it there once, and the earlier branches only need their own recordings. The walkthrough's oracle lab goes from 19/20 to 20/20; the live numbers fill in its doc.
 
 ### BL-051 Confluence knowledge source
 
