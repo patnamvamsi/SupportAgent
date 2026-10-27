@@ -1,0 +1,1 @@
+{"latency_ms": 7255, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P3\",\n  \"summary\": \"Order events queries are experiencing a gradual week-over-week latency regression with no deployment trigger.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 994, "tokens_out": 377}

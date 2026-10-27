@@ -167,6 +167,7 @@ def test_degraded_flag_on_events_when_llm_breaker_open(
     trace = TraceContext.new("acme", "trace_1", "span_1")
     variables = {
         "taxonomy_labels": "- database/saturation: pool saturation",
+        "pack_guidance": "",
         "ticket_subject": "s",
         "ticket_body": "b",
     }

@@ -1,0 +1,23 @@
+{
+  "cases": {
+    "bad-config-rollout": true,
+    "celery-backlog": true,
+    "control-metrics-outage": true,
+    "control-noisy-5xx-blip": true,
+    "dns-resolution-failure": true,
+    "memory-leak-oomkilled": true,
+    "pg-connection-load": true,
+    "pg-idle-in-transaction-leak": true,
+    "pg-lock-contention": true,
+    "pg-replication-lag-stale-reads": true,
+    "pg-slow-query-after-migration": true,
+    "pg-table-bloat": true,
+    "tls-certificate-expired": true,
+    "traffic-spike-throttling": true,
+    "worker-timeout-slow-upstream": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "python-postgres",
+  "samples": 1,
+  "v": 1
+}

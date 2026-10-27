@@ -1,0 +1,1 @@
+{"latency_ms": 8265, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P2\",\"summary\":\"Checkout-api p95 latency is elevated to 8+ seconds, making the order history page slow for users since this morning.\",\"confidence\":0.68}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 995, "tokens_out": 443}

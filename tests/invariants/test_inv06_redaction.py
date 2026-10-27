@@ -66,6 +66,7 @@ def test_llm_bound_canaries_absent(
         SlotName.CLASSIFY,
         {
             "taxonomy_labels": "- database/saturation: pool saturation",
+            "pack_guidance": "",
             "ticket_subject": subject,
             "ticket_body": body,
         },
@@ -103,6 +104,7 @@ def test_redaction_counts_event_contains_no_values(
         SlotName.CLASSIFY,
         {
             "taxonomy_labels": "- database/saturation: pool saturation",
+            "pack_guidance": "",
             "ticket_subject": subject,
             "ticket_body": body,
         },

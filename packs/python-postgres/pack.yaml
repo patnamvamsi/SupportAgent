@@ -3,7 +3,7 @@
 # /failure) so routing and calibration stay put; this pack adds the
 # app-layer labels, the hypotheses and checks for both, and the lab scenarios.
 id: python-postgres
-version: 1.0.0
+version: 1.1.0
 description: Python web services and workers (FastAPI, Flask, Django, gunicorn, uvicorn, Celery) on PostgreSQL.
 applies_to:
   stack: [python, fastapi, flask, django, gunicorn, uvicorn, celery, postgres]
@@ -12,6 +12,7 @@ hypotheses: hypotheses.yaml
 preclass: preclass_rules.yaml
 runbooks: runbooks/
 probes: probes.yaml
+prompts: {classify: classify.md}
 tools:
   - logs.grep
   - postgres.activity

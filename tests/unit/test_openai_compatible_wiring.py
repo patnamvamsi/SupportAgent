@@ -52,8 +52,8 @@ def test_classify_prompt_lists_every_taxonomy_label() -> None:
     labels = bootstrap._taxonomy_labels(config)
     rendered = PromptRegistry(Path(config.paths.prompts)).render(
         SlotName.CLASSIFY,
-        {"taxonomy_labels": labels, "ticket_subject": "s", "ticket_body": "b"},
+        {"taxonomy_labels": labels, "pack_guidance": "", "ticket_subject": "s", "ticket_body": "b"},
     )
     for label in load_classification(Path(config.paths.taxonomy)).labels:
         assert f"- {label.id}: " in rendered.system
-    assert rendered.version == "v2"
+    assert rendered.version == "v3"
