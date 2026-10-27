@@ -1,0 +1,28 @@
+# Lab scenario (ADR-0011 §5). Held out: never used for tuning.
+id: pool-saturation-capacity-holdout
+pack: common
+split: holdout
+description: Pool exhaustion on the orders database, reported as a ticket.
+incident:
+  subject: Orders page timing out
+  body: Customers can't load orders; the app logs show the database refusing connections.
+  priority: "3"
+  origin: ticket
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+world:
+  gha.recent_runs:
+    result: {repo: github:acme/core-db, runs: [], failed_jobs: []}
+  logs.grep:
+    result:
+      path: logs/core-db
+      count: 2
+      matches:
+        - {file: postgresql.log, line_no: 40, text: "FATAL: remaining connection slots are reserved for non-replication superuser connections"}
+        - {file: app.log, line_no: 912, text: "psycopg.OperationalError: connection pool exhausted"}
+truth:
+  classification: database/saturation
+  severity: P3
+  root_cause: capacity_decay
+  verdict: SUPPORTED
+  must_cite: [logs.grep]
+why: A ticket-shaped report of the same failure; tests that the label holds without an alert type.

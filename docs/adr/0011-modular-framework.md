@@ -97,7 +97,7 @@ Documentation enters as a fourth plug-in type, a **knowledge source** (Git markd
 | 5 | Calibration (layer 3 feeds `calibrated_score` per label) | when it's unsure, it hands the case to a human | with every layer-3 baseline |
 | 6 | Production feedback (shadow agreement, human diffs) | it stays right on live traffic; misses become new lab cases | weekly review |
 
-A **lab scenario** is an incident, the *world* the tools will return (logs, metrics, database state, changes, docs), and the ground truth: classification, severity, root-cause hypothesis, expected verdict, required citations and must-not-claim traps. Scenarios include distractors (an unrelated deploy), cases with no findable cause (the right answer is INCONCLUSIVE), prompt-injection content in logs and docs, and stale docs.
+A **lab scenario** is an incident, the *world* the tools will return (logs, metrics, database state, changes, docs), and the ground truth: classification, severity, root-cause hypothesis, expected verdict, required citations and must-not-claim traps. Scenarios include distractors (an unrelated deploy), cases with no findable cause (the right answer claims none: CONSISTENT_UNCONFIRMED when every check ran negative, INCONCLUSIVE when the investigation couldn't finish), prompt-injection content in logs and docs, and stale docs.
 
 Scoring is **structural and deterministic**. Typed outputs are compared with the ground truth. LLM-as-judge is used only for the wording of customer updates. Gated metrics:
 
@@ -126,7 +126,7 @@ A support analyst who spots a gap shouldn't need to learn the framework or act a
 
 2. **Scaffold** with deterministic generators (`supportagent pack new`, `tool new`, `scenario new`). The harness fills the templates; it doesn't invent structure.
 3. **Turn the analyst's incidents into lab scenarios** with ground truth. The extension must solve them, and must not regress the pack's existing scenarios.
-4. **Validate and evaluate:** load-time validation (`pack validate`), then the lab for the pack (`eval run --suite lab --pack <id>`), with a per-case diff.
+4. **Validate and evaluate:** load-time validation (`pack validate`), then the lab for the pack (`eval lab --pack <id>`), with a per-case diff.
 5. **Open a pull request** carrying the eval report. Adopting it is a **T3 change** (CAP §2): eval-gated, human-reviewed, versioned, with one-command rollback.
 
 The harness learns the conventions from a **project skill** in the repo (`.claude/skills/extend-supportagent/`), which encodes the pack, tool and scenario contracts, the trust rules and the gap-to-extension table. The CLI generators and validators make the result correct by construction rather than by the harness's memory.

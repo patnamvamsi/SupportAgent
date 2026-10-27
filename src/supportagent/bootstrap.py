@@ -21,7 +21,7 @@ import re
 import secrets
 import socket
 from collections.abc import Callable, Collection, Mapping, Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -33,6 +33,7 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from pydantic import ValidationError
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -92,7 +93,7 @@ from supportagent.adapters.servicenow.auth import (
 )
 from supportagent.adapters.servicenow.export import read_export
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
-from supportagent.adapters.servicenow.mapping import record_to_alert
+from supportagent.adapters.servicenow.mapping import record_to_alert, severity_from_priority
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
 from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
@@ -120,7 +121,15 @@ from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
 from supportagent.app.outbox import OutboxExecutor, OutboxWriter
 from supportagent.app.queries import AdminQueries
-from supportagent.app.rca import BufferedEvents, Knowledge, RcaJob, RcaService, lite_route_ids
+from supportagent.app.rca import (
+    Budget,
+    BufferedEvents,
+    Knowledge,
+    RcaCase,
+    RcaJob,
+    RcaService,
+    lite_route_ids,
+)
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.retention import RetentionService
 from supportagent.app.setup import SetupService, expand_grant_requests
@@ -140,7 +149,12 @@ from supportagent.config.loader import (
 from supportagent.config.schema import AppConfig, RoutingRow
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.deprecation import deprecation_notices
-from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
+from supportagent.domain.errors import (
+    ConfigError,
+    DomainValidationError,
+    ExternalServiceError,
+    LLMUnavailable,
+)
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
@@ -195,6 +209,14 @@ from supportagent.entrypoints.worker.jobs import (
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
 from supportagent.evals.harness import Manifest
+from supportagent.evals.lab import (
+    LabGates,
+    LabOutcome,
+    LabScenario,
+    WorldTools,
+    cited_tools,
+    load_scenarios,
+)
 from supportagent.evals.quality import RecallReport
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
@@ -1380,6 +1402,150 @@ def _wiring_calibration(config: AppConfig) -> CalibrationTable:
     )
 
 
+def _lab_config(config: AppConfig) -> AppConfig:
+    """WP-M02: the lab runs RCA, so the RCA slots default to the classify slot's model."""
+    slots = dict(config.llm.slots)
+    classify = slots[SlotName.CLASSIFY.value]
+    for slot in (SlotName.PROPOSE_HYPOTHESES.value, SlotName.ENTAIL.value):
+        slots.setdefault(slot, classify)
+    return config.model_copy(update={"llm": config.llm.model_copy(update={"slots": slots})})
+
+
+class LabPipeline:
+    """The incident lab (ADR-0011 §5, WP-M02): the real classifier and RCA per scenario.
+
+    Only the tools are world-backed; the LLM is the configured one (``live``),
+    a replay of recorded responses (``replay``), or a scripted provider in tests.
+    Every request still passes the redactor (INV-06).
+    """
+
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        provider: LLMProvider | None = None,
+        decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+    ) -> None:
+        self._config = _lab_config(config)
+        self.model_id = self._config.llm.slots[SlotName.CLASSIFY.value].model_id
+        self._clock = ReplayClock()
+        self._ids = UlidIdGenerator()
+        self._llm = _build_llm(
+            self._config,
+            _NullEvents(),
+            self._ids,
+            self._clock,
+            provider,
+            decorate=decorate,
+            resilient=False,
+        )
+        self._packs = _pack_set(self._config)
+        #: Set by a caching decorator so N samples are N calls (``CachingLLMProvider.sample``).
+        self.caching: CachingLLMProvider | None = None
+
+    def run(self, scenario: LabScenario, sample: int) -> LabOutcome:
+        if self.caching is not None:
+            self.caching.sample = sample
+        cfg = self._config
+        service = scenario.service_entry
+        incident = scenario.incident
+        scope = PackScope(packs=self._packs, stacks={service.name: frozenset(service.stack)})
+        received = datetime(2026, 1, 1, tzinfo=UTC)
+        self._clock.set(received)
+        evt = AlertEvent.model_validate(
+            {
+                "tenant_id": cfg.tenant.id,
+                "source": "servicenow",
+                "origin": incident.origin,
+                "external_id": f"lab-{scenario.id}",
+                "table": "incident",
+                "ticket_number": f"LAB-{scenario.id}" if incident.origin == "ticket" else None,
+                "received_at": received,
+                "subject": incident.subject,
+                "body": incident.body,
+                "resource": service.resources[0] if service.resources else None,
+                "alert_type": incident.alert_type,
+                "error_signature": incident.error_signature,
+                "severity_hint": severity_from_priority(incident.priority),
+                "cmdb_ci": None,
+                "raw_ref": f"lab:{scenario.id}",
+            }
+        )
+        case = Case.model_validate(
+            {
+                "id": f"case-{scenario.id}",
+                "tenant_id": cfg.tenant.id,
+                "fingerprint": f"lab-{scenario.id}",
+                "origin": incident.origin,
+                "service": service.name,
+            }
+        )
+        trace = TraceContext(cfg.tenant.id, f"tr_lab_{scenario.id}", "classify")
+        classifier = Classifier(
+            rule_set=scope.rule_set(service.name),
+            llm=self._llm,
+            calibration=_wiring_calibration(cfg),
+            min_score=0.0,
+            routing=_build_routing(cfg),
+            severity=_severity_strategy(cfg),
+            packs=scope,
+        )
+        decision = classifier.decide(evt, case, trace)
+        classification = decision.classification
+        if classification is None and decision.llm_suggestion is not None:
+            classification = decision.llm_suggestion.classification
+        tools = WorldTools(scenario.world)
+        rca_cfg = cfg.rca
+        rca = RcaService(
+            knowledge=build_rca_knowledge(cfg, tools.names),
+            tools=tools,
+            llm=self._llm,
+            events=_NullEvents(),
+            ids=self._ids,
+            clock=self._clock,
+            prior=rca_cfg.prior,
+            freeze=rca_cfg.freeze,
+            max_claims=rca_cfg.max_claims,
+            entail_budget_s=rca_cfg.entail_budget_s,
+        )
+        rca_case = RcaCase(
+            id=case.id,
+            tenant_id=cfg.tenant.id,
+            trace_id=trace.trace_id,
+            service=service,
+            classification=classification,
+            severity=decision.severity.value if decision.severity is not None else None,
+            origin=incident.origin,
+            opened_ts=int(received.timestamp()),
+        )
+        artifact = rca.run(
+            rca_case,
+            Budget.of(
+                RcaBudget(
+                    max_tool_calls=rca_cfg.max_tool_calls,
+                    max_tokens=rca_cfg.max_tokens,
+                    max_hypotheses=rca_cfg.max_hypotheses,
+                )
+            ),
+        )
+        by_step = {e.step.step_id: e.step.hypothesis for e in artifact.evidence}
+        return LabOutcome(
+            scenario_id=scenario.id,
+            classification=classification,
+            severity=decision.severity.value if decision.severity is not None else None,
+            preclass_label=decision.preclass_label,
+            verdict=artifact.outcome,
+            supported=by_step.get(artifact.supported_by or ""),
+            tested=tuple(artifact.hypotheses),
+            cited_tools=cited_tools(
+                artifact.evidence, [c for cl in artifact.claims for c in cl.cites]
+            ),
+            tool_calls=len(tools.calls),
+            tokens=int(artifact.budget.get("tokens", 0)),
+            reason=artifact.reason,
+        )
+
+
 class EvalPipeline:
     """Shadow triage for the eval harness (10-wp WP-016) on a throwaway database.
 
@@ -1725,6 +1891,60 @@ def eval_config(config_path: Path, *, live: bool, catalog: Path) -> AppConfig:
     cfg = load_config_default(config_path) if live else load_config_offline(config_path)
     paths = cfg.paths.model_copy(update={"catalog": catalog.as_posix()})
     return cfg.model_copy(update={"paths": paths})
+
+
+#: Where the ``common`` pack's lab scenarios live (other packs: their ``evals:``).
+COMMON_LAB_DIR = Path("evals/lab/common")
+
+
+class _UnrecordedProvider:
+    """Replay mode: every request must already be recorded (``evals`` recordings)."""
+
+    def complete_json(self, request: ProviderRequest) -> ProviderResponse:
+        raise LLMUnavailable("not recorded: re-run the lab with --live to record it")  # noqa: TRY003
+
+
+def lab_evals_dir(config: AppConfig, pack_id: str) -> Path:
+    """The scenario directory of ``pack_id`` (WP-M02)."""
+    if pack_id == "common":
+        return COMMON_LAB_DIR
+    pack = _pack_set(config).get(pack_id)
+    if pack.evals is None:
+        raise ConfigError(f"pack {pack_id!r} has no evals: directory (not evaluated)")  # noqa: TRY003
+    return Path(pack.evals)
+
+
+def load_lab(config: AppConfig, pack_id: str) -> tuple[list[LabScenario], LabGates, Path]:
+    """The pack's scenarios (world validated against the tool schemas) and its gates."""
+    directory = lab_evals_dir(config, pack_id)
+    scenarios = load_scenarios(
+        directory, pack=pack_id, tool_schemas=KNOWN_TOOL_SCHEMAS, read_yaml=load_yaml_document
+    )
+    raw = load_yaml_document(Path(config.paths.gates)).get("lab") or {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{config.paths.gates}: 'lab' must be a mapping")  # noqa: TRY003
+    merged = {**(raw.get("default") or {}), **(raw.get(pack_id) or {})}
+    try:
+        gates = LabGates.model_validate(merged)
+    except ValidationError as exc:
+        raise ConfigError(f"{config.paths.gates}: lab gates: {exc}") from exc  # noqa: TRY003
+    return scenarios, gates, directory
+
+
+def build_lab_pipeline(
+    config: AppConfig, *, recordings: Path, live: bool, pack_id: str
+) -> LabPipeline:
+    """``live`` calls the configured model and records; otherwise replay only (WP-M02)."""
+    holder: list[CachingLLMProvider] = []
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        caching = CachingLLMProvider(inner, directory=recordings, snapshot_id=f"lab-{pack_id}")
+        holder.append(caching)
+        return caching
+
+    pipeline = LabPipeline(config, provider=None if live else _UnrecordedProvider(), decorate=cache)
+    pipeline.caching = holder[0] if holder else None
+    return pipeline
 
 
 def load_eval_suite(manifest_path: Path) -> tuple[list[EvalCase], Manifest]:

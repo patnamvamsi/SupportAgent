@@ -1,0 +1,32 @@
+# Lab scenario (ADR-0011 §5). Edit only with a `why` note.
+id: pool-saturation-capacity
+pack: common
+description: Connection pool saturated by load; a deploy happened but succeeded (a trap).
+incident:
+  subject: core-db connection pool at 100%
+  body: Active connections pinned at max_connections; requests queueing for 6 minutes.
+  priority: "3"
+  alert_type: pool_saturation
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+world:
+  gha.recent_runs:
+    result:
+      repo: github:acme/core-db
+      runs: [{id: 41, name: deploy, status: completed, conclusion: success, created_at: "2026-01-01T07:40:00Z"}]
+      failed_jobs: []
+  logs.grep:
+    result:
+      path: logs/core-db
+      count: 3
+      matches:
+        - {file: postgresql.log, line_no: 1180, text: "FATAL: sorry, too many clients already"}
+        - {file: postgresql.log, line_no: 1183, text: "FATAL: sorry, too many clients already"}
+        - {file: app.log, line_no: 77, text: "QueuePool limit of size 20 overflow 10 reached, connection timed out"}
+truth:
+  classification: database/saturation
+  severity: P3
+  root_cause: capacity_decay
+  verdict: SUPPORTED
+  must_cite: [logs.grep]
+  must_not_claim: [recent_change_push]
+why: The successful deploy is a distractor; the logs show pool exhaustion under load.

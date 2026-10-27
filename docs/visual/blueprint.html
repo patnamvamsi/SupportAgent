@@ -425,12 +425,12 @@ pre.code .c { color: var(--muted); }
           <line class="wire" x1="750" y1="138" x2="798" y2="138" marker-end="url(#a3)"/>
           <rect class="box-gate" x="800" y="40" width="180" height="200" rx="6"/>
           <text class="t-title" x="816" y="66">reduce()</text>
-          <text class="t-mono" x="816" y="96">SUPPORTED</text><text class="t-sub" x="816" y="114">check passed + entailed</text>
-          <text class="t-mono" x="816" y="146">CONSISTENT_</text><text class="t-mono" x="816" y="162">UNCONFIRMED</text><text class="t-sub" x="816" y="180">fits, not proven</text>
-          <text class="t-mono" x="816" y="210">INCONCLUSIVE</text><text class="t-sub" x="816" y="228">say so; ask a human</text>
+          <text class="t-mono" x="816" y="96">SUPPORTED</text><text class="t-sub" x="816" y="114">a check held: evidence fits</text>
+          <text class="t-mono" x="816" y="146">CONSISTENT_</text><text class="t-mono" x="816" y="162">UNCONFIRMED</text><text class="t-sub" x="816" y="180">every check ran; none held</text>
+          <text class="t-mono" x="816" y="210">INCONCLUSIVE</text><text class="t-sub" x="816" y="228">couldn't finish, or conflict</text>
         </svg>
       </div>
-      <figcaption>Every claim passes the entailment checker against the evidence it cites, and fails closed. Nothing about cause is sent to a customer. INCONCLUSIVE is a correct answer when the evidence isn't there.</figcaption>
+      <figcaption>SUPPORTED means evidence consistent with the hypothesis, not proof of cause. Every claim then passes the entailment checker against the evidence it cites, and fails closed. Nothing about cause is sent to a customer, and claiming no cause is the correct answer when the evidence isn't there.</figcaption>
     </figure>
   </div>
 </section>
@@ -586,7 +586,7 @@ truth:
   verdict: SUPPORTED
   must_cite: [logs.search, postgres.activity]
   must_not_claim: [recent_change_push]</pre>
-    <p>Scenarios include distractors, cases with no findable cause (the right answer is INCONCLUSIVE), prompt injection in logs and docs, and a held-out split never used for tuning. A pack can't be enabled for assisted mode until it passes its gates.</p>
+    <p>Scenarios include distractors, cases with no findable cause (the right answer claims none), prompt injection in logs and docs, and a held-out split never used for tuning. A pack can't be enabled for assisted mode until it passes its gates.</p>
   </div>
 </section>
 

@@ -1,0 +1,22 @@
+# Lab scenario (ADR-0011 §5). Edit only with a `why` note.
+id: pool-saturation-no-cause
+pack: common
+description: Pool alert where every tested cause comes back negative (CONSISTENT_UNCONFIRMED).
+incident:
+  subject: core-db connection pool at 95%
+  body: Pool usage alarm fired briefly and cleared.
+  priority: "4"
+  alert_type: pool_saturation
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+world:
+  gha.recent_runs:
+    result: {repo: github:acme/core-db, runs: [], failed_jobs: []}
+  logs.grep:
+    result: {path: logs/core-db, count: 0, matches: []}
+truth:
+  classification: database/saturation
+  severity: P4
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim: [recent_change_push, capacity_decay]
+why: Every check ran and none held (ARCH §5); claiming a cause here would be a false cause.

@@ -10,3 +10,10 @@ promotion:                 # shadow -> assisted (WP-115); the partner still deci
 quality:                   # the holdout quality suite (WP-104; ARCH §11, all prov.)
   - {name: p1p2_classification, band: P1-P2, metric: classification, min_lb: 0.90, min_cases: 35}
   - {name: p1p2_severity, band: P1-P2, metric: severity, min_lb: 0.85, min_cases: 22}
+lab:                       # the incident lab (ADR-0011 §5, WP-M02); all provisional
+  default:
+    min_cases: 10          # below this, the lower-bound gates aren't applied
+    min_classification_lb: 0.70
+    min_root_cause_lb: 0.60
+    max_false_cause_rate: 0.0   # a confident wrong root cause is never acceptable
+    no_regressions: true        # a scenario that passed in the baseline must still pass
