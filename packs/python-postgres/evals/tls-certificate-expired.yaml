@@ -1,0 +1,42 @@
+# Lab scenario (ADR-0011 §5, WP-M03). Edit only with a `why` note.
+id: tls-certificate-expired
+pack: python-postgres
+split: holdout
+description: An upstream's certificate expired; every call fails TLS verification.
+incident:
+  subject: payments failing
+  priority: '1'
+  body: 'SSLError: certificate verify failed: certificate has expired'
+service:
+  name: checkout-api
+  stack:
+  - python
+  - fastapi
+  - gunicorn
+  - postgres
+  databases:
+  - orders
+  log_paths:
+  - logs/checkout-api
+  repos:
+  - github:acme/checkout
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  logs.grep:
+    result:
+      path: logs/checkout-api
+      count: 1
+      matches:
+      - file: app.log
+        line_no: 100
+        text: 'ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate has expired (_ssl.c:1006)'
+truth:
+  classification: edge/certificate
+  severity: P1
+  root_cause: cert_expired
+  verdict: SUPPORTED
+  must_cite:
+  - logs.grep
+  must_not_claim: []
+why: The logs show the expired certificate on every outbound call.

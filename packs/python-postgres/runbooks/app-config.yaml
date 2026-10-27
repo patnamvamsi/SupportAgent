@@ -1,0 +1,10 @@
+# Configuration failures (ARCH §5.1): they almost always follow a rollout.
+id: runbook:app-config
+applies_when: {classification: app/config}
+budget: {max_tool_calls: 3, max_tokens: 2000, max_hypotheses: 1}
+steps:
+  - id: rollout
+    hypothesis: recent_rollout
+    tool: changes.recent
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector", window_min: 180}
+    check: "result.changes.exists(c, c.minutes_ago <= 60)"

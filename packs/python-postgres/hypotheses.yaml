@@ -1,0 +1,18 @@
+# Root-cause hypotheses for Python services on Postgres. `excludes` names the
+# hypotheses that can't both explain one incident (reduce() sees both = conflict).
+version: 1.0.0
+hypotheses:
+  - id: pg_idle_in_transaction_leak
+    excludes: [pg_connection_load]
+  - id: pg_connection_load
+    excludes: [pg_idle_in_transaction_leak]
+  - id: pg_lock_contention
+  - id: pg_slow_query_regression
+  - id: pg_replication_lag
+  - id: pg_table_bloat
+  - id: slow_upstream
+  - id: app_oom_restarts
+  - id: recent_rollout
+  - id: celery_backlog
+  - id: cert_expired
+  - id: dns_resolution_failure

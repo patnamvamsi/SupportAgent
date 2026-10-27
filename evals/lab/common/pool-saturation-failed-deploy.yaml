@@ -7,7 +7,7 @@ incident:
   body: Connections climbed to the limit within minutes of the 09:10 rollout.
   priority: "3"
   alert_type: pool_saturation
-service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: []}  # no stack pack: tests common as the fallback
 world:
   gha.recent_runs:
     result:

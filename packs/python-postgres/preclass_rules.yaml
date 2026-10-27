@@ -1,0 +1,18 @@
+# Cheap, deterministic signals (ARCH §4.2): the first matching rule labels the
+# case, and the LLM's label must agree with it on the domain.
+version: 1.0.0
+rules:
+  - when: {body: "QueuePool limit|too many clients|remaining connection slots|connection pool exhausted"}
+    label: database/saturation
+  - when: {body: "WORKER TIMEOUT|upstream request timeout|Gateway Time-?out"}
+    label: app/worker_timeout
+  - when: {body: "OOMKilled|MemoryError|Out of memory|exit code 137"}
+    label: app/memory
+  - when: {body: "ImproperlyConfigured|KeyError: '[A-Z_]+'|missing required environment variable"}
+    label: app/config
+  - when: {body: "(?i)celery.*(backlog|queue depth|queue length)"}
+    label: queue/backlog
+  - when: {body: "certificate verify failed|certificate has expired|CERTIFICATE_VERIFY_FAILED"}
+    label: edge/certificate
+  - when: {body: "Name or service not known|Temporary failure in name resolution|NXDOMAIN"}
+    label: network/outage

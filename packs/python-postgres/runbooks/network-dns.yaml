@@ -1,0 +1,10 @@
+# Connectivity loss from a Python service (ARCH §5.1): DNS first.
+id: runbook:network-dns
+applies_when: {classification: network/outage}
+budget: {max_tool_calls: 3, max_tokens: 2000, max_hypotheses: 2}
+steps:
+  - id: dns
+    hypothesis: dns_resolution_failure
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "Name or service not known|Temporary failure in name resolution|NXDOMAIN"}
+    check: "result.count > 0"

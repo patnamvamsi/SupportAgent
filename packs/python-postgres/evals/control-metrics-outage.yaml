@@ -1,0 +1,53 @@
+# Lab scenario (ADR-0011 §5, WP-M03). Edit only with a `why` note.
+id: control-metrics-outage
+pack: python-postgres
+split: tune
+description: 'Worker timeouts while the metrics backend is down: the investigation can''t finish.'
+incident:
+  subject: checkout-api 504s
+  priority: '3'
+  body: '[CRITICAL] WORKER TIMEOUT (pid:98)'
+service:
+  name: checkout-api
+  stack:
+  - python
+  - fastapi
+  - gunicorn
+  - postgres
+  databases:
+  - orders
+  log_paths:
+  - logs/checkout-api
+  repos:
+  - github:acme/checkout
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  metrics.query:
+    error: GET /api/v1/query -> 503
+  postgres.locks:
+    result:
+      database: orders
+      blocked: 0
+      blockers: []
+  postgres.activity:
+    result:
+      database: orders
+      total: 60
+      max_connections: 500
+      by_state:
+        active: 58
+        idle in transaction: 2
+      idle_in_transaction: 2
+      waiting: 0
+      oldest_xact_age_s: 3.0
+truth:
+  classification: app/worker_timeout
+  severity: P3
+  root_cause: null
+  verdict: INCONCLUSIVE
+  must_cite: []
+  must_not_claim:
+  - slow_upstream
+  - pg_lock_contention
+why: 'The first check can''t run (Prometheus 503) and the rest are negative: say so rather than guess.'

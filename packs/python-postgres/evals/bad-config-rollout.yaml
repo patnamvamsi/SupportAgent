@@ -1,0 +1,74 @@
+# Lab scenario (ADR-0011 §5, WP-M03). Edit only with a `why` note.
+id: bad-config-rollout
+pack: python-postgres
+split: tune
+description: A rollout shipped a missing DATABASE_URL; new pods crash at startup.
+incident:
+  subject: checkout-api down after release
+  priority: '1'
+  body: 'ImproperlyConfigured: Set the DATABASE_URL environment variable'
+service:
+  name: checkout-api
+  stack:
+  - python
+  - fastapi
+  - gunicorn
+  - postgres
+  databases:
+  - orders
+  log_paths:
+  - logs/checkout-api
+  repos:
+  - github:acme/checkout
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  changes.recent:
+    result:
+      window_min: 180
+      changes:
+      - source: kubernetes
+        kind: rollout
+        ref: checkout-api-7d9#41
+        at: '2026-01-01T00:00:00+00:00'
+        minutes_ago: 12
+        actor: null
+        environment: shop
+      count: 1
+  k8s.pod_status:
+    result:
+      namespace: shop
+      selector: app=checkout-api
+      pods:
+      - name: pod-0
+        phase: Running
+        ready: false
+        restarts: 9
+        last_termination: null
+      - name: pod-1
+        phase: Running
+        ready: false
+        restarts: 0
+        last_termination: null
+      - name: pod-2
+        phase: Running
+        ready: false
+        restarts: 0
+        last_termination: null
+      - name: pod-3
+        phase: Running
+        ready: false
+        restarts: 0
+        last_termination: null
+      restarts_total: 9
+      oomkilled: 0
+      not_ready: 4
+truth:
+  classification: app/config
+  severity: P1
+  root_cause: recent_rollout
+  verdict: SUPPORTED
+  must_cite:
+  - changes.recent
+  must_not_claim: []
+why: The failure began with the rollout 12 minutes ago.

@@ -1,0 +1,24 @@
+# Postgres connection saturation for Python services (ARCH §5.1).
+# A leak (idle in transaction) is checked before plain load: both fill the pool,
+# but only one is fixed by adding connections.
+id: runbook:pg-saturation
+applies_when: {classification: database/saturation}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: leak
+    hypothesis: pg_idle_in_transaction_leak
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.idle_in_transaction * 5 >= result.max_connections || double(result.oldest_xact_age_s) > 600.0"
+    stop_if: true
+  - id: locks
+    hypothesis: pg_lock_contention
+    tool: postgres.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.xact_age_s) > 60.0)"
+    stop_if: true
+  - id: load
+    hypothesis: pg_connection_load
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.total * 10 >= result.max_connections * 9 && result.idle_in_transaction * 10 < result.max_connections"

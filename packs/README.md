@@ -5,7 +5,7 @@ A skill pack is one technology stack's failure knowledge (ADR-0011 §1). A catal
 | Pack | Status |
 |---|---|
 | `common` | Built from `taxonomy/` and `runbooks/` (no manifest). Always active. |
-| `python-postgres` | Skeleton: selectable, no knowledge yet (WP-M03, WP-M04). |
+| `python-postgres` | 5 labels, 12 hypotheses, 7 preclass rules, 9 runbooks, 15 lab scenarios (3 held out). Its tools ship with WP-M04. |
 | `spark`, `snowflake` | Placeholders: loaded and reported, never selected. |
 
 ## Manifest
@@ -28,3 +28,11 @@ evals: evals/                  # lab scenarios (WP-M02); absent: "not evaluated"
 ```
 
 Every file is optional and relative to the pack directory. Label, hypothesis and runbook ids must be unique across all packs, and every preclass rule must name a label some pack defines. `supportagent doctor` reports each pack, which services use it, and whether it is evaluated.
+
+## Precedence
+
+When a stack pack and `common` both have a runbook for a case's label, the stack pack's runbook is used. A pack adds labels, rules and hypotheses to `common`'s; it never replaces them.
+
+## Knowledge vs model
+
+`tests/unit/test_python_postgres_pack.py` runs every scenario with an oracle that classifies correctly and plans nothing, so it tests only the pack's knowledge (runbook order, checks, thresholds). `supportagent eval lab --pack python-postgres --live` then measures the model on top.

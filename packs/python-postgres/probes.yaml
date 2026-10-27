@@ -1,0 +1,61 @@
+# One probe per pack hypothesis (ARCH §5): what to read and what must hold.
+# Number fields are compared as doubles; thresholds are provisional.
+probes:
+  pg_idle_in_transaction_leak:
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.idle_in_transaction * 5 >= result.max_connections || double(result.oldest_xact_age_s) > 600.0"
+  pg_connection_load:
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.total * 10 >= result.max_connections * 9 && result.idle_in_transaction * 10 < result.max_connections"
+  pg_lock_contention:
+    tool: postgres.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.xact_age_s) > 60.0)"
+  pg_slow_query_regression:
+    tool: postgres.slow_queries
+    args: {database: "$service.databases[0]"}
+    check: "result.available && result.queries.exists(q, double(q.mean_ms) > 1000.0)"
+  pg_replication_lag:
+    tool: postgres.replication
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_lag_s) > 30.0"
+  pg_table_bloat:
+    tool: postgres.storage
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_dead_ratio) > 0.5"
+  slow_upstream:
+    tool: metrics.query
+    args:
+      query: 'histogram_quantile(0.95, sum by (le) (rate(http_client_request_duration_seconds_bucket{service="{{service}}"}[5m])))'
+      service: "$service.name"
+    check: "double(result.max_value) > 2.0"
+  app_oom_restarts:
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.oomkilled > 0"
+  recent_rollout:
+    tool: changes.recent
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector", window_min: 180}
+    check: "result.changes.exists(c, c.minutes_ago <= 60)"
+  celery_backlog:
+    tool: metrics.query
+    args:
+      query: 'sum(celery_queue_length{service="{{service}}"})'
+      service: "$service.name"
+    check: "double(result.max_value) > 1000.0"
+  cert_expired:
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "certificate has expired|certificate verify failed|CERTIFICATE_VERIFY_FAILED"}
+    check: "result.count > 0"
+  dns_resolution_failure:
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "Name or service not known|Temporary failure in name resolution|NXDOMAIN"}
+    check: "result.count > 0"
+  traffic_spike:
+    tool: metrics.query
+    args:
+      query: 'sum(rate(http_requests_total{service="{{service}}"}[5m])) / sum(rate(http_requests_total{service="{{service}}"}[5m] offset 1d))'
+      service: "$service.name"
+    check: "double(result.max_value) > 3.0"

@@ -220,8 +220,12 @@ class Knowledge:
         active = self.packs.active(case.service.stack if case.service is not None else ())
         hypotheses = self.packs.hypothesis_ids(active)
         runbook_ids = self.packs.runbook_ids(active)
+        # The most specific runbook wins: a stack pack's before common's (ADR-0011).
+        specific = self.packs.runbook_ids([p for p in active if not p.always])
+        scoped = [(r, c) for r, c in self.runbooks if r.id in runbook_ids]
+        scoped.sort(key=lambda rc: rc[0].id not in specific)
         return Knowledge(
-            runbooks=[(r, c) for r, c in self.runbooks if r.id in runbook_ids],
+            runbooks=scoped,
             probes={h: p for h, p in self.probes.items() if h in hypotheses},
             excludes={
                 h: [x for x in excl if x in hypotheses]

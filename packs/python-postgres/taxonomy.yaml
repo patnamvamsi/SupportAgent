@@ -1,0 +1,23 @@
+# App-layer labels for Python services (the database ones are in common).
+version: 1.0.0
+labels:
+  - id: app/worker_timeout
+    description: >-
+      Web workers (gunicorn, uvicorn) time out or are killed mid-request; requests
+      hang or return 502/504 while the process itself stays up.
+  - id: app/memory
+    description: >-
+      The service runs out of memory: OOMKilled pods, MemoryError, restarts that
+      grow with uptime (a leak) or with load.
+  - id: app/config
+    description: >-
+      The service fails to start or misbehaves because of configuration: a bad
+      environment variable, secret or setting, usually right after a rollout.
+  - id: queue/backlog
+    description: >-
+      A task queue (Celery, RQ) backs up: tasks wait far longer than usual and
+      consumers fall behind producers.
+  - id: edge/certificate
+    description: >-
+      TLS fails: an expired or untrusted certificate on the service or on an
+      upstream it calls.
