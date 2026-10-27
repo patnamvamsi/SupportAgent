@@ -29,7 +29,7 @@ from supportagent.domain.model.catalog import ServiceEntry
 from supportagent.domain.model.runbook import Probe, Runbook
 from supportagent.ports.checks import CheckCompiler, CompiledCheck
 
-_REF = re.compile(r"^\$service\.([a-z_]+)(?:\[\d+\])?$")
+_REF = re.compile(r"^\$service\.([a-z][a-z0-9_]*)(?:\[\d+\])?$")
 
 
 def _check_args(where: str, args: Mapping[str, str | int]) -> None:

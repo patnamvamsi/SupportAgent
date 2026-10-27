@@ -278,7 +278,7 @@ def _repo_config() -> Any:
 
 
 def test_existing_behaviour_unchanged_with_common_pack() -> None:
-    """The repo's packs add no knowledge yet: every service sees exactly the common files."""
+    """A service no evaluated pack selects sees exactly the common files; packs only add."""
     config = _repo_config()
     packs = _pack_set(config)
     assert {p.id for p in packs.packs} == {"common", "python-postgres", "spark", "snowflake"}
@@ -287,11 +287,15 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
         hypotheses=Path(config.paths.hypotheses),
         runbooks=Path(config.paths.runbooks),
     )
-    for stack in ([], ["python", "postgres"], ["spark"]):
+    for stack in ([], ["java"], ["spark"]):  # no evaluated pack matches: exactly common
         active = packs.active(stack)
         assert labels_text(packs.taxonomy(active).labels) == labels_text(legacy.taxonomy().labels)
         assert packs.rule_set(active) == legacy.rule_set()
-    assert _load_bundle(config).taxonomy == legacy.taxonomy()
+    web = packs.active(["python", "postgres"])  # WP-M03: the pack adds to common, never edits it
+    assert [p.id for p in web] == ["common", "python-postgres"]
+    common_ids = [label.id for label in legacy.taxonomy().labels]
+    assert [label.id for label in packs.taxonomy(web).labels][: len(common_ids)] == common_ids
+    assert packs.rule_set(web).rules[: len(legacy.rule_set().rules)] == legacy.rule_set().rules
 
 
 def test_doctor_reports_packs_and_their_eval_status() -> None:
@@ -306,7 +310,7 @@ def test_doctor_reports_packs_and_their_eval_status() -> None:
     object.__setattr__(ctx, "load_packs", lambda: _pack_set(config))
     object.__setattr__(ctx, "known_tools", frozenset(KNOWN_TOOL_SCHEMAS))
     res = PacksCheck().run(ctx)
-    assert res.status == "warn"
-    assert "python-postgres 0.1.0: not evaluated; used by checkout-api" in res.detail
+    assert res.status == "pass", res.detail
+    assert "python-postgres 1.0.0: evaluated; used by checkout-api" in res.detail
     assert "spark 0.0.0: placeholder, never selected" in res.detail
     assert "tools not available" not in res.detail, "WP-M04 ships every tool the pack names"

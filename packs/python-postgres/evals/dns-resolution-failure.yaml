@@ -1,0 +1,45 @@
+# Lab scenario (ADR-0011 §5, WP-M03). Edit only with a `why` note.
+id: dns-resolution-failure
+pack: python-postgres
+split: tune
+description: The cluster DNS stopped resolving the payments host.
+incident:
+  subject: checkout cannot reach payments
+  priority: '2'
+  body: 'ConnectionError: Temporary failure in name resolution'
+service:
+  name: checkout-api
+  stack:
+  - python
+  - fastapi
+  - gunicorn
+  - postgres
+  databases:
+  - orders
+  log_paths:
+  - logs/checkout-api
+  repos:
+  - github:acme/checkout
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  logs.grep:
+    result:
+      path: logs/checkout-api
+      count: 2
+      matches:
+      - file: app.log
+        line_no: 100
+        text: 'socket.gaierror: [Errno -3] Temporary failure in name resolution'
+      - file: app.log
+        line_no: 101
+        text: 'requests.exceptions.ConnectionError: Max retries exceeded with url: /charge'
+truth:
+  classification: network/outage
+  severity: P2
+  root_cause: dns_resolution_failure
+  verdict: SUPPORTED
+  must_cite:
+  - logs.grep
+  must_not_claim: []
+why: Name resolution fails in the service's own logs.

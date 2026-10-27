@@ -1,0 +1,25 @@
+# Worker timeouts in a Python web service (ARCH §5.1): a slow dependency the
+# workers wait on, or the database holding them.
+id: runbook:app-worker-timeout
+applies_when: {classification: app/worker_timeout}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: upstream
+    hypothesis: slow_upstream
+    tool: metrics.query
+    args:
+      query: 'histogram_quantile(0.95, sum by (le) (rate(http_client_request_duration_seconds_bucket{service="{{service}}"}[5m])))'
+      service: "$service.name"
+    check: "double(result.max_value) > 2.0"
+    stop_if: true
+  - id: locks
+    hypothesis: pg_lock_contention
+    tool: postgres.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.xact_age_s) > 60.0)"
+    stop_if: true
+  - id: leak
+    hypothesis: pg_idle_in_transaction_leak
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.idle_in_transaction * 5 >= result.max_connections || double(result.oldest_xact_age_s) > 600.0"

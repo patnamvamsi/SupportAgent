@@ -1,0 +1,29 @@
+# Slow queries on Postgres (ARCH §5.1): a regression, contention, bloat, or a
+# replica serving stale reads.
+id: runbook:pg-latency
+applies_when: {classification: database/latency}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 4}
+steps:
+  - id: slow
+    hypothesis: pg_slow_query_regression
+    tool: postgres.slow_queries
+    args: {database: "$service.databases[0]"}
+    check: "result.available && result.queries.exists(q, double(q.mean_ms) > 1000.0)"
+    stop_if: true
+  - id: locks
+    hypothesis: pg_lock_contention
+    tool: postgres.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.xact_age_s) > 60.0)"
+    stop_if: true
+  - id: bloat
+    hypothesis: pg_table_bloat
+    tool: postgres.storage
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_dead_ratio) > 0.5"
+    stop_if: true
+  - id: lag
+    hypothesis: pg_replication_lag
+    tool: postgres.replication
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_lag_s) > 30.0"

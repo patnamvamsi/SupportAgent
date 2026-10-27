@@ -7,7 +7,7 @@ incident:
   body: Pool usage alarm fired briefly and cleared.
   priority: "4"
   alert_type: pool_saturation
-service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: [postgres]}
+service: {name: core-db, repos: [github:acme/core-db], log_paths: [logs/core-db], stack: []}  # no stack pack: tests common as the fallback
 world:
   gha.recent_runs:
     result: {repo: github:acme/core-db, runs: [], failed_jobs: []}

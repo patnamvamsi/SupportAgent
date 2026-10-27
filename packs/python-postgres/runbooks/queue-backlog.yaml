@@ -1,0 +1,19 @@
+# Celery backlog (ARCH §5.1): the queue depth, then whether the database is
+# what the workers are stuck on.
+id: runbook:queue-backlog
+applies_when: {classification: queue/backlog}
+budget: {max_tool_calls: 4, max_tokens: 3000, max_hypotheses: 2}
+steps:
+  - id: depth
+    hypothesis: celery_backlog
+    tool: metrics.query
+    args:
+      query: 'sum(celery_queue_length{service="{{service}}"})'
+      service: "$service.name"
+    check: "double(result.max_value) > 1000.0"
+    stop_if: true
+  - id: locks
+    hypothesis: pg_lock_contention
+    tool: postgres.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.xact_age_s) > 60.0)"

@@ -1,0 +1,19 @@
+# Throttling or shedding load (ARCH §5.1): a traffic spike against yesterday,
+# then the database pool behind it.
+id: runbook:request-capacity
+applies_when: {classification: request/capacity}
+budget: {max_tool_calls: 4, max_tokens: 3000, max_hypotheses: 2}
+steps:
+  - id: spike
+    hypothesis: traffic_spike
+    tool: metrics.query
+    args:
+      query: 'sum(rate(http_requests_total{service="{{service}}"}[5m])) / sum(rate(http_requests_total{service="{{service}}"}[5m] offset 1d))'
+      service: "$service.name"
+    check: "double(result.max_value) > 3.0"
+    stop_if: true
+  - id: load
+    hypothesis: pg_connection_load
+    tool: postgres.activity
+    args: {database: "$service.databases[0]"}
+    check: "result.total * 10 >= result.max_connections * 9 && result.idle_in_transaction * 10 < result.max_connections"

@@ -1,13 +1,17 @@
 # Python microservices and web servers on Postgres (ADR-0011 §1, WP-M03).
-# This is the WP-M01 skeleton: the manifest validates and services can select
-# it, but it adds no knowledge yet. WP-M03 adds the taxonomy, hypotheses,
-# preclass rules, runbooks, prompt fragments and lab scenarios; WP-M04 adds
-# the tools it names.
+# Database failures keep the common labels (database/saturation, /latency,
+# /failure) so routing and calibration stay put; this pack adds the
+# app-layer labels, the hypotheses and checks for both, and the lab scenarios.
 id: python-postgres
-version: 0.1.0
+version: 1.0.0
 description: Python web services and workers (FastAPI, Flask, Django, gunicorn, uvicorn, Celery) on PostgreSQL.
 applies_to:
   stack: [python, fastapi, flask, django, gunicorn, uvicorn, celery, postgres]
+taxonomy: taxonomy.yaml
+hypotheses: hypotheses.yaml
+preclass: preclass_rules.yaml
+runbooks: runbooks/
+probes: probes.yaml
 tools:
   - logs.grep
   - postgres.activity
@@ -21,3 +25,4 @@ tools:
 knowledge:
   spaces: [platform]
   labels: [postgres, python]
+evals: evals/

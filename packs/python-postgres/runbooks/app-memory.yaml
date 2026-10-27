@@ -1,0 +1,17 @@
+# Out of memory (ARCH §5.1): the pods were OOMKilled; a fresh rollout makes a
+# regression likelier than a slow leak.
+id: runbook:app-memory
+applies_when: {classification: app/memory}
+budget: {max_tool_calls: 4, max_tokens: 3000, max_hypotheses: 2}
+steps:
+  - id: rollout
+    hypothesis: recent_rollout
+    tool: changes.recent
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector", window_min: 180}
+    check: "result.changes.exists(c, c.minutes_ago <= 60)"
+    stop_if: true
+  - id: oom
+    hypothesis: app_oom_restarts
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.oomkilled > 0"

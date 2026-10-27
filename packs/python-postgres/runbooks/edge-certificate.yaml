@@ -1,0 +1,10 @@
+# TLS failures (ARCH §5.1).
+id: runbook:edge-certificate
+applies_when: {classification: edge/certificate}
+budget: {max_tool_calls: 2, max_tokens: 1500, max_hypotheses: 1}
+steps:
+  - id: tls
+    hypothesis: cert_expired
+    tool: logs.grep
+    args: {path: "$service.log_paths[0]", pattern: "certificate has expired|certificate verify failed|CERTIFICATE_VERIFY_FAILED"}
+    check: "result.count > 0"

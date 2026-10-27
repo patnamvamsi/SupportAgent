@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.model.catalog import ServiceEntry
 
-_REF = re.compile(r"^\$service\.([a-z_]+)(?:\[(\d+)\])?$")
+_REF = re.compile(r"^\$service\.([a-z][a-z0-9_]*)(?:\[(\d+)\])?$")
 _TYPES: Mapping[str, tuple[type, ...]] = {
     "object": (dict,),
     "array": (list, tuple),
