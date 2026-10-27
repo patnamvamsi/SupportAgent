@@ -25,6 +25,8 @@ class ServiceEntry(DomainModel):
     owners: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     paging_integration: str | None = None
+    #: ADR-0011: technology tags that select skill packs (``python``, ``postgres``, …).
+    stack: list[str] = Field(default_factory=list)
 
 
 class Catalog(DomainModel):

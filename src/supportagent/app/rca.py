@@ -43,6 +43,7 @@ from supportagent.domain.model.base import DomainModel
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.runbook import Probe, RcaBudget, Runbook
+from supportagent.domain.packs import PackSet
 from supportagent.domain.rca_reduce import (
     CHANGE_HYPOTHESIS,
     Claim,
@@ -205,10 +206,29 @@ class Knowledge:
     runbooks: Sequence[tuple[Runbook, Mapping[str, CompiledCheck]]]
     probes: Mapping[str, tuple[Probe, CompiledCheck]]
     excludes: Mapping[str, Sequence[str]]
+    #: ADR-0011: when set, each case sees only its service's active packs.
+    packs: PackSet | None = None
 
     @property
     def hypothesis_ids(self) -> list[str]:
         return list(self.excludes)
+
+    def for_case(self, case: RcaCase) -> Knowledge:
+        """The runbooks, probes and hypotheses of the case's active packs (ADR-0011)."""
+        if self.packs is None:
+            return self
+        active = self.packs.active(case.service.stack if case.service is not None else ())
+        hypotheses = self.packs.hypothesis_ids(active)
+        runbook_ids = self.packs.runbook_ids(active)
+        return Knowledge(
+            runbooks=[(r, c) for r, c in self.runbooks if r.id in runbook_ids],
+            probes={h: p for h, p in self.probes.items() if h in hypotheses},
+            excludes={
+                h: [x for x in excl if x in hypotheses]
+                for h, excl in self.excludes.items()
+                if h in hypotheses
+            },
+        )
 
     def match(self, case: RcaCase) -> tuple[Runbook, Mapping[str, CompiledCheck]] | None:
         label = case.classification
@@ -250,12 +270,12 @@ class RcaService:
         self._entail_budget_s = entail_budget_s
 
     def budget_for(self, case: RcaCase, default: RcaBudget) -> Budget:
-        matched = self._kb.match(case)
+        matched = self._kb.for_case(case).match(case)
         return Budget.of(matched[0].budget if matched else default)
 
     def run(self, case: RcaCase, budget: Budget) -> RcaArtifact:
         trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
-        matched = self._kb.match(case)
+        matched = self._kb.for_case(case).match(case)
         if matched is not None:
             runbook, checks = matched
             plan = [
@@ -284,7 +304,9 @@ class RcaService:
                 break
 
         results = [e.step for e in evidence]
-        reduction = reduce(results, plan_length=len(plan), excludes=self._kb.excludes)
+        reduction = reduce(
+            results, plan_length=len(plan), excludes=self._kb.for_case(case).excludes
+        )
         claims = conclude(results)
         self._entail(claims, evidence, budget, trace)
         artifact = RcaArtifact(
@@ -310,7 +332,7 @@ class RcaService:
     # -- planning ------------------------------------------------------------
 
     def _proposed_plan(self, case: RcaCase, budget: Budget, trace: TraceContext) -> list[PlanStep]:
-        ids = self._kb.hypothesis_ids
+        ids = self._kb.for_case(case).hypothesis_ids
         proposed: list[str] = []
         if budget.can_spend(PROPOSE_TOKENS):
             budget.tokens += PROPOSE_TOKENS
@@ -336,7 +358,7 @@ class RcaService:
             )
         plan: list[PlanStep] = []
         for hypothesis in ordered[: budget.max_hypotheses]:
-            probe = self._kb.probes.get(hypothesis)
+            probe = self._kb.for_case(case).probes.get(hypothesis)
             if probe is None:
                 self._decision(trace, case, None, f"no_probe:{hypothesis}")
                 continue

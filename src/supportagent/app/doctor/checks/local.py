@@ -117,3 +117,47 @@ class PagingCheck:
 
 
 __all__ = ["ConfigCheck", "DbCheck", "PagingCheck"]
+
+
+class PacksCheck:
+    """ADR-0011: the skill packs load together; which are used, evaluated, or unbound."""
+
+    name = "packs"
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        if ctx.load_packs is None:
+            return CheckResult(self.name, "pass", "only the common pack (paths.packs is unset)")
+        try:
+            packs = ctx.load_packs()
+            catalog = ctx.load_bundle().catalog
+        except ConfigError as exc:
+            return CheckResult(self.name, "fail", str(exc))
+        used: dict[str, list[str]] = {}
+        for entry in catalog.services:
+            for pack in packs.active(entry.stack):
+                if not pack.always:
+                    used.setdefault(pack.id, []).append(entry.name)
+        lines: list[str] = []
+        warnings: list[str] = []
+        for pack in packs.packs:
+            if pack.always:
+                continue
+            if pack.placeholder:
+                lines.append(f"{pack.id} {pack.version}: placeholder, never selected")
+                continue
+            services = used.get(pack.id, [])
+            status = "evaluated" if pack.evals else "not evaluated"
+            lines.append(
+                f"{pack.id} {pack.version}: {status}; "
+                + (f"used by {', '.join(services)}" if services else "used by no service")
+            )
+            if services and not pack.evals:
+                warnings.append(f"{pack.id} is used by {', '.join(services)} but not evaluated")
+            unbound = sorted(set(pack.tools) - ctx.known_tools)
+            if services and unbound:  # a pack no service selects can't fail a case
+                warnings.append(f"{pack.id}: tools not available yet: {', '.join(unbound)}")
+        detail = "common + " + (" · ".join(lines) if lines else "no other packs")
+        data: dict[str, object] = {"packs": [p.id for p in packs.packs], "used_by": used}
+        if warnings:
+            return CheckResult(self.name, "warn", detail + " — " + "; ".join(warnings), data)
+        return CheckResult(self.name, "pass", detail, data)

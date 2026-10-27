@@ -59,9 +59,8 @@ from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_ca
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
-from supportagent.adapters.files.preclass_loader import load_preclass_rules
+from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
-from supportagent.adapters.files.taxonomy_loader import load_classification, load_hypotheses
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.llm.client import (
     OLLAMA_DEFAULT_BASE_URL,
@@ -157,6 +156,7 @@ from supportagent.domain.model.runbook import RcaBudget
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
+from supportagent.domain.packs import PackScope, PackSet, labels_text
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
@@ -283,12 +283,33 @@ def _classifier_calibration(config: AppConfig) -> CalibrationTable:
 
 
 def _build_ruleset(config: AppConfig) -> RuleSet:
-    """The pre-classifier rules beside the taxonomy (ARCH §4.2, 10-wp WP-010).
+    """The pre-classifier rules of every pack (ARCH §4.2, 10-wp WP-010; ADR-0011).
 
     An empty rule set would make every case abstain, so the cross-check never
-    runs and every P1/P2 is capped — the shipped rules are always loaded.
+    runs and every P1/P2 is capped — the shipped rules are always loaded. Per
+    case, the classifier narrows them to the service's packs (``_pack_scope``).
     """
-    return load_preclass_rules(Path(config.paths.taxonomy).parent / "preclass_rules.yaml")
+    return _pack_set(config).rule_set()
+
+
+def _pack_set(config: AppConfig) -> PackSet:
+    """ADR-0011: ``common`` from the legacy paths plus every manifest under ``paths.packs``."""
+    paths = config.paths
+    return load_pack_set(
+        taxonomy=Path(paths.taxonomy),
+        hypotheses=Path(paths.hypotheses),
+        runbooks=Path(paths.runbooks),
+        packs_dir=Path(paths.packs) if paths.packs else None,
+    )
+
+
+def _pack_scope(config: AppConfig) -> PackScope:
+    """The per-case pack view: the pack set plus each catalog service's ``stack:``."""
+    catalog = _build_catalog(config)
+    return PackScope(
+        packs=_pack_set(config),
+        stacks={entry.name: frozenset(entry.stack) for entry in catalog.services},
+    )
 
 
 def _classify_slots(config: AppConfig) -> dict[SlotName, SlotSpec]:
@@ -471,6 +492,7 @@ def _build_classifier(
         routing=_build_routing(config),
         taxonomy_labels=_taxonomy_labels(config),
         severity=_severity_strategy(config),
+        packs=_pack_scope(config),
     )
 
 
@@ -482,9 +504,8 @@ def _severity_strategy(config: AppConfig) -> SeverityStrategy:
 
 
 def _taxonomy_labels(config: AppConfig) -> str:
-    """BL-043: the classify prompt's label list, one ``- id: description`` line each."""
-    labels = load_classification(Path(config.paths.taxonomy)).labels
-    return "\n".join(f"- {label.id}: {' '.join(label.description.split())}" for label in labels)
+    """BL-043: the classify prompt's label list (every pack's), one line each."""
+    return labels_text(_pack_set(config).taxonomy().labels)
 
 
 def _build_triage(config: AppConfig) -> TriageService:
@@ -791,21 +812,37 @@ KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = {
 
 def build_rca_knowledge(config: AppConfig, registered: Collection[str]) -> Knowledge:
     """WP-110: runbooks (every check compiled) and the probes of registered tools."""
-    taxonomy = load_hypotheses(Path(config.paths.hypotheses))
+    packs = _pack_set(config)
+    taxonomy = packs.hypothesis_taxonomy()
     ids = [h.id for h in taxonomy.hypotheses]
     compiler = CelCheckCompiler()
-    runbooks_dir = Path(config.paths.runbooks)
+    registered_schemas = {n: s for n, s in KNOWN_TOOL_SCHEMAS.items() if n in registered}
+    runbooks = []
+    probes = {}
+    for pack in packs.packs:  # ADR-0011: every pack's runbooks and probes
+        if pack.runbooks_dir is not None:
+            runbooks.extend(
+                load_runbooks(
+                    Path(pack.runbooks_dir),
+                    hypotheses=ids,
+                    tool_schemas=KNOWN_TOOL_SCHEMAS,
+                    compiler=compiler,
+                )
+            )
+        if pack.probes_path is not None:
+            probes.update(
+                load_probes(
+                    Path(pack.probes_path),
+                    hypotheses=ids,
+                    tool_schemas=registered_schemas,
+                    compiler=compiler,
+                )
+            )
     return Knowledge(
-        runbooks=load_runbooks(
-            runbooks_dir, hypotheses=ids, tool_schemas=KNOWN_TOOL_SCHEMAS, compiler=compiler
-        ),
-        probes=load_probes(
-            runbooks_dir / "probes.yaml",
-            hypotheses=ids,
-            tool_schemas={n: s for n, s in KNOWN_TOOL_SCHEMAS.items() if n in registered},
-            compiler=compiler,
-        ),
+        runbooks=runbooks,
+        probes=probes,
         excludes={h.id: list(h.excludes) for h in taxonomy.hypotheses},
+        packs=packs,
     )
 
 
@@ -1217,8 +1254,8 @@ def _load_bundle(config: AppConfig) -> Bundle:
     paths = config.paths
     return Bundle(
         catalog=load_catalog(Path(paths.catalog)),
-        taxonomy=load_classification(Path(paths.taxonomy)),
-        hypotheses=load_hypotheses(Path(paths.hypotheses)),
+        taxonomy=_pack_set(config).taxonomy(),
+        hypotheses=_pack_set(config).hypothesis_taxonomy(),
     )
 
 
@@ -1261,6 +1298,8 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         automation=SqlAutomationActors(engine),
         clock=clock,
         discover_automation=discover_automation,
+        load_packs=lambda: _pack_set(config),
+        known_tools=frozenset(KNOWN_TOOL_SCHEMAS),
     )
 
 
@@ -1332,7 +1371,7 @@ def _wiring_calibration(config: AppConfig) -> CalibrationTable:
     the eval-produced artifact (ADR-0002), which this never replaces.
     """
     strong = CalibrationCountRow(n=1000, correct=1000)
-    labels = load_classification(Path(config.paths.taxonomy)).labels
+    labels = _pack_set(config).taxonomy().labels
     return CalibrationTable(
         grade="smoke",
         snapshot_id="wiring",
@@ -1385,6 +1424,7 @@ class EvalPipeline:
                 routing=_build_routing(config),
                 taxonomy_labels=_taxonomy_labels(config),
                 severity=_severity_strategy(config),
+                packs=_pack_scope(config),
             ),
             catalog=_build_catalog(config),
             repo=ShadowRepo(uow),
@@ -1476,6 +1516,7 @@ class QualityPipeline:
             routing=_build_routing(config),
             taxonomy_labels=_taxonomy_labels(config),
             severity=_severity_strategy(config),
+            packs=_pack_scope(config),
         )
 
     @property
@@ -1584,6 +1625,14 @@ def create_snapshot(config: AppConfig, snapshot_id: str, root: Path) -> Path:
         data = src.read_bytes()
         (out / name).write_bytes(data)
         files[name] = hashlib.sha256(data).hexdigest()
+    if config.paths.packs:  # ADR-0011: a snapshot pins every pack file too
+        packs_root = Path(config.paths.packs)
+        for src in sorted(p for p in packs_root.rglob("*") if p.is_file()):
+            rel = Path("packs") / src.relative_to(packs_root)
+            (out / rel).parent.mkdir(parents=True, exist_ok=True)
+            data = src.read_bytes()
+            (out / rel).write_bytes(data)
+            files[rel.as_posix()] = hashlib.sha256(data).hexdigest()
     prompts = Path(config.paths.prompts)
     for prompt in sorted(prompts.rglob("*.md")):
         rel = Path("prompts") / prompt.relative_to(prompts)

@@ -17,6 +17,7 @@ from supportagent.config.schema import AppConfig
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.taxonomy import ClassificationTaxonomy, HypothesisTaxonomy
+from supportagent.domain.packs import PackSet
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import (
     AutomationActorStore,
@@ -72,6 +73,9 @@ class DoctorContext:
     automation: AutomationActorStore
     clock: Clock
     discover_automation: bool = False
+    #: ADR-0011: the skill packs, and the tool capabilities the build knows.
+    load_packs: Callable[[], PackSet] | None = None
+    known_tools: frozenset[str] = frozenset()
 
 
 class Check(Protocol):

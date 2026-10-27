@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from supportagent.app.doctor.base import Check
 from supportagent.app.doctor.checks.endpoints import AutomationActorsCheck, LLMCheck, OIDCCheck
-from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PagingCheck
+from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PacksCheck, PagingCheck
 from supportagent.app.doctor.checks.servicenow import (
     AuditRetentionCheck,
     AuthCheck,
@@ -19,6 +19,7 @@ def default_checks() -> list[Check]:
     """Every v0.0 check, in the 02 §4.1 order."""
     return [
         ConfigCheck(),
+        PacksCheck(),
         DbCheck(),
         AuthCheck(),
         JournalVisibilityCheck(),
