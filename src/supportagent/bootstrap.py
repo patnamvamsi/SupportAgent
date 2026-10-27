@@ -100,15 +100,22 @@ from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.adapters.tools import airflow as airflow_tool
+from supportagent.adapters.tools import changes as changes_tool
 from supportagent.adapters.tools import cron as cron_tool
 from supportagent.adapters.tools import gha as gha_tool
+from supportagent.adapters.tools import kubernetes as kubernetes_tool
 from supportagent.adapters.tools import logs as logs_tool
 from supportagent.adapters.tools import oncall as oncall_tool
+from supportagent.adapters.tools import prometheus as prometheus_tool
 from supportagent.adapters.tools.airflow import AirflowTool
+from supportagent.adapters.tools.changes import RecentChangesTool
 from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
+from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
 from supportagent.adapters.tools.oncall import OnCallTool
+from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
+from supportagent.adapters.tools.prometheus import PrometheusQueryTool
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
@@ -146,7 +153,7 @@ from supportagent.config.loader import (
     load_fault_injection_default,
     load_master_key_default,
 )
-from supportagent.config.schema import AppConfig, RoutingRow
+from supportagent.config.schema import AppConfig, RoutingRow, Tools
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.errors import (
@@ -829,6 +836,11 @@ KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = {
     AirflowTool.name: airflow_tool.SCHEMA,
     GitHubActionsTool.name: gha_tool.SCHEMA,
     OnCallTool.name: oncall_tool.SCHEMA,
+    # WP-M04: the python-postgres pack's tools.
+    **{tool.name: tool.result_schema for tool in POSTGRES_TOOLS},
+    PrometheusQueryTool.name: prometheus_tool.SCHEMA,
+    PodStatusTool.name: kubernetes_tool.SCHEMA,
+    RecentChangesTool.name: changes_tool.SCHEMA,
 }
 
 
@@ -1811,6 +1823,56 @@ def create_snapshot(config: AppConfig, snapshot_id: str, root: Path) -> Path:
     return out
 
 
+def _pack_tools(
+    cfg: Tools,
+    *,
+    client: Callable[[str, Mapping[str, str]], httpx.Client],
+    clock: Clock,
+    transport: httpx.BaseTransport | None,
+) -> list[Tool]:
+    """WP-M04: the python-postgres pack's tools, each registered when configured."""
+    tools: list[Tool] = []
+    if cfg.postgres:  # WP-M04
+        reader = PsycopgReader(
+            {name: db.dsn.get_secret_value() for name, db in cfg.postgres.databases.items()},
+            statement_timeout_ms=cfg.postgres.statement_timeout_ms,
+        )
+        tools.extend(tool_cls(reader=reader) for tool_cls in POSTGRES_TOOLS)
+    if cfg.prometheus:
+        auth = (
+            {"Authorization": f"Bearer {cfg.prometheus.token.get_secret_value()}"}
+            if cfg.prometheus.token
+            else {}
+        )
+        tools.append(PrometheusQueryTool(client=client(cfg.prometheus.base_url, auth)))
+    k8s_client: httpx.Client | None = None
+    if cfg.kubernetes:
+        k8s = cfg.kubernetes
+        k8s_client = httpx.Client(
+            base_url=k8s.api_url,
+            headers={"Authorization": f"Bearer {k8s.token.get_secret_value()}"},
+            transport=transport,
+            timeout=10.0,
+            verify=k8s.ca_file if k8s.ca_file else k8s.verify_tls,
+        )
+        tools.append(PodStatusTool(client=k8s_client))
+    if cfg.changes:
+        github_client = None
+        if cfg.changes.github and cfg.github:
+            headers = {"Accept": "application/vnd.github+json"}
+            if cfg.github.token:
+                headers["Authorization"] = f"Bearer {cfg.github.token.get_secret_value()}"
+            github_client = client(cfg.github.base_url, headers)
+        tools.append(
+            RecentChangesTool(
+                clock=clock,
+                github=github_client,
+                kubernetes=k8s_client if cfg.changes.kubernetes else None,
+            )
+        )
+    return tools
+
+
 def build_tool_registry(
     config: AppConfig,
     *,
@@ -1853,6 +1915,7 @@ def build_tool_registry(
         if Fault.GHA_500 in load_fault_injection_default():
             gha = FaultInjectingTool(gha)
         tools.append(gha)
+    tools.extend(_pack_tools(cfg, client=client, clock=clock, transport=transport))
     if cfg.oncall:
         oc = cfg.oncall
         pd = (

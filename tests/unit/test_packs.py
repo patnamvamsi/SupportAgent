@@ -309,4 +309,4 @@ def test_doctor_reports_packs_and_their_eval_status() -> None:
     assert res.status == "warn"
     assert "python-postgres 0.1.0: not evaluated; used by checkout-api" in res.detail
     assert "spark 0.0.0: placeholder, never selected" in res.detail
-    assert "postgres.activity" in res.detail, "tools that don't exist yet are reported"
+    assert "tools not available" not in res.detail, "WP-M04 ships every tool the pack names"

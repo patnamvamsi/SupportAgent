@@ -74,6 +74,16 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
     token_env: PAGERDUTY_TOKEN       # REST API key: read incidents, add notes
     from_email: supportagent@acme.example   # PagerDuty's required From header for notes
   # opsgenie: {api_key_env: OPSGENIE_API_KEY}   # for paging_integration: opsgenie:<team>
+# tools:                             # read-only evidence for RCA (WP-107, WP-M04); each optional
+#   logs_root: /var/log/apps
+#   github: {token_env: GITHUB_TOKEN}
+#   postgres:                        # catalog `databases:` names -> read-only connections
+#     databases:
+#       orders: {dsn_env: PG_ORDERS_RO}   # a role with pg_monitor only
+#     statement_timeout_ms: 5000
+#   prometheus: {base_url: "http://prometheus:9090"}
+#   kubernetes: {api_url: "https://k8s.internal:6443", token_env: K8S_RO_TOKEN}   # get/list pods, replicasets
+#   changes: {github: true, kubernetes: true}   # changes.recent sources
 rca:                                 # v0.1 RCA-lite (WP-110); routes opt in with rca: lite
   prior: {recent_change_push: 0.35}  # ordering only, never gates (ARCH §5.5)
   freeze: false                      # a change freeze zeroes recent_change_push (logged)
