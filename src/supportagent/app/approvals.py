@@ -26,10 +26,17 @@ from typing import Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.outbox import Authorization
-from supportagent.domain.errors import AuthorizationDenied, DomainValidationError, NotFound
+from supportagent.app.propose import retraction_spec
+from supportagent.domain.errors import (
+    AuthorizationDenied,
+    ConcurrencyConflict,
+    DomainValidationError,
+    NotFound,
+)
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.outbox import OutboxRow
+from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.rbac import Permission, RoleGrant, can, service_role_scope
 from supportagent.domain.trace import TraceContext
 
@@ -58,6 +65,8 @@ class _Gate(Protocol):
     def reject(
         self, proposal_id: str, approver_id: str, *, seen_hash: str, reason: str | None = None
     ) -> str: ...
+
+    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped: ...
 
 
 class _Feedback(Protocol):
@@ -160,6 +169,44 @@ class ApprovalService:
                 self._set_plan(proposal_id, status="rejected", approval_id=None)
             self._uow.commit()
         return approval_id
+
+    def retract(self, proposal_id: str, actor_id: str, *, grants: Collection[RoleGrant]) -> str:
+        """ADR-0014 part 2: propose the revert of an executed action that declares one.
+
+        Returns the retraction proposal's id; it waits for an approval. One
+        live retraction per action: a second is a ``ConcurrencyConflict``.
+        """
+        with self._uow:
+            spec, case_id, trace_id = self._spec_for(proposal_id)
+            _require_scope(grants, spec.target.service)
+            status = self._uow.connection.execute(
+                sa.text("SELECT status FROM proposals WHERE id = :id"), {"id": proposal_id}
+            ).scalar_one()
+            if status != "executed":
+                raise DomainValidationError(  # noqa: TRY003
+                    f"proposal {proposal_id!r} is {status}; only a sent action is retracted"
+                )
+            retraction = retraction_spec(spec, proposal_id=proposal_id, actor_id=actor_id)
+            live = self._uow.connection.execute(
+                sa.text(
+                    "SELECT id FROM proposals WHERE tenant_id = :t AND scope = :s "
+                    "AND status NOT IN ('rejected', 'expired')"
+                ),
+                {"t": self._tenant, "s": retraction.scope},
+            ).first()
+            if live is not None:
+                raise ConcurrencyConflict(  # noqa: TRY003
+                    f"proposal {proposal_id!r} already has retraction {live[0]!r}"
+                )
+            result = self._gate.submit(
+                case_id, retraction, TraceContext.new(self._tenant, trace_id, "span_retract")
+            )
+            if not isinstance(result, Proposal):
+                raise DomainValidationError(  # noqa: TRY003
+                    "a person owns this case: retract the note in ServiceNow directly"
+                )
+            self._uow.commit()
+        return result.id
 
     def _set_plan(self, proposal_id: str, *, status: str, approval_id: str | None) -> None:
         self._uow.connection.execute(

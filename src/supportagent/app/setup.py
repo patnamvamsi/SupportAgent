@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
+from supportagent.domain.auto import REVERTS, SOP_SCOPE_PREFIX, AutoConditions
 from supportagent.domain.errors import (
     AuthenticationFailed,
     AuthorizationDenied,
@@ -489,6 +490,62 @@ class SetupService:
                 created.append(grant_id)
             self._uow.commit()
         return created
+
+    def request_sop_auto(self, scope: str, conditions: AutoConditions, *, requested_by: str) -> str:
+        """ADR-0014 part 2: request an auto-mode grant on one SOP step's scope.
+
+        The kind comes from the scope and must declare a revert. The grant does
+        nothing until an admin approves it in ``/ui/grants``, which shows its
+        conditions; one live request or grant per scope.
+        """
+        prefix, _, kind_value = scope.rpartition(":")
+        if not scope.startswith(SOP_SCOPE_PREFIX) or not prefix:
+            raise DomainValidationError(f"not an SOP step scope: {scope!r}")  # noqa: TRY003
+        try:
+            kind = ActionKind(kind_value)
+        except ValueError:
+            raise DomainValidationError(f"unknown kind in {scope!r}") from None  # noqa: TRY003
+        if kind not in REVERTS:
+            raise DomainValidationError(  # noqa: TRY003
+                f"{kind.value} declares no revert, so it can't run in auto mode"
+            )
+        known = {s.name for s in self._catalog.services}
+        unknown = sorted(set(conditions.services) - known)
+        if unknown:
+            raise DomainValidationError(f"unknown service(s): {unknown}")  # noqa: TRY003
+        now_ts = int(self._clock.now().timestamp())
+        with self._uow:
+            conn = self._uow.connection
+            live = conn.execute(
+                sa.text(
+                    "SELECT id FROM policy_grants WHERE tenant_id = :tenant AND scope = :scope "
+                    "AND (status = 'requested' OR (status = 'approved' AND valid_to_ts > :now))"
+                ),
+                {"tenant": self._tenant, "scope": scope, "now": now_ts},
+            ).first()
+            if live is not None:
+                raise ConcurrencyConflict(  # noqa: TRY003
+                    f"{scope!r} already has grant {live[0]!r}; revoke it to change the conditions"
+                )
+            grant_id = self._ids.new(IdPrefix.GRANT)
+            conn.execute(
+                sa.text(
+                    "INSERT INTO policy_grants (id, tenant_id, action_kind, scope, status, "
+                    "requested_by, requested_at_ts, conditions_json) VALUES (:id, :tenant, "
+                    ":kind, :scope, 'requested', :by, :now, :conditions)"
+                ),
+                {
+                    "id": grant_id,
+                    "tenant": self._tenant,
+                    "kind": kind.value,
+                    "scope": scope,
+                    "by": requested_by,
+                    "now": now_ts,
+                    "conditions": conditions.to_json(),
+                },
+            )
+            self._uow.commit()
+        return grant_id
 
     def approve_default_grants(self, *, approver_id: str) -> list[str]:
         """Approve every requested default T1 grant in one batch (10-wp WP-012)."""

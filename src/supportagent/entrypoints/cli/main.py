@@ -18,6 +18,7 @@ from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
 from supportagent.entrypoints.cli import serve as serve_command
 from supportagent.entrypoints.cli import shadow as shadow_command
+from supportagent.entrypoints.cli import sop as sop_command
 from supportagent.entrypoints.cli import stats as stats_command
 from supportagent.entrypoints.cli import worker as worker_command
 
@@ -58,6 +59,8 @@ app.add_typer(extend_command.pack_app, name="pack")
 app.add_typer(extend_command.tool_app, name="tool")
 app.add_typer(extend_command.scenario_app, name="scenario")
 app.add_typer(extend_command.runbook_app, name="runbook")
+# ADR-0014 part 2 (BL-054): ``sop list`` and ``sop auto``.
+app.add_typer(sop_command.app, name="sop")
 
 
 @app.callback()

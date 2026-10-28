@@ -92,6 +92,31 @@
 </table></div>
 {% else %}<p class="muted">No proposals.</p>{% endif %}
 
+<h2>SOP auto mode</h2>
+{% if auto %}
+<p class="muted">Each SOP step an auto grant was checked against: what it read, and whether it sent without a per-action approval. A sent note can be retracted: the retraction waits for an approval.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Step</th><th>Decision</th><th>Grant and conditions</th><th>Evidence</th><th>Send</th><th>Revert</th></tr></thead>
+  <tbody>{% for a in auto %}
+  <tr>
+    <td><a href="/ui/proposals/{{ a.proposal_id }}">{{ a.sop or a.proposal_id }}</a><br><span class="muted">{{ a.kind }}</span></td>
+    <td>{% if a.auto %}<strong>sent on auto</strong>{% else %}waited for a person{% for r in a.refused %}<br><span class="muted">{{ r }}</span>{% endfor %}{% endif %}</td>
+    <td><code>{{ a.grant_id }}</code>{% if a.conditions %}<br>checks {{ a.conditions.checks | join(", ") }} · cap {{ a.conditions.max_per_day }}/day{% if a.used_today is not none %} ({{ a.used_today }} before this){% endif %}{% if a.conditions.services %} · {{ a.conditions.services | join(", ") }}{% endif %}{% endif %}</td>
+    <td>{% if a.evidence %}positive {{ a.evidence.positive | join(", ") or "none" }} · {{ "claim confirmed" if a.evidence.confirmed else "claim not confirmed" }}<br><span class="muted">RCA {{ a.evidence.rca_artifact }}</span>{% else %}<span class="muted">none</span>{% endif %}</td>
+    <td>{{ a.send_status or "—" }}{% if a.external_ref %}<br><code>{{ a.external_ref }}</code>{% endif %}</td>
+    <td>{% if a.retraction_id %}<a href="/ui/proposals/{{ a.retraction_id }}">retraction</a> {{ a.retraction_status }}{% endif %}
+      {% if a.can_retract and can_retract %}
+      <form class="inline" method="post" action="/ui/proposals/{{ a.proposal_id }}/retract">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Retract</button>
+      </form>
+      {% elif not a.retraction_id %}{{ a.revert or "—" }}{% endif %}
+    </td>
+  </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No SOP step was checked against an auto grant.</p>{% endif %}
+
 <h2>Sends</h2>
 {% if c.outbox %}
 <div class="table-wrap"><table>

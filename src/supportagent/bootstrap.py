@@ -172,6 +172,7 @@ from supportagent.config.schema import (
     Tools,
 )
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
+from supportagent.domain.auto import AutoConditions
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.errors import (
@@ -202,6 +203,7 @@ from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
+from supportagent.domain.sop import step_scope
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
@@ -960,8 +962,9 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
     catalog = _build_catalog(config)
     events = _event_sink(uow, master_key, clock)
     # ADR-0014: SOP steps become proposals in assisted mode; in shadow they
-    # stay in the artifact. Their scope is never grant-covered (part 1). A
-    # grant-covered proposal (BL-040's page note) is enqueued in the same UoW,
+    # stay in the artifact. Only an auto-mode grant on the step's own scope
+    # covers one, and only when its conditions hold (part 2). A grant-covered
+    # proposal (an auto step, BL-040's page note) is enqueued in the same UoW,
     # so the gate needs the outbox writer, like triage's.
     gate = (
         GateService(
@@ -2686,6 +2689,89 @@ def request_grants_from_config(config: AppConfig, *, master_key: bytes | None = 
         return setup.request_grants(literals, requested_by=config_marker(config))
     finally:
         engine.dispose()
+
+
+@dataclass(frozen=True, slots=True)
+class SopStepListing:
+    """One SOP step as ``sop list`` shows it, with the scope an auto grant names."""
+
+    scope: str
+    doc_id: str
+    title: str
+    version: str | None
+    when: tuple[str, ...]
+    step_id: str
+    kind: str
+    note: str
+    stale: bool
+
+
+def list_sop_steps(
+    config: AppConfig, *, transport: httpx.BaseTransport | None = None
+) -> list[SopStepListing]:
+    """``sop list``: every SOP step in the configured knowledge sources (ADR-0014)."""
+    index = build_knowledge_index(config, transport=transport, strict=True)
+    if index is None:
+        return []
+    today = SystemClock().now().date()
+    return [
+        SopStepListing(
+            scope=step_scope(meta.doc_id, sop.digest, step),
+            doc_id=meta.doc_id,
+            title=meta.title,
+            version=meta.version,
+            when=sop.when,
+            step_id=step.id,
+            kind=step.kind.value,
+            note=step.note,
+            stale=stale,
+        )
+        for meta, sop, stale in index.sop_docs(today=today)
+        for step in sop.steps
+    ]
+
+
+def request_sop_auto(  # noqa: PLR0913 — config, the step, its conditions and test seams
+    config: AppConfig,
+    scope: str,
+    conditions: AutoConditions,
+    *,
+    master_key: bytes | None = None,
+    transport: httpx.BaseTransport | None = None,
+    engine: Engine | None = None,
+) -> str:
+    """``sop auto``: request an auto grant for a current, fresh SOP step (ADR-0014 part 2).
+
+    The scope must name a step of an SOP as it is now: an edited SOP has a new
+    hash, so a scope copied from an older listing is refused.
+    """
+    current = {s.scope: s for s in list_sop_steps(config, transport=transport)}
+    step = current.get(scope)
+    if step is None:
+        raise ConfigError(  # noqa: TRY003
+            f"{scope!r} is not a step of a current SOP; run `supportagent sop list`"
+        )
+    if step.stale:
+        raise ConfigError(f"{step.doc_id} is stale; review the SOP first")  # noqa: TRY003
+    key = master_key if master_key is not None else load_master_key_default()
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(db)
+        clock = SystemClock()
+        aead = Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock)
+        setup = SetupService(
+            uow=uow,
+            clock=clock,
+            ids=UlidIdGenerator(),
+            events=SqlEventSink(uow=uow, cipher=aead),
+            catalog=_build_catalog(config),
+            tenant_id=config.tenant.id,
+        )
+        return setup.request_sop_auto(scope, conditions, requested_by="cli:sop-auto")
+    finally:
+        if own:
+            db.dispose()
 
 
 def _migrations_root() -> Path:

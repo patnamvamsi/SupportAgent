@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from supportagent.domain.auto import REVERTS
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
@@ -31,6 +32,7 @@ _ENRICH_PAGE_TEMPLATE_ID = "enrich_page_v1"
 _PAGE_RECOMMENDED_TEMPLATE_ID = "page_recommended_v1"
 _SOP_STEP_TEMPLATE_ID = "sop_step_v1"
 _RCA_PAGE_TEMPLATE_ID = "enrich_page_rca_v1"
+_RETRACTION_TEMPLATE_ID = "retraction_v1"
 
 
 def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[ActionSpec]:
@@ -120,8 +122,10 @@ def sop_step_spec(
 
     The text is a fixed template around the SOP's reviewed (and redacted)
     step note, never model output. The scope is the SOP's own literal scope,
-    which no setup grant covers, so the step waits for a human approval. An
-    ``enrich_page`` step needs the service's paging integration.
+    which no service-wide setup grant covers: the step waits for a human
+    approval unless an auto grant on that scope covers it (ADR-0014 part 2).
+    The payload records the kind's revert. An ``enrich_page`` step needs the
+    service's paging integration.
     """
     step = match.step
     version = f" v{match.version}" if match.version else ""
@@ -136,6 +140,8 @@ def sop_step_spec(
         "sop_hash": match.content_hash,
         "sop_step": step.id,
         "text": text,
+        # ADR-0014 part 2: how the action is undone, recorded with it.
+        "revert": REVERTS[step.kind],
     }
     if step.kind is ActionKind.ENRICH_PAGE:
         if not integration:
@@ -164,6 +170,7 @@ def rca_page_spec(  # noqa: PLR0913 — the case coordinates and the RCA's allow
     confirmed_by: Sequence[str],
     tested: Sequence[str],
     sop_pending: int,
+    sop_auto: int = 0,
 ) -> ActionSpec:
     """BL-040 (ARCH §14): RCA's result on the on-call page, from allowlisted fields only.
 
@@ -183,6 +190,8 @@ def rca_page_spec(  # noqa: PLR0913 — the case coordinates and the RCA's allow
         parts.append(f"Also checked: {', '.join(others)}.")
     if sop_pending:
         parts.append(f"{sop_pending} SOP step(s) await approval in SupportAgent.")
+    if sop_auto:
+        parts.append(f"{sop_auto} SOP step(s) ran in auto mode; each can be retracted.")
     return ActionSpec(
         kind=ActionKind.ENRICH_PAGE,
         target=TargetRef(service=service, system="servicenow", ref=external_id),
@@ -193,6 +202,39 @@ def rca_page_spec(  # noqa: PLR0913 — the case coordinates and the RCA's allow
             "source_ref": external_id,
             "text": " ".join(parts),
         },
+    )
+
+
+def retraction_spec(original: ActionSpec, *, proposal_id: str, actor_id: str) -> ActionSpec:
+    """ADR-0014 part 2: undo an auto action that declares ``retraction_note``.
+
+    Both auto-grantable kinds are append-only notes, so the revert is a
+    fixed-template note of the same kind on the same record that withdraws
+    it. Its scope (``retract:<proposal>:<kind>``) has no grant: a person
+    approves the retraction like any proposal.
+    """
+    payload = original.payload
+    if payload.get("revert") != "retraction_note":
+        raise DomainValidationError(  # noqa: TRY003
+            f"proposal {proposal_id!r} declares no retraction"
+        )
+    source = f"SOP {payload.get('sop_doc')} step {payload.get('sop_step')}"
+    text = (
+        f"Retraction: the SupportAgent note from {source} (proposal {proposal_id}) "
+        f"was posted in auto mode and is withdrawn; disregard it. Retracted by {actor_id}."
+    )
+    body: dict[str, object] = {
+        "template_id": _RETRACTION_TEMPLATE_ID,
+        "retracts": proposal_id,
+        "text": text,
+    }
+    if original.kind is ActionKind.ENRICH_PAGE:
+        body |= {"integration": payload["integration"], "source_ref": payload["source_ref"]}
+    return ActionSpec(
+        kind=original.kind,
+        target=original.target,
+        scope=f"retract:{proposal_id}:{original.kind.value}",
+        payload=body,
     )
 
 

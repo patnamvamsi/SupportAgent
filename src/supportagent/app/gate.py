@@ -16,6 +16,7 @@ invalid ones impossible to persist.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from types import TracebackType
 from typing import Protocol, Self
@@ -23,6 +24,13 @@ from typing import Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.outbox import Authorization
+from supportagent.domain.auto import (
+    SOP_SCOPE_PREFIX,
+    AutoConditions,
+    AutoEvidence,
+    auto_refusals,
+    reason,
+)
 from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
@@ -51,6 +59,8 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
+
+_DAY_S = 86_400
 
 
 class _UoW(Protocol):
@@ -116,13 +126,25 @@ class GateService:
 
     # --- submit -------------------------------------------------------------
 
-    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> Proposal | Skipped:
+    def submit(
+        self,
+        case_id: str,
+        spec: ActionSpec,
+        trace: TraceContext,
+        *,
+        evidence: AutoEvidence | None = None,
+    ) -> Proposal | Skipped:
         """Mint a proposal for ``spec`` and return it in its initial status.
 
         An unknown service target is a ``DomainValidationError`` raised before
         anything is written (INV-01: an unresolvable target is dropped). A
         valid policy grant auto-approves internal, executable kinds (no
         approval row); everything else starts ``pending_approval`` (01 §7.10).
+
+        ADR-0014 part 2: a grant with conditions (an SOP auto grant) covers
+        the proposal only when its conditions hold for ``evidence``; an
+        ``sop:`` scope needs such a grant. Otherwise the proposal waits for a
+        human, and an ``auto_declined`` gate event records why.
         """
         known = {service.name for service in self._catalog.services}
         if spec.target.service not in known:
@@ -155,7 +177,10 @@ class GateService:
             and kind not in CUSTOMER_FACING_KINDS
             and kind is not ActionKind.COMMS_PLAN
         )
-        grant_id = self._covering_grant(tenant_id, kind, scope, now_ts) if grant_eligible else None
+        grant = self._covering_grant(tenant_id, kind, scope, now_ts) if grant_eligible else None
+        grant_id, auto = self._auto_check(
+            grant, kind=kind, scope=scope, evidence=evidence, tenant_id=tenant_id, now_ts=now_ts
+        )
         if grant_id is not None:
             status = next_status(ProposalStatus.PROPOSED, ProposalEvent.GRANT_MATCHED)
         else:
@@ -197,6 +222,18 @@ class GateService:
                 transition="submit",
                 ts=now,
             )
+            if auto is not None and grant_id is None:
+                self._append_gate_event(
+                    tenant_id=tenant_id,
+                    trace_id=trace.trace_id,
+                    span_id=trace.span_id,
+                    parent_span_id=trace.parent_span_id,
+                    proposal_id=proposal_id,
+                    actor="agent",
+                    transition="auto_declined",
+                    ts=now,
+                    auto=auto,
+                )
             if grant_id is not None and self._outbox is not None:
                 # BL-024: a grant-authorized proposal is executable now. Its
                 # outbox row commits with it, like an approval's (ARCH §6.2).
@@ -215,6 +252,7 @@ class GateService:
                     actor="agent",
                     transition="grant_enqueued",
                     ts=now,
+                    auto=auto,
                 )
             self._uow.commit()
 
@@ -498,18 +536,74 @@ class GateService:
             ).first()
         return None if row is None else str(row[0])
 
+    # 6 params: the grant row and the proposal facts its conditions read.
+    def _auto_check(  # noqa: PLR0913
+        self,
+        grant: tuple[str, str | None] | None,
+        *,
+        kind: ActionKind,
+        scope: str,
+        evidence: AutoEvidence | None,
+        tenant_id: str,
+        now_ts: int,
+    ) -> tuple[str | None, dict[str, object] | None]:
+        """ADR-0014 part 2: the grant id that covers the proposal, and the audit record.
+
+        An unconditioned grant outside ``sop:`` scopes covers as before, with
+        no record. Anything else is evaluated: conditions that don't parse or
+        don't hold leave the proposal to a human (fail closed).
+        """
+        if grant is None:
+            return None, None
+        grant_id, raw = grant
+        if raw is None and not scope.startswith(SOP_SCOPE_PREFIX):
+            return grant_id, None
+        record: dict[str, object] = {
+            "grant_id": grant_id,
+            "evidence": evidence.as_dict() if evidence is not None else None,
+        }
+        if raw is None:
+            refused = ["an SOP grant without conditions covers nothing"]
+        else:
+            try:
+                conditions = AutoConditions.from_json(raw)
+            except DomainValidationError as exc:
+                refused = [reason(exc)]
+            else:
+                used = self._used_today(tenant_id, scope, now_ts)
+                record["conditions"] = json.loads(conditions.to_json())
+                record["used_today"] = used
+                refused = auto_refusals(kind, conditions, evidence, used_today=used)
+        record["refused"] = refused
+        return (None if refused else grant_id), record
+
+    def _used_today(self, tenant_id: str, scope: str, now_ts: int) -> int:
+        """Actions authorized on ``scope`` in the last 24 hours (the daily cap)."""
+        with self._uow:
+            return int(
+                self._uow.connection.execute(
+                    sa.text(
+                        "SELECT COUNT(*) FROM proposals WHERE tenant_id = :t AND scope = :s "
+                        "AND created_at_ts > :since AND status IN ('approved', 'executed')"
+                    ),
+                    {"t": tenant_id, "s": scope, "since": now_ts - _DAY_S},
+                ).scalar_one()
+            )
+
     def _covering_grant(
         self, tenant_id: str, kind: ActionKind, scope: str, now_ts: int
-    ) -> str | None:
+    ) -> tuple[str, str | None] | None:
         """The approved, in-scope, unexpired policy grant covering the
-        (tenant, kind, scope), if any — the same predicate as trigger path 2."""
+        (tenant, kind, scope), if any — the same predicate as trigger path 2 —
+        and its conditions (ADR-0014 part 2)."""
         with self._uow:
             row = self._uow.connection.execute(
                 sa.text(
-                    "SELECT id FROM policy_grants "
+                    "SELECT id, conditions_json FROM policy_grants "
                     "WHERE tenant_id = :tenant_id AND action_kind = :kind "
                     "AND scope = :scope AND status = 'approved' "
-                    "AND valid_to_ts IS NOT NULL AND valid_to_ts > :now_ts"
+                    "AND valid_to_ts IS NOT NULL AND valid_to_ts > :now_ts "
+                    "ORDER BY granted_at_ts DESC, id"
                 ),
                 {
                     "tenant_id": tenant_id,
@@ -518,7 +612,9 @@ class GateService:
                     "now_ts": now_ts,
                 },
             ).first()
-        return None if row is None else str(row[0])
+        if row is None:
+            return None
+        return str(row[0]), (None if row[1] is None else str(row[1]))
 
     # 8 keyword params == the Event's required fields (tenant/trace/span/
     # parent_span) + proposal_id + actor + transition + ts. Natural set, not a
@@ -534,8 +630,20 @@ class GateService:
         actor: str,
         transition: str,
         ts: datetime,
+        auto: dict[str, object] | None = None,
     ) -> None:
-        """Append one ``gate`` event describing a proposal transition (INV-03)."""
+        """Append one ``gate`` event describing a proposal transition (INV-03).
+
+        ``auto`` is ADR-0014 part 2's record: the grant, its conditions, the
+        evidence and why it did or didn't cover the proposal.
+        """
+        payload: dict[str, object] = {
+            "v": 1,
+            "proposal_id": proposal_id,
+            "transition": transition,
+        }
+        if auto is not None:
+            payload["auto"] = auto
         self._events.append(
             Event(
                 id=self._ids.new(IdPrefix.EVENT),
@@ -545,11 +653,7 @@ class GateService:
                 parent_span_id=parent_span_id,
                 kind=EventKind.GATE,
                 actor=actor,
-                payload={
-                    "v": 1,
-                    "proposal_id": proposal_id,
-                    "transition": transition,
-                },
+                payload=payload,
                 ts=ts,
             )
         )

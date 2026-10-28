@@ -116,6 +116,7 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | GET | `/api/v1/proposals/{id}` | viewer | v0.0 | Full payload, payload_hash, rendered preview, trace link |
 | POST | `/api/v1/proposals/{id}/approve` | approver | v0.0 | Body `{payload_hash, reason?}`. 409 if the hash differs from current; 403 on self-approval |
 | POST | `/api/v1/proposals/{id}/reject` | approver | v0.0 | Body `{payload_hash, reason}` (reason required) |
+| POST | `/api/v1/proposals/{id}/retract` | approver | BL-054 | Proposes the revert of an executed action that declares one (an SOP auto step's retraction note). Returns `{proposal_id}`, which waits for an approval. 409 if a live retraction exists; 422 if the action wasn't sent or declares no revert |
 | GET | `/api/v1/grants?status=requested` | admin | v0.0 | List grants |
 | POST | `/api/v1/grants/{id}/approve` | admin | v0.0 | Body `{valid_days}`; 403 if `requested_by` is the caller |
 | POST | `/api/v1/grants/{id}/revoke` | admin | v0.0 | |
@@ -172,6 +173,8 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | `supportagent pack validate [--strict] <dir>` | WP-M09 | Loads and compiles the pack with `common`, checks every hypothesis has a check and a scenario, a control and a holdout exist; `--strict` also fails on unfinished generator text (the PR check) | 0 ok, 1 problems, 2 config |
 | `supportagent tool new <area.verb> [--mcp SERVER --mcp-tool NAME]` | WP-M09 | A read-only capability (adapter, fake, contract test) or an MCP binding snippet for an existing one; any trust class but `read` / tier but `T0` is refused and routed to engineering | 0, 2 usage or refused |
 | `supportagent scenario new --pack ID --from-incident FILE [--service NAME] [--scrub TERM]… [--split holdout\|tune]` | WP-M09 | A lab scenario from an incident record, redacted (secrets, emails, phones, IPs, hosts, scrub terms), with a ground-truth form that must be filled in before it loads | 0, 2 usage |
+| `supportagent sop list [--config]` | BL-054 | Every SOP step in the configured knowledge sources, with the literal scope (`sop:<doc>@<hash>:<step>:<kind>`) an auto grant names and whether the SOP is stale | 0, 2 config |
+| `supportagent sop auto SCOPE --check H [--check H…] --max-per-day N [--service S…]` | BL-054 | Requests an auto-mode grant on one current, fresh SOP step: named checks that must hold, a daily cap, optional services. Refuses a kind without a revert, a stale or outdated scope and a duplicate request. It does nothing until an admin approves it in `/ui/grants`; revoking it stops auto mode at once | 0, 2 refusal, 1 database |
 | `supportagent runbook new PACK_DIR --doc FILE --classification LABEL [--id ID]` | WP-M08 | A draft runbook distilled from a Git team doc: its front-matter `hypotheses`, in order, as the pack's registered probes. Refuses a label that isn't the pack's or already has a runbook. `pack validate --strict` fails until it is reviewed | 0, 2 usage or refusal |
 | `supportagent shadow import <export.jsonl>` | v0.0 | Replays partner historical tickets through the shadow runner. One JSON object per line: `{"table"?, "record": {Table API fields incl. opened_at}, "human": {classification, severity, first_action_at}}` (`adapters/servicenow/export.py`) | |
 

@@ -10,7 +10,7 @@ events by kind; the full timeline is the trace replay.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Protocol, Self
@@ -18,6 +18,8 @@ from typing import Any, Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.domain.errors import NotFound
+from supportagent.domain.events import EventKind
+from supportagent.domain.model.event import Event
 
 #: Approvals queue order (02 §3): P1 first; an unranked case sorts last.
 _SEVERITY_ORDER = (
@@ -183,7 +185,8 @@ class AdminQueries:
                 dict(r)
                 for r in conn.execute(
                     sa.text(
-                        "SELECT id, action_kind, status, attempts, external_ref, last_error "
+                        "SELECT id, action_kind, status, attempts, external_ref, last_error, "
+                        "policy_grant_id, payload_hash "
                         "FROM outbox WHERE case_id = :id AND tenant_id = :tenant ORDER BY id"
                     ),
                     {"id": case_id, "tenant": self._tenant},
@@ -271,7 +274,8 @@ class AdminQueries:
     def grants(self, *, status: str | None = None) -> list[dict[str, object]]:
         sql = (
             "SELECT id, action_kind, scope, status, requested_by, requested_at_ts, granted_by, "
-            "granted_at_ts, valid_to_ts FROM policy_grants WHERE tenant_id = :tenant"
+            "granted_at_ts, valid_to_ts, conditions_json FROM policy_grants "
+            "WHERE tenant_id = :tenant"
         )
         params: dict[str, object] = {"tenant": self._tenant}
         if status is not None:
@@ -281,7 +285,7 @@ class AdminQueries:
             rows = self._uow.connection.execute(
                 sa.text(sql + " ORDER BY scope, action_kind, id"), params
             ).mappings()
-            return [dict(r) for r in rows]
+            return [_grant(dict(r)) for r in rows]
 
     def users(self) -> list[dict[str, object]]:
         with self._uow:
@@ -318,6 +322,73 @@ class AdminQueries:
         ]
 
 
+def _grant(row: dict[str, Any]) -> dict[str, object]:
+    """A grant row, with its ADR-0014 conditions parsed for display (``None`` if none)."""
+    raw = row.pop("conditions_json", None)
+    try:
+        row["conditions"] = json.loads(raw) if raw else None
+    except ValueError:
+        row["conditions"] = {"unreadable": True}  # the gate treats it as covering nothing
+    return row
+
+
+def auto_timeline(view: CaseView, events: Sequence[Event]) -> list[dict[str, object]]:
+    """ADR-0014 part 2: each SOP auto decision on the case, in order (``/ui`` timeline).
+
+    One entry per gate event that carries an ``auto`` record: the grant, its
+    conditions, the evidence it read and why it did or didn't cover the
+    step; then the proposal, the send (status, external ref) and any
+    retraction. ``events`` is the case's decrypted trace.
+    """
+    proposals = {p.id: p for p in view.proposals}
+    sends = {str(o.get("payload_hash")): o for o in view.outbox}
+    retractions = {
+        str(p.payload.get("retracts")): p for p in view.proposals if p.payload.get("retracts")
+    }
+    out: list[dict[str, object]] = []
+    for event in events:
+        payload = event.payload
+        auto = payload.get("auto")
+        if event.kind is not EventKind.GATE or not isinstance(auto, Mapping):
+            continue
+        pid = str(payload.get("proposal_id"))
+        proposal = proposals.get(pid)
+        send = sends.get(proposal.payload_hash) if proposal is not None else None
+        retraction = retractions.get(pid)
+        live = retraction is not None and retraction.status not in ("rejected", "expired")
+        out.append(
+            {
+                "ts": event.ts,
+                "proposal_id": pid,
+                "auto": payload.get("transition") == "grant_enqueued",
+                "grant_id": auto.get("grant_id"),
+                "conditions": auto.get("conditions"),
+                "evidence": auto.get("evidence"),
+                "refused": auto.get("refused") or [],
+                "used_today": auto.get("used_today"),
+                "kind": proposal.action_kind if proposal is not None else None,
+                "status": proposal.status if proposal is not None else None,
+                "sop": (
+                    f"{proposal.payload.get('sop_doc')} / {proposal.payload.get('sop_step')}"
+                    if proposal is not None
+                    else None
+                ),
+                "revert": proposal.payload.get("revert") if proposal is not None else None,
+                "send_status": send.get("status") if send is not None else None,
+                "external_ref": send.get("external_ref") if send is not None else None,
+                "retraction_id": retraction.id if retraction is not None else None,
+                "retraction_status": retraction.status if retraction is not None else None,
+                "can_retract": (
+                    proposal is not None
+                    and proposal.status == "executed"
+                    and proposal.payload.get("revert") == "retraction_note"
+                    and not live
+                ),
+            }
+        )
+    return out
+
+
 def _proposal(row: sa.RowMapping) -> ProposalView:
     return ProposalView(
         id=str(row["id"]),
@@ -338,4 +409,9 @@ def _proposal(row: sa.RowMapping) -> ProposalView:
     )
 
 
-__all__ = ["AdminQueries", "CaseView", "ProposalView"]
+__all__ = [
+    "AdminQueries",
+    "CaseView",
+    "ProposalView",
+    "auto_timeline",
+]

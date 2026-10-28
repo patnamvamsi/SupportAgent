@@ -1,4 +1,4 @@
-"""``/api/v1/proposals`` (02 §2): list, detail, approve, reject."""
+"""``/api/v1/proposals`` (02 §2): list, detail, approve, reject, retract."""
 
 from __future__ import annotations
 
@@ -75,3 +75,13 @@ def reject(
         grants=user.grants,
     )
     return {"approval_id": approval_id}
+
+
+@router.post("/{proposal_id}/retract")
+def retract(
+    proposal_id: str,
+    user: SessionUser = Depends(_approver),  # noqa: B008
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> dict[str, str]:
+    """ADR-0014 part 2: propose the retraction of a sent action that declares one."""
+    return {"proposal_id": ctx.approvals().retract(proposal_id, user.id, grants=user.grants)}
