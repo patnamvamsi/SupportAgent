@@ -543,8 +543,8 @@ class RcaService:
         for index, claim in enumerate(claims):
             elapsed = (self._clock.now() - started).total_seconds()
             cited = [by_step[s].result for s in claim.cites if s in by_step]
-            text = json.dumps(cited, sort_keys=True, default=str)[:_EVIDENCE_CHARS]
-            cost = ENTAIL_BASE_TOKENS + len(text) // 4
+            variables = entail_variables(claim.text, cited)
+            cost = ENTAIL_BASE_TOKENS + len(variables["evidence"]) // 4
             verdict = None
             if (
                 index < self._max_claims
@@ -552,9 +552,7 @@ class RcaService:
                 and budget.can_spend(cost)
             ):
                 budget.tokens += cost
-                got = self._llm.structured(
-                    SlotName.ENTAIL, {"claim": claim.text, "evidence": text}, Entailment, trace
-                )
+                got = self._llm.structured(SlotName.ENTAIL, variables, Entailment, trace)
                 verdict = got.verdict if got else None
             apply_verdict(claim, verdict)
 
@@ -685,6 +683,14 @@ _INSERT = (
     "INSERT INTO rca_artifacts (id, tenant_id, case_id, outcome, artifact_json, created_ts) "
     "VALUES (:id, :t, :c, :o, :a, :ts)"
 )
+
+
+def entail_variables(claim: str, cited: Sequence[object]) -> dict[str, str]:
+    """The ``entail`` slot's variables for one claim, as RCA sends them (BL-039 reuses it)."""
+    return {
+        "claim": claim,
+        "evidence": json.dumps(list(cited), sort_keys=True, default=str)[:_EVIDENCE_CHARS],
+    }
 
 
 class _Gate(Protocol):
@@ -823,5 +829,6 @@ __all__ = [
     "RcaCase",
     "RcaJob",
     "RcaService",
+    "entail_variables",
     "lite_route_ids",
 ]

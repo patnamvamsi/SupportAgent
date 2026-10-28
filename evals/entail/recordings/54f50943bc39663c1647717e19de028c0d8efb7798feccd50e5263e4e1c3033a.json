@@ -1,0 +1,1 @@
+{"latency_ms": 13016, "raw_text": "{\n  \"verdict\": \"contradicts\"\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 360, "tokens_out": 664}

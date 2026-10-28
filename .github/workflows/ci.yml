@@ -234,6 +234,11 @@ jobs:
         run: |
           uv run supportagent eval lab --pack common --config evals/lab/lab.yaml --split all
           uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --split all
+      - name: citation faithfulness replay (BL-039)
+        # The entail checker on curated claim/evidence pairs, replayed from
+        # evals/entail/recordings: faithfulness >= 0.95 and no false support.
+        if: steps.filter.outputs.triggered == 'true'
+        run: uv run supportagent eval entail --config evals/lab/lab.yaml
 
   security:
     runs-on: ubuntu-latest

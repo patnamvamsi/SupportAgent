@@ -19,10 +19,12 @@ import typer
 from supportagent.bootstrap import (
     EvalPipeline,
     QualityPipeline,
+    build_entail_pipeline,
     build_lab_pipeline,
     create_snapshot,
     detector_recall,
     eval_config,
+    load_entail_suite,
     load_eval_suite,
     load_lab,
     quality_gates,
@@ -34,6 +36,7 @@ from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError
 from supportagent.evals.calibration import build_calibration, build_holdout_calibration
 from supportagent.evals.cases import EvalCase
+from supportagent.evals.entail import run_entail
 from supportagent.evals.harness import Manifest, run_suite, select, write_report
 from supportagent.evals.lab import (
     read_baseline,
@@ -280,6 +283,57 @@ def lab(  # noqa: PLR0913, PLR0917 — one option per flag
         typer.echo(
             f"lab {pack} ({report.mode}, {samples} sample(s)): {m['passed']}/{m['cases']} passed; "
             f"false causes {m['false_cause']}; report {path}"
+        )
+        for gate in report.gates:
+            typer.echo(f"  gate {gate.name}: {'ok' if gate.ok else 'FAIL'} — {gate.detail}")
+        if misses:
+            typer.echo(f"  {misses} response(s) were not recorded: run with --live to record")
+    raise typer.Exit(0 if report.passed and not misses else 1)
+
+
+@app.command("entail")
+def entail(
+    live: bool = typer.Option(
+        False, "--live", help="Call the configured model and record its answers (needs secrets)."
+    ),
+    samples: int = typer.Option(1, "--samples", min=1, help="Samples per pair (majority)."),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.example.yaml"), "--config", help="Config file."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+) -> None:
+    """Citation faithfulness (BL-039): the ``entail`` checker on curated claim/evidence pairs.
+
+    Without ``--live`` the run replays ``evals/entail/recordings`` (what CI
+    runs); an unrecorded pair fails closed. Exit 0 gates pass, 1 gate fail or
+    unrecorded responses, 2 config error.
+    """
+    try:
+        cfg = load_config_default(config) if live else load_config_offline(config)
+        cases, gates = load_entail_suite(cfg)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    pipeline = build_entail_pipeline(cfg, live=live)
+    report = run_entail(
+        cases,
+        pipeline.judge,
+        mode="live" if live else "replay",
+        model_id=pipeline.model_id,
+        samples=samples,
+        gates=gates,
+    )
+    misses = pipeline.caching.misses if pipeline.caching is not None and not live else 0
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), indent=2))
+    else:
+        for score in report.scores:
+            mark = "ok  " if score.ok else "MISS"
+            typer.echo(f"{mark}  {score.case_id:<44} expected {score.expected}, got {score.got}")
+        typer.echo(
+            f"entail ({report.mode}, {samples} sample(s)): faithfulness "
+            f"{report.faithfulness:.3f} over {len(report.scores)} pair(s); "
+            f"false supports {report.false_supports}"
         )
         for gate in report.gates:
             typer.echo(f"  gate {gate.name}: {'ok' if gate.ok else 'FAIL'} — {gate.detail}")
