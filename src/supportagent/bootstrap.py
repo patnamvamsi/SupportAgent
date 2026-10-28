@@ -960,7 +960,9 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
     catalog = _build_catalog(config)
     events = _event_sink(uow, master_key, clock)
     # ADR-0014: SOP steps become proposals in assisted mode; in shadow they
-    # stay in the artifact. Their scope is never grant-covered (part 1).
+    # stay in the artifact. Their scope is never grant-covered (part 1). A
+    # grant-covered proposal (BL-040's page note) is enqueued in the same UoW,
+    # so the gate needs the outbox writer, like triage's.
     gate = (
         GateService(
             uow=uow,
@@ -969,6 +971,7 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
             events=events,
             catalog=catalog,
             ttl=timedelta(hours=config.proposals.ttl_hours),
+            outbox=OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids),
         )
         if config.mode == "assisted"
         else None

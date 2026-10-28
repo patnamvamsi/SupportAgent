@@ -15,7 +15,7 @@ from sqlalchemy import Engine, text
 
 from supportagent.adapters.fakes.llm import FakeLLMProvider
 from supportagent.adapters.fakes.servicenow import FakeServiceNowHTTP, SyncASGITransport
-from supportagent.bootstrap import build_worker
+from supportagent.bootstrap import build_rca_job, build_worker
 from supportagent.config.schema import AppConfig
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.model.calibration import (
@@ -139,3 +139,20 @@ def test_assisted_needs_automation_actors_decided(  # noqa: PLR0913, PLR0917
         )
     with pytest.raises(ConfigError, match="undecided"):
         _worker(_assisted(tmp_path), db, clock, ids, master_key, sn)
+
+
+def test_assisted_rca_gate_enqueues_grant_covered_proposals(
+    tmp_path: Path, db: Engine, master_key: bytes, clock: Any, ids: Any
+) -> None:
+    """BL-040: RCA's page note is grant-covered, so its gate must reach the outbox."""
+    config = _assisted(tmp_path)
+    job = build_rca_job(
+        config,
+        engine=db,
+        master_key=master_key,
+        clock=clock,
+        ids=ids,
+        llm_provider=FakeLLMProvider(),
+    )
+    assert job._gate is not None
+    assert job._gate._outbox is not None  # type: ignore[attr-defined]

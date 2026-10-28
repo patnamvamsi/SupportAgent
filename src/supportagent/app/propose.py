@@ -14,6 +14,8 @@ It is pure application code: no adapters, no I/O.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
@@ -28,6 +30,7 @@ _WORK_NOTE_TEMPLATE_ID = "work_note_v1"
 _ENRICH_PAGE_TEMPLATE_ID = "enrich_page_v1"
 _PAGE_RECOMMENDED_TEMPLATE_ID = "page_recommended_v1"
 _SOP_STEP_TEMPLATE_ID = "sop_step_v1"
+_RCA_PAGE_TEMPLATE_ID = "enrich_page_rca_v1"
 
 
 def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[ActionSpec]:
@@ -147,6 +150,49 @@ def sop_step_spec(
         target=TargetRef(service=service, system="servicenow", ref=external_id),
         scope=sop_scope(match),
         payload=payload,
+    )
+
+
+def rca_page_spec(  # noqa: PLR0913 — the case coordinates and the RCA's allowlisted fields
+    *,
+    case_id: str,
+    service: str,
+    external_id: str,
+    integration: str,
+    outcome: str,
+    supported: str | None,
+    confirmed_by: Sequence[str],
+    tested: Sequence[str],
+    sop_pending: int,
+) -> ActionSpec:
+    """BL-040 (ARCH §14): RCA's result on the on-call page, from allowlisted fields only.
+
+    The outcome, taxonomy hypothesis ids, tool names and a count: never model
+    text. A cause is called *confirmed* only when its claim passed ``entail``
+    (``confirmed_by`` is empty otherwise). Same kind and scope as triage's
+    ``enrich_page``: T1, so the service's setup grant covers it, and it only
+    ever attaches to a page that is already open.
+    """
+    parts = [f"SupportAgent RCA for case {case_id}: {outcome}."]
+    if supported is not None and confirmed_by:
+        parts.append(f"Cause {supported}, confirmed by {', '.join(sorted(confirmed_by))}.")
+    elif supported is not None:
+        parts.append(f"Leading cause {supported}; its evidence check did not confirm it.")
+    others = [h for h in dict.fromkeys(tested) if h != supported]
+    if others:
+        parts.append(f"Also checked: {', '.join(others)}.")
+    if sop_pending:
+        parts.append(f"{sop_pending} SOP step(s) await approval in SupportAgent.")
+    return ActionSpec(
+        kind=ActionKind.ENRICH_PAGE,
+        target=TargetRef(service=service, system="servicenow", ref=external_id),
+        scope=service_scope(service, ActionKind.ENRICH_PAGE),
+        payload={
+            "template_id": _RCA_PAGE_TEMPLATE_ID,
+            "integration": integration,
+            "source_ref": external_id,
+            "text": " ".join(parts),
+        },
     )
 
 

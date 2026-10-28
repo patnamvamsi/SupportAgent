@@ -4,6 +4,14 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
+### GitHub Actions won't start jobs: billing (2026-10-28)
+
+- **Blocked:** since PR #70, every CI job fails at once with "The job was not started because recent account payments have failed or your spending limit needs to be increased" (Billing & plans in the GitHub settings). PRs can't get green CI, so nothing merges.
+- **Done meanwhile:** the work continues on stacked draft PRs, with every gate run locally on both engines:
+  - **#70 BL-039**, citation faithfulness: entail v2 scores 1.000 on 27 pairs (v1 scored 0.926). The lab stays at 24/24 and 5/5.
+  - **#71 BL-040**, RCA result on the on-call page. Base: #70.
+- **Unblock:** fix the billing or spending limit, then re-run CI on #70 and #71 (`gh run rerun <id>`) and merge them in order.
+
 ### BL-051 Confluence: the account email for the live run
 
 - **Done:** the `kind: confluence` source, tested against a recorded fake (BL-051 PR). The site (`vrittitradingplatform.atlassian.net`), space key (`vritti`) and API token are in the git-ignored `.env`.
