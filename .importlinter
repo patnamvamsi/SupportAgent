@@ -95,6 +95,7 @@ modules =
     supportagent.adapters.crypto
     supportagent.adapters.system
     supportagent.adapters.files
+    supportagent.adapters.knowledge
     supportagent.adapters.llm
     supportagent.adapters.servicenow
     supportagent.adapters.identity

@@ -65,6 +65,11 @@ from supportagent.adapters.files.knowledge_loader import load_markdown_source
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.identity.oidc import OIDCClient
+from supportagent.adapters.knowledge.confluence import (
+    ConfluenceLoad,
+    load_confluence_space,
+    site_root,
+)
 from supportagent.adapters.llm.client import (
     OLLAMA_DEFAULT_BASE_URL,
     CachingLLMProvider,
@@ -157,7 +162,13 @@ from supportagent.config.loader import (
     load_fault_injection_default,
     load_master_key_default,
 )
-from supportagent.config.schema import AppConfig, RoutingRow, Tools
+from supportagent.config.schema import (
+    AppConfig,
+    ConfluenceSource,
+    GitMarkdownSource,
+    RoutingRow,
+    Tools,
+)
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
@@ -168,7 +179,7 @@ from supportagent.domain.errors import (
     LLMUnavailable,
 )
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
-from supportagent.domain.knowledge import KnowledgeIndex, chunk_document
+from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
     CalibrationCountRow,
@@ -937,7 +948,7 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         freeze=rca.freeze,
         max_claims=rca.max_claims,
         entail_budget_s=rca.entail_budget_s,
-        docs=build_knowledge_index(config),
+        docs=build_knowledge_index(config, transport=transport),
         doc_policy=doc_policy(config),
     )
     rows = [*config.routing, *([config.default] if config.default else [])]
@@ -1372,7 +1383,7 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         load_packs=lambda: _pack_set(config),
         known_tools=frozenset(KNOWN_TOOL_SCHEMAS),
         mcp_servers=_mcp_probes(config, transport),
-        load_knowledge=lambda: build_knowledge_index(config),
+        load_knowledge=lambda: build_knowledge_index(config, transport=transport, strict=True),
     )
 
 
@@ -1938,20 +1949,65 @@ def _pack_tools(
     return tools
 
 
-def build_knowledge_index(config: AppConfig) -> KnowledgeIndex | None:
-    """WP-M08: every configured knowledge source, redacted and chunked; ``None`` if none."""
+def build_knowledge_index(
+    config: AppConfig,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    strict: bool = False,
+) -> KnowledgeIndex | None:
+    """WP-M08: every configured knowledge source, redacted and chunked; ``None`` if none.
+
+    A Git source that fails to load is a ``ConfigError``. A Confluence source
+    (BL-051) that fails is too when ``strict`` (``doctor``); otherwise it is
+    logged and its space stays empty, since docs are guidance and an
+    unreachable wiki must not stop triage.
+    """
     knowledge = config.knowledge
     if not knowledge.sources:
         return None
     redactor = Redactor(detectors=built_in_detectors())
-    chunks = [
-        chunk
-        for source in knowledge.sources
-        for chunk in load_markdown_source(
-            Path(source.path), space=source.space, redact=lambda t: redactor.redact(t).text
-        )
-    ]
+
+    def redact(text: str) -> str:
+        return redactor.redact(text).text
+
+    chunks: list[DocChunk] = []
+    for source in knowledge.sources:
+        if isinstance(source, GitMarkdownSource):
+            root = Path(source.path)
+            chunks.extend(load_markdown_source(root, space=source.space, redact=redact))
+            continue
+        try:
+            loaded = _load_confluence(source, redact, transport)
+        except ConfigError:
+            if strict:
+                raise
+            _log.warning("knowledge source %r unavailable; its space is empty", source.space)
+            continue
+        for page_id, reason in loaded.skipped:
+            _log.warning("knowledge source %r: page %s skipped: %s", source.space, page_id, reason)
+        chunks.extend(loaded.chunks)
     return KnowledgeIndex(chunks, stale_after_days=knowledge.stale_after_days)
+
+
+def _load_confluence(
+    source: ConfluenceSource,
+    redact: Callable[[str], str],
+    transport: httpx.BaseTransport | None,
+) -> ConfluenceLoad:
+    with httpx.Client(
+        base_url=site_root(source.base_url),
+        auth=httpx.BasicAuth(source.user, source.token),
+        headers={"Accept": "application/json"},
+        transport=transport,
+    ) as client:
+        return load_confluence_space(
+            client,
+            space=source.space,
+            space_key=source.space_key,
+            redact=redact,
+            max_pages=source.max_pages,
+            timeout_s=source.timeout_s,
+        )
 
 
 def doc_policy(config: AppConfig) -> DocPolicy:

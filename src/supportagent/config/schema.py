@@ -517,12 +517,36 @@ class SeverityConfig(DomainModel):
     strategy: Literal["source_priority"] = "source_priority"
 
 
-class KnowledgeSource(DomainModel):
+_SPACE = r"^[a-z0-9][a-z0-9-]{1,62}$"
+
+
+class GitMarkdownSource(DomainModel):
     """One knowledge source (WP-M08): a Git markdown folder, scoped as ``space``."""
 
     kind: Literal["git_markdown"]
-    space: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,62}$")
+    space: str = Field(pattern=_SPACE)
     path: str = Field(min_length=1)
+
+
+class ConfluenceSource(DomainModel):
+    """BL-051: one Confluence Cloud space, read-only, scoped as ``space``.
+
+    ``user`` is the Atlassian account email and ``token`` its API token (from
+    ``user_env`` / ``token_env``). Pages are read at startup; an unreachable
+    site leaves the space empty at runtime and fails ``doctor``.
+    """
+
+    kind: Literal["confluence"]
+    space: str = Field(pattern=_SPACE)
+    base_url: str = Field(pattern=r"^https://")
+    space_key: str = Field(min_length=1, max_length=255)
+    user: str = Field(min_length=1)
+    token: str = Field(min_length=1)
+    max_pages: int = Field(default=200, ge=1, le=2000)
+    timeout_s: float = Field(default=15.0, gt=0, le=120)
+
+
+KnowledgeSource = Annotated[GitMarkdownSource | ConfluenceSource, Field(discriminator="kind")]
 
 
 class KnowledgeConfig(DomainModel):

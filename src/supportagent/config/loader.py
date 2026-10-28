@@ -111,6 +111,10 @@ def load_config_offline(path: Path) -> AppConfig:
     for server in _mcp_servers(raw).values():
         if isinstance(server, dict) and isinstance(server.get("token_env"), str):
             env[server["token_env"]] = placeholder
+    for source in _knowledge_sources(raw):
+        for key in ("user_env", "token_env"):
+            if isinstance(source.get(key), str):
+                env[source[key]] = placeholder
     resolved = _resolve_secrets(raw, env)
     llm = resolved.get("llm")
     if isinstance(llm, dict):
@@ -199,7 +203,22 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
     for server in _mcp_servers(resolved).values():
         if isinstance(server, dict) and "token_env" in server:
             server["token"] = _resolve_variable(server.pop("token_env"), "token_env", env)
+    _resolve_knowledge_secrets(resolved, env)
     return resolved
+
+
+def _resolve_knowledge_secrets(resolved: dict[str, Any], env: Mapping[str, str]) -> None:
+    """BL-051: each remote knowledge source carries its own ``user_env`` / ``token_env``."""
+    for source in _knowledge_sources(resolved):
+        for key, target in (("user_env", "user"), ("token_env", "token")):
+            if key in source:
+                source[target] = _resolve_variable(source.pop(key), key, env)
+
+
+def _knowledge_sources(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    node = _section(raw, ("knowledge",))
+    sources = node.get("sources") if node is not None else None
+    return [s for s in sources if isinstance(s, dict)] if isinstance(sources, list) else []
 
 
 def _mcp_servers(raw: dict[str, Any]) -> dict[str, Any]:
