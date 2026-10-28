@@ -1,0 +1,100 @@
+# Lab scenario (ADR-0011 §5, ADR-0014). Edit only with a `why` note.
+id: sop-stale-lock-contention
+pack: python-postgres
+split: holdout
+description: 'ADR-0014: the right SOP, but stale; a stale SOP proposes nothing.'
+incident:
+  subject: orders writes hanging
+  priority: '2'
+  body: Requests to POST /orders hang for 30s then 504.
+service:
+  name: checkout-api
+  stack:
+  - python
+  - fastapi
+  - gunicorn
+  - postgres
+  databases:
+  - orders
+  log_paths:
+  - logs/checkout-api
+  repos:
+  - github:acme/checkout
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+  docs:
+  - wiki
+docs:
+- id: unblock-writes-sop-2023
+  title: 'SOP: writes queue behind a lock'
+  last_updated: '2023-01-10'
+  services:
+  - checkout-api
+  body: '# Writes queue behind a lock
+
+    When orders writes hang and pg_locks shows one blocker, the DB on-call decides whether to end the
+    blocking session. Never terminate it from the app side.
+
+    '
+  sop:
+    when:
+    - pg_lock_contention
+    steps:
+    - id: name-blocker
+      kind: work_note
+      note: Post the blocking pid, its state and transaction age, and page the DB on-call to decide whether
+        to end it.
+world:
+  postgres.slow_queries:
+    result:
+      database: orders
+      available: true
+      queries:
+      - queryid: '77'
+        calls: 40
+        mean_ms: 210.0
+        total_ms: 8400.0
+        query: UPDATE orders SET status = $1
+  postgres.locks:
+    result:
+      database: orders
+      blocked: 38
+      blockers:
+      - pid: 4412
+        blocking: 38
+        state: idle in transaction
+        xact_age_s: 1260.0
+  postgres.storage:
+    result:
+      database: orders
+      size_bytes: 48000000000
+      tables:
+      - name: order_events
+        live: 9600
+        dead: 400
+        dead_ratio: 0.04
+        last_autovacuum: null
+      max_dead_ratio: 0.04
+  postgres.replication:
+    result:
+      database: orders
+      is_replica: false
+      replicas:
+      - name: orders-replica-1
+        state: streaming
+        lag_s: 0.4
+      max_lag_s: 0.4
+truth:
+  classification: database/latency
+  also_acceptable:
+  - app/worker_timeout
+  severity: P2
+  root_cause: pg_lock_contention
+  verdict: SUPPORTED
+  must_cite:
+  - postgres.locks
+  must_not_claim:
+  - pg_slow_query_regression
+  sop_steps: []
+why: The cause is supported and the SOP names it, but it was last updated in 2023 (older than stale_after_days),
+  so it is shown as stale guidance and proposes nothing.

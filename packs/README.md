@@ -39,7 +39,7 @@ When a stack pack and `common` both have a runbook for a case's label, the stack
 
 ## Team docs (WP-M08)
 
-A pack's `knowledge.spaces` and a catalog service's `docs:` name the knowledge spaces RCA may search for a case. A doc can name hypotheses in its front matter (`hypotheses: [pg_slow_query_regression]`); when a search returns it, those hypotheses' probes join the plan, and the tools decide. A doc never makes a claim SUPPORTED on its own. A Confluence space (BL-051) is a source too: page labels `hypothesis-<id>`, `service-<name>` and `visibility-customer` stand in for front matter. Lab scenarios carry `docs:` fixtures (helpful, wrong-cause, stale and injected), with `truth.guidance` naming the docs a good search should return.
+A pack's `knowledge.spaces` and a catalog service's `docs:` name the knowledge spaces RCA may search for a case. A doc can name hypotheses in its front matter (`hypotheses: [pg_slow_query_regression]`); when a search returns it, those hypotheses' probes join the plan, and the tools decide. A doc never makes a claim SUPPORTED on its own. A Confluence space (BL-051) is a source too: page labels `hypothesis-<id>`, `service-<name>` and `visibility-customer` stand in for front matter. A Git doc can also carry an SOP (`sop:` with `when` and `steps`, ADR-0014): when the tools SUPPORT a cause it names, each step is proposed for approval. Lab scenarios carry `docs:` fixtures (helpful, wrong-cause, stale and injected), with `truth.guidance` naming the docs a good search should return.
 
 ## Extending (WP-M09)
 

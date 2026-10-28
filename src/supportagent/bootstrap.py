@@ -952,12 +952,29 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         doc_policy=doc_policy(config),
     )
     rows = [*config.routing, *([config.default] if config.default else [])]
+    catalog = _build_catalog(config)
+    events = _event_sink(uow, master_key, clock)
+    # ADR-0014: SOP steps become proposals in assisted mode; in shadow they
+    # stay in the artifact. Their scope is never grant-covered (part 1).
+    gate = (
+        GateService(
+            uow=uow,
+            clock=clock,
+            ids=ids,
+            events=events,
+            catalog=catalog,
+            ttl=timedelta(hours=config.proposals.ttl_hours),
+        )
+        if config.mode == "assisted"
+        else None
+    )
     return RcaJob(
         uow=uow,
         service=service,
-        catalog=_build_catalog(config),
+        catalog=catalog,
         buffer=buffer,
-        events=_event_sink(uow, master_key, clock),
+        events=events,
+        gate=gate,
         lite_routes=lite_route_ids({row.id: row.rca for row in rows}),
         default_budget=RcaBudget(
             max_tool_calls=rca.max_tool_calls,
@@ -1567,7 +1584,7 @@ class LabPipeline:
             [
                 chunk
                 for doc in scenario.docs
-                for chunk in chunk_document(doc.meta(), doc.body, redact=self._redact)
+                for chunk in chunk_document(doc.meta(self._redact), doc.body, redact=self._redact)
             ],
             stale_after_days=cfg.knowledge.stale_after_days,
         )
@@ -1622,6 +1639,7 @@ class LabPipeline:
             tokens=int(artifact.budget.get("tokens", 0)),
             reason=artifact.reason,
             retrieved=tuple(str(g["doc"]) for g in artifact.guidance),
+            sop_steps=tuple(m.key for m in artifact.sop_steps),
         )
 
 

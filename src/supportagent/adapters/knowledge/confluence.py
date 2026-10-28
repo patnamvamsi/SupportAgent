@@ -145,7 +145,7 @@ def _page_chunks(
         raise _SkipPageError(reasons) from exc
     body = _mapping(_mapping(page.get("body")).get("storage")).get("value")
     markdown = storage_to_markdown(body if isinstance(body, str) else "")
-    meta = matter.meta(doc_id=f"{space}:confluence/{page_id}", space=space)
+    meta = matter.meta(doc_id=f"{space}:confluence/{page_id}", space=space, redact=redact)
     return chunk_document(meta, markdown, redact=redact)
 
 

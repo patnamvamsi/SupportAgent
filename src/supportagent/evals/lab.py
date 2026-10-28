@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -31,6 +31,7 @@ from supportagent.domain.classification import prefix_match
 from supportagent.domain.errors import ConfigError, ToolError
 from supportagent.domain.knowledge import DocMeta
 from supportagent.domain.model.catalog import ServiceEntry
+from supportagent.domain.model.knowledge import SopMatter
 from supportagent.domain.trace import TraceContext
 from supportagent.ports.tools import ToolResult
 
@@ -77,8 +78,10 @@ class LabDoc(_Strict):
     last_updated: date | None = None
     services: list[str] = Field(default_factory=list)
     hypotheses: list[str] = Field(default_factory=list, max_length=5)
+    #: ADR-0014: the doc's procedure, as the markdown source would load it.
+    sop: SopMatter | None = None
 
-    def meta(self) -> DocMeta:
+    def meta(self, redact: Callable[[str], str]) -> DocMeta:
         return DocMeta(
             doc_id=self.id,
             space=self.space,
@@ -88,6 +91,7 @@ class LabDoc(_Strict):
             visibility=self.visibility,
             services=tuple(self.services),
             hypotheses=tuple(self.hypotheses),
+            sop=self.sop.sop(redact) if self.sop is not None else None,
         )
 
 
@@ -103,6 +107,9 @@ class LabTruth(_Strict):
     must_not_claim: list[str] = Field(default_factory=list)
     #: WP-M08: the doc ids a good search returns for this incident (recall@k).
     guidance: list[str] = Field(default_factory=list)
+    #: ADR-0014: exactly the ``<doc>/<step>`` SOP steps RCA should propose;
+    #: ``None``: not checked.
+    sop_steps: list[str] | None = None
 
     @model_validator(mode="after")
     def _consistent(self) -> LabTruth:
@@ -133,6 +140,10 @@ class LabScenario(_Strict):
         unknown = sorted(set(self.truth.guidance) - set(ids))
         if unknown:
             raise ValueError(f"truth.guidance names unknown docs {unknown}")  # noqa: TRY003
+        steps = {f"{d.id}/{s.id}" for d in self.docs if d.sop is not None for s in d.sop.steps}
+        unknown = sorted(set(self.truth.sop_steps or []) - steps)
+        if unknown:
+            raise ValueError(f"truth.sop_steps names unknown SOP steps {unknown}")  # noqa: TRY003
         return self
 
     @property
@@ -233,6 +244,8 @@ class LabOutcome:
     reason: str = ""
     #: WP-M08: the doc ids the knowledge search returned.
     retrieved: tuple[str, ...] = ()
+    #: ADR-0014: the ``<doc>/<step>`` SOP steps RCA would propose.
+    sop_steps: tuple[str, ...] = ()
 
 
 class LabPipeline(Protocol):
@@ -256,6 +269,8 @@ class LabScore:
     failures: tuple[str, ...]
     #: WP-M08: share of the truth's guidance docs retrieved; ``None``: none expected.
     retrieval_recall: float | None = None
+    #: ADR-0014: the proposed SOP steps equal the truth's; ``None``: not checked.
+    sop_ok: bool | None = None
 
     @property
     def passed(self) -> bool:
@@ -265,6 +280,7 @@ class LabScore:
             and self.root_cause_ok
             and self.citations_ok
             and not self.false_cause
+            and self.sop_ok is not False
         )
 
 
@@ -309,6 +325,7 @@ def score_outcome(scenario: LabScenario, out: LabOutcome) -> LabScore:
         recall = len(found) / len(truth.guidance)
         if recall < 1.0:
             failures.append(f"docs not retrieved: {sorted(set(truth.guidance) - found)}")
+    sop_ok = _sop_check(truth, out, failures)
     return LabScore(
         scenario_id=scenario.id,
         split=scenario.split,
@@ -324,7 +341,17 @@ def score_outcome(scenario: LabScenario, out: LabOutcome) -> LabScore:
         tokens=out.tokens,
         failures=tuple(failures),
         retrieval_recall=recall,
+        sop_ok=sop_ok,
     )
+
+
+def _sop_check(truth: LabTruth, out: LabOutcome, failures: list[str]) -> bool | None:
+    if truth.sop_steps is None:
+        return None
+    ok = sorted(out.sop_steps) == sorted(truth.sop_steps)
+    if not ok:
+        failures.append(f"SOP steps {sorted(out.sop_steps)} != {sorted(truth.sop_steps)}")
+    return ok
 
 
 def majority(scores: Sequence[LabScore]) -> LabScore:
@@ -359,6 +386,11 @@ def majority(scores: Sequence[LabScore]) -> LabScore:
         retrieval_recall=(
             sum(r for r in recalls) / len(recalls)
             if (recalls := [s.retrieval_recall for s in scores if s.retrieval_recall is not None])
+            else None
+        ),
+        sop_ok=(
+            sum(checked) > len(checked) / 2
+            if (checked := [s.sop_ok for s in scores if s.sop_ok is not None])
             else None
         ),
     )

@@ -36,6 +36,7 @@ from datetime import date
 from typing import Literal
 
 from supportagent.domain.memory import bm25
+from supportagent.domain.sop import Sop, SopMatch
 
 Visibility = Literal["internal", "customer"]
 Audience = Literal["internal", "customer"]
@@ -61,6 +62,8 @@ class DocMeta:
     labels: tuple[str, ...] = ()
     #: Taxonomy hypothesis ids the doc suggests testing (never a verdict).
     hypotheses: tuple[str, ...] = ()
+    #: ADR-0014: the doc's SOP block, if it is a procedure.
+    sop: Sop | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +185,23 @@ class KnowledgeIndex:
             if len(hits) >= k:
                 break
         return hits
+
+    def sops_for(self, hypothesis: str, scope: DocScope, *, today: date) -> list[SopMatch]:
+        """ADR-0014: the steps of fresh, in-scope SOPs whose ``when`` names ``hypothesis``."""
+        out: list[SopMatch] = []
+        seen: set[str] = set()
+        for chunk in self.chunks:
+            meta, sop = chunk.meta, chunk.meta.sop
+            if sop is None or meta.doc_id in seen or hypothesis not in sop.when:
+                continue
+            seen.add(meta.doc_id)
+            if not _in_scope(chunk, scope) or self.is_stale(chunk, today):
+                continue
+            out.extend(
+                SopMatch(meta.doc_id, meta.title, meta.version, meta.url, sop.digest, hypothesis, s)
+                for s in sop.steps
+            )
+        return out
 
     def is_stale(self, chunk: DocChunk, today: date) -> bool:
         updated = chunk.meta.last_updated

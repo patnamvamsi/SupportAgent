@@ -21,11 +21,13 @@ from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.routing import Route
 from supportagent.domain.scopes import is_service_scoped, record_scope, service_scope
+from supportagent.domain.sop import SopMatch, sop_scope
 
 #: v0.0 work-note template id (fixed; 10-wp WP-011).
 _WORK_NOTE_TEMPLATE_ID = "work_note_v1"
 _ENRICH_PAGE_TEMPLATE_ID = "enrich_page_v1"
 _PAGE_RECOMMENDED_TEMPLATE_ID = "page_recommended_v1"
+_SOP_STEP_TEMPLATE_ID = "sop_step_v1"
 
 
 def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[ActionSpec]:
@@ -105,6 +107,46 @@ def page_recommended_spec(case: Case, integration: str, why: str) -> ActionSpec:
             "page_recommended": True,
             "severity": severity,
         },
+    )
+
+
+def sop_step_spec(
+    match: SopMatch, *, service: str, external_id: str, integration: str | None
+) -> ActionSpec | None:
+    """ADR-0014: one SOP step as a proposal, or ``None`` when its kind can't apply here.
+
+    The text is a fixed template around the SOP's reviewed (and redacted)
+    step note, never model output. The scope is the SOP's own literal scope,
+    which no setup grant covers, so the step waits for a human approval. An
+    ``enrich_page`` step needs the service's paging integration.
+    """
+    step = match.step
+    version = f" v{match.version}" if match.version else ""
+    link = f" ({match.url})" if match.url else ""
+    text = (
+        f"SOP step for {match.hypothesis} (supported by tool checks): "
+        f"{match.title}{version}, step {step.id}: {step.note}{link}"
+    )
+    provenance: dict[str, object] = {
+        "template_id": _SOP_STEP_TEMPLATE_ID,
+        "sop_doc": match.doc_id,
+        "sop_hash": match.content_hash,
+        "sop_step": step.id,
+        "text": text,
+    }
+    if step.kind is ActionKind.ENRICH_PAGE:
+        if not integration:
+            return None
+        payload = {**provenance, "integration": integration, "source_ref": external_id}
+    elif step.kind is ActionKind.WORK_NOTE:
+        payload = provenance
+    else:
+        return None
+    return ActionSpec(
+        kind=step.kind,
+        target=TargetRef(service=service, system="servicenow", ref=external_id),
+        scope=sop_scope(match),
+        payload=payload,
     )
 
 

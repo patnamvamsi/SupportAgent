@@ -18,6 +18,9 @@
     "pg-replication-lag-stale-reads": true,
     "pg-slow-query-after-migration": true,
     "pg-table-bloat": true,
+    "sop-lock-contention-unblock": true,
+    "sop-stale-lock-contention": true,
+    "sop-wrong-cause-disk": true,
     "tls-certificate-expired": true,
     "traffic-spike-throttling": true,
     "worker-timeout-slow-upstream": true

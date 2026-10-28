@@ -39,7 +39,7 @@ def load_markdown_source(root: Path, *, space: str, redact: Callable[[str], str]
         except ValidationError as exc:
             raise ConfigError(f"{path}: front matter: {exc}") from exc  # noqa: TRY003
         version = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
-        meta = matter.meta(doc_id=f"{space}:{rel}", space=space, version=version)
+        meta = matter.meta(doc_id=f"{space}:{rel}", space=space, version=version, redact=redact)
         chunks.extend(chunk_document(meta, body, redact=redact))
     return chunks
 
