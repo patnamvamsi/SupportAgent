@@ -27,7 +27,15 @@ SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
         {"taxonomy_labels", "pack_guidance", "ticket_subject", "ticket_body"}
     ),
     SlotName.PROPOSE_HYPOTHESES: frozenset(
-        {"hypothesis_ids", "max_hypotheses", "service", "classification", "severity", "incident"}
+        {
+            "hypothesis_ids",
+            "max_hypotheses",
+            "service",
+            "classification",
+            "severity",
+            "incident",
+            "guidance",
+        }
     ),
     SlotName.ENTAIL: frozenset({"claim", "evidence"}),
 }

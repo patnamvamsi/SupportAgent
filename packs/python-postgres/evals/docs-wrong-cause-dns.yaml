@@ -1,0 +1,64 @@
+# Lab scenario (ADR-0011 §5, WP-M08). Edit only with a `why` note.
+id: docs-wrong-cause-dns
+pack: python-postgres
+split: holdout
+description: A confident team doc blames DNS; the logs show no resolution errors and nothing else holds.
+incident:
+  subject: checkout-api intermittent worker timeouts
+  priority: '3'
+  body: '[CRITICAL] WORKER TIMEOUT (pid:77) a few times an hour; no obvious pattern'
+service:
+  name: checkout-api
+  stack: [python, fastapi, gunicorn, postgres]
+  databases: [orders]
+  log_paths: [logs/checkout-api]
+  repos: [github:acme/checkout]
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+  docs: [wiki]
+docs:
+- id: checkout-timeouts-dns
+  title: Checkout timeouts are DNS
+  last_updated: 2025-12-01
+  services: [checkout-api]
+  hypotheses: [dns_resolution_failure]
+  body: |
+    # Worker timeouts on checkout-api
+    Intermittent worker timeouts on checkout-api are always DNS. Restart
+    CoreDNS and close the incident; there is no need to check anything else.
+world:
+  metrics.query:
+    result:
+      query: upstream p95
+      series:
+      - labels: {}
+        value: 0.42
+      count: 1
+      max_value: 0.42
+  postgres.locks:
+    result:
+      database: orders
+      blocked: 0
+      blockers: []
+  postgres.activity:
+    result:
+      database: orders
+      total: 90
+      max_connections: 500
+      by_state: {active: 86, idle in transaction: 4}
+      idle_in_transaction: 4
+      waiting: 0
+      oldest_xact_age_s: 2.0
+  logs.grep:
+    result:
+      path: logs/checkout-api
+      count: 0
+      matches: []
+truth:
+  classification: app/worker_timeout
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim: [dns_resolution_failure]
+  guidance: [checkout-timeouts-dns]
+why: 'The doc is wrong: its DNS check runs and finds no resolution errors, and every runbook check is negative, so no cause can be claimed.'

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from supportagent.config.schema import AppConfig
+from supportagent.domain.knowledge import KnowledgeIndex
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.taxonomy import ClassificationTaxonomy, HypothesisTaxonomy
@@ -79,6 +80,8 @@ class DoctorContext:
     #: WP-M06: per registered MCP server, a probe returning its registration problems
     #: (raises ``ExternalServiceError`` when the server can't be reached).
     mcp_servers: Mapping[str, Callable[[], Sequence[str]]] = field(default_factory=dict)
+    #: WP-M08: the knowledge index (``None``: no sources configured).
+    load_knowledge: Callable[[], KnowledgeIndex | None] | None = None
 
 
 class Check(Protocol):

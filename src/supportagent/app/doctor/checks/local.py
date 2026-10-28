@@ -161,3 +161,50 @@ class PacksCheck:
         if warnings:
             return CheckResult(self.name, "warn", detail + " — " + "; ".join(warnings), data)
         return CheckResult(self.name, "pass", detail, data)
+
+
+class KnowledgeCheck:
+    """WP-M08: the knowledge sources load, and every space a service or pack reads exists."""
+
+    name = "knowledge"
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        if ctx.load_knowledge is None:
+            return CheckResult(self.name, "pass", "no knowledge sources configured")
+        try:
+            index = ctx.load_knowledge()
+            catalog = ctx.load_bundle().catalog
+            packs = ctx.load_packs() if ctx.load_packs is not None else None
+        except ConfigError as exc:
+            return CheckResult(self.name, "fail", str(exc))
+        if index is None:
+            return CheckResult(self.name, "pass", "no knowledge sources configured")
+        today = ctx.clock.now().date()
+        per_space: dict[str, set[str]] = {}
+        stale: set[str] = set()
+        for chunk in index.chunks:
+            per_space.setdefault(chunk.meta.space, set()).add(chunk.doc_id)
+            if index.is_stale(chunk, today):
+                stale.add(chunk.doc_id)
+        configured = {s.space for s in ctx.config.knowledge.sources}
+        wanted = {
+            space: [e.name for e in catalog.services if space in e.docs]
+            for space in {space for e in catalog.services for space in e.docs}
+        }
+        for pack in packs.packs if packs is not None else ():
+            for space in pack.doc_spaces:
+                wanted.setdefault(space, []).append(f"pack {pack.id}")
+        missing = sorted(s for s in wanted if s not in configured)
+        detail = " · ".join(
+            f"{space}: {len(per_space.get(space, set()))} doc(s)" for space in sorted(configured)
+        )
+        if stale:
+            detail += f"; {len(stale)} stale doc(s) suggest nothing"
+        data: dict[str, object] = {
+            "spaces": {s: len(per_space.get(s, set())) for s in sorted(configured)},
+            "stale": sorted(stale),
+        }
+        if missing:
+            needs = "; ".join(f"{s} (used by {', '.join(wanted[s])})" for s in missing)
+            return CheckResult(self.name, "warn", f"{detail} — unconfigured spaces: {needs}", data)
+        return CheckResult(self.name, "pass", detail, data)

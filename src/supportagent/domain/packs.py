@@ -51,6 +51,8 @@ class Pack:
     placeholder: bool = False
     #: Where the pack's lab scenarios live (WP-M02); ``None``: not evaluated.
     evals: str | None = None
+    #: WP-M08: the knowledge spaces the pack's cases may read.
+    doc_spaces: tuple[str, ...] = ()
 
     @property
     def always(self) -> bool:

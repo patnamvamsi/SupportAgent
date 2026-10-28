@@ -99,6 +99,7 @@ def _load_pack(directory: Path) -> Pack:
         },
         placeholder=manifest.placeholder,
         evals=str(_dir(directory, manifest.evals)) if manifest.evals else None,
+        doc_spaces=tuple(manifest.knowledge.spaces) if manifest.knowledge else (),
     )
 
 

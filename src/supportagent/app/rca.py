@@ -19,6 +19,14 @@
    ``speculation``, and ``contradicts`` also tags it ``contradicted``. The
    outcome never changes after ``reduce``.
 
+**Docs (WP-M08, ADR-0011 §4)** are guidance, never evidence. Before planning,
+``knowledge.search`` reads the case's scoped docs (the trace records each chunk
+id and hash). A fresh hit may *suggest* hypotheses: their registered probes
+join the plan after the runbook's or the planner's steps (at most
+``DocPolicy.max_suggested``), and the tools decide. The hits' text is planner
+context inside the untrusted block. A suggestion no check confirmed becomes
+a ``documented_guidance`` claim: never SUPPORTED, never sendable.
+
 ``RcaJob`` is the ``rca.run`` worker job: open cases routed to an
 ``rca: lite`` route, one RCA per storm group (the lead only), one artifact
 per case.
@@ -39,6 +47,7 @@ from pydantic import Field
 from supportagent.domain.errors import DomainValidationError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
+from supportagent.domain.knowledge import DocHit, DocScope, guidance_text, suggested_hypotheses
 from supportagent.domain.model.base import DomainModel
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.event import Event
@@ -60,6 +69,7 @@ from supportagent.ports.checks import CompiledCheck
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
+from supportagent.ports.knowledge import KnowledgeSearch
 from supportagent.ports.llm import StructuredLLM
 from supportagent.ports.tools import ToolResult
 
@@ -148,6 +158,8 @@ class RcaArtifact:
     supported_by: str | None = None
     comms_template: str | None = None  # internal only (ARCH §5)
     budget: dict[str, int] = field(default_factory=dict)
+    #: WP-M08: the docs read (refs, never text) and what each suggested.
+    guidance: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def score(self) -> float | None:
@@ -185,7 +197,17 @@ class RcaArtifact:
                 else None
             ),
             "budget": self.budget,
+            "guidance": self.guidance,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class DocPolicy:
+    """How much of the docs RCA reads and lets into a plan (``knowledge`` config)."""
+
+    top_k: int = 3
+    max_chars: int = 1500
+    max_suggested: int = 2
 
 
 class _Tools(Protocol):
@@ -210,6 +232,8 @@ class Knowledge:
     excludes: Mapping[str, Sequence[str]]
     #: ADR-0011: when set, each case sees only its service's active packs.
     packs: PackSet | None = None
+    #: WP-M08: the knowledge spaces the case's active packs may read.
+    doc_spaces: frozenset[str] = frozenset()
 
     @property
     def hypothesis_ids(self) -> list[str]:
@@ -234,6 +258,7 @@ class Knowledge:
                 for h, excl in self.excludes.items()
                 if h in hypotheses
             },
+            doc_spaces=frozenset(s for p in active for s in p.doc_spaces),
         )
 
     def match(self, case: RcaCase) -> tuple[Runbook, Mapping[str, CompiledCheck]] | None:
@@ -263,8 +288,12 @@ class RcaService:
         freeze: bool = False,
         max_claims: int = 5,
         entail_budget_s: float = 20.0,
+        docs: KnowledgeSearch | None = None,
+        doc_policy: DocPolicy | None = None,
     ) -> None:
         self._kb = knowledge
+        self._docs = docs
+        self._doc_policy = doc_policy or DocPolicy()
         self._tools = tools
         self._llm = llm
         self._events = events
@@ -281,7 +310,11 @@ class RcaService:
 
     def run(self, case: RcaCase, budget: Budget) -> RcaArtifact:
         trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
-        matched = self._kb.for_case(case).match(case)
+        kb = self._kb.for_case(case)
+        hits = self._read_docs(case, kb, trace)
+        testable = [h for h in kb.hypothesis_ids if h in kb.probes]
+        suggested = suggested_hypotheses(hits, testable)[: self._doc_policy.max_suggested]
+        matched = kb.match(case)
         if matched is not None:
             runbook, checks = matched
             plan = [
@@ -291,13 +324,20 @@ class RcaService:
             source = runbook.id
         else:
             runbook = None
-            plan = self._proposed_plan(case, budget, trace)
+            guidance = guidance_text(hits, max_chars=self._doc_policy.max_chars)
+            plan = self._proposed_plan(case, budget, trace, guidance)
             source = "proposed"
-            if not plan:
-                self._decision(trace, case, "INCONCLUSIVE", "no_runbook_no_probes")
-                return RcaArtifact(
-                    "INCONCLUSIVE", "no testable plan", "none", budget=_spent(budget)
-                )
+        plan.extend(self._doc_steps(kb, plan, suggested))
+        if not plan:
+            self._decision(trace, case, "INCONCLUSIVE", "no_runbook_no_probes")
+            return RcaArtifact(
+                "INCONCLUSIVE",
+                "no testable plan",
+                "none",
+                claims=_doc_claims(hits, set(), None),
+                budget=_spent(budget),
+                guidance=_guidance_refs(hits, suggested),
+            )
 
         evidence: list[Evidence] = []
         for step in plan:
@@ -315,6 +355,12 @@ class RcaService:
         )
         claims = conclude(results)
         self._entail(claims, evidence, budget, trace)
+        ran = {e.step.hypothesis for e in evidence if e.step.ran}
+        supported = next(
+            (e.step.hypothesis for e in evidence if e.step.step_id == reduction.supported_by),
+            None,
+        )
+        claims.extend(_doc_claims(hits, ran, supported))
         artifact = RcaArtifact(
             outcome=reduction.outcome,
             reason=reduction.reason,
@@ -331,13 +377,71 @@ class RcaService:
                 else None
             ),
             budget=_spent(budget),
+            guidance=_guidance_refs(hits, suggested),
         )
         self._decision(trace, case, artifact.outcome, artifact.reason)
         return artifact
 
+    # -- docs (WP-M08) -------------------------------------------------------
+
+    def _read_docs(self, case: RcaCase, kb: Knowledge, trace: TraceContext) -> list[DocHit]:
+        if self._docs is None:
+            return []
+        service = case.service
+        spaces = kb.doc_spaces | frozenset(service.docs if service is not None else ())
+        if not spaces:
+            return []
+        query = " ".join(
+            part
+            for part in (
+                service.name if service is not None else "",
+                (case.classification or "").replace("/", " ").replace("_", " "),
+                case.summary,
+            )
+            if part
+        )
+        scope = DocScope(spaces, service.name if service is not None else None, "internal")
+        k = self._doc_policy.top_k
+        hits = self._docs.search(query, scope, k=k, today=self._clock.now().date())
+        self._emit(
+            trace,
+            EventKind.TOOL_CALL,
+            {
+                "v": 1,
+                "tool": "knowledge.search",
+                "args": {"spaces": ",".join(sorted(spaces)), "k": str(k), "audience": "internal"},
+                "truncated": False,
+                "chunks": [
+                    {
+                        "chunk": h.chunk.id,
+                        "hash": h.chunk.content_hash,
+                        "version": h.chunk.meta.version,
+                        "stale": h.stale,
+                    }
+                    for h in hits
+                ],
+            },
+        )
+        return hits
+
+    def _doc_steps(
+        self, kb: Knowledge, plan: Sequence[PlanStep], suggested: Sequence[str]
+    ) -> list[PlanStep]:
+        """Probes for the hypotheses docs suggest that the plan doesn't test yet."""
+        planned = {step.hypothesis for step in plan}
+        steps: list[PlanStep] = []
+        for hypothesis in suggested:
+            if hypothesis in planned:
+                continue
+            spec, check = kb.probes[hypothesis]
+            steps.append(PlanStep(f"doc-{hypothesis}", hypothesis, spec.tool, spec.args, check))
+        return steps
+
     # -- planning ------------------------------------------------------------
 
-    def _proposed_plan(self, case: RcaCase, budget: Budget, trace: TraceContext) -> list[PlanStep]:
+    def _proposed_plan(
+        self, case: RcaCase, budget: Budget, trace: TraceContext, guidance: str = ""
+    ) -> list[PlanStep]:
         ids = self._kb.for_case(case).hypothesis_ids
         proposed: list[str] = []
         if budget.can_spend(PROPOSE_TOKENS):
@@ -351,6 +455,7 @@ class RcaService:
                     "classification": case.classification or "unknown",
                     "severity": case.severity or "unknown",
                     "incident": case.summary or "(no ticket text)",
+                    "guidance": guidance,
                 },
                 HypothesisSet,
                 trace,
@@ -491,6 +596,34 @@ class BufferedEvents:
         return held
 
 
+def _doc_claims(hits: Sequence[DocHit], ran: Collection[str], supported: str | None) -> list[Claim]:
+    """A doc's suggestion no check confirmed: guidance, never a supported claim."""
+    claims: list[Claim] = []
+    for hit in hits:
+        for hypothesis in hit.chunk.meta.hypotheses:
+            if hypothesis == supported or hit.stale:
+                continue
+            tested = "checked, not confirmed" if hypothesis in ran else "not checked"
+            claims.append(
+                Claim(
+                    text=(f"documented guidance ({hit.chunk.meta.title}): {hypothesis} ({tested})"),
+                    cites=[hit.chunk.id],
+                    tags={"documented_guidance", "speculation"},
+                )
+            )
+    return claims
+
+
+def _guidance_refs(hits: Sequence[DocHit], suggested: Sequence[str]) -> list[dict[str, object]]:
+    return [
+        {
+            **hit.ref(),
+            "suggests": [h for h in hit.chunk.meta.hypotheses if h in suggested and not hit.stale],
+        }
+        for hit in hits
+    ]
+
+
 def _spent(budget: Budget) -> dict[str, int]:
     return {"tool_calls": budget.tool_calls, "tokens": budget.tokens}
 
@@ -627,6 +760,7 @@ def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:
 __all__ = [
     "Budget",
     "BufferedEvents",
+    "DocPolicy",
     "Entailment",
     "Evidence",
     "HypothesisSet",

@@ -91,7 +91,7 @@ def test_lab_scenarios_cover_every_pack_hypothesis() -> None:
     causes = {s.truth.root_cause for s in _scenarios()}
     missing = {h.id for h in pack.hypotheses} - causes
     assert not missing, missing
-    assert len(_scenarios()) == 15
+    assert len(_scenarios()) == 19  # 15 (WP-M03) + 4 with team docs (WP-M08)
     controls = [s for s in _scenarios() if s.truth.root_cause is None]
     assert {s.truth.verdict for s in controls} == {"CONSISTENT_UNCONFIRMED", "INCONCLUSIVE"}
 
@@ -99,7 +99,7 @@ def test_lab_scenarios_cover_every_pack_hypothesis() -> None:
 def test_holdout_split_disjoint() -> None:
     tune = select_split(_scenarios(), "tune")
     holdout = select_split(_scenarios(), "holdout")
-    assert len(holdout) == 3
+    assert len(holdout) == 4
     assert not {s.id for s in tune} & {s.id for s in holdout}
 
 

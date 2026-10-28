@@ -96,24 +96,29 @@ def graph_similarity(a: frozenset[str], b: frozenset[str]) -> float:
 
 def bm25_scores(query: str, docs: Sequence[MemoryDoc]) -> dict[str, float]:
     """Raw BM25 per candidate (0.0 when no query term occurs)."""
-    if not docs:
+    return bm25(query, {d.case_id: d.text for d in docs})
+
+
+def bm25(query: str, texts: Mapping[str, str]) -> dict[str, float]:
+    """Raw BM25 of ``query`` against each text, by id (case memory and knowledge, WP-M08)."""
+    if not texts:
         return {}
-    bags = {d.case_id: Counter(tokens(d.text)) for d in docs}
+    bags = {key: Counter(tokens(text)) for key, text in texts.items()}
     lengths = {k: sum(v.values()) for k, v in bags.items()}
     avg = (sum(lengths.values()) / len(lengths)) or 1.0
-    n = len(docs)
+    n = len(texts)
     terms = set(tokens(query))
     df = {t: sum(1 for bag in bags.values() if t in bag) for t in terms}
     scores: dict[str, float] = {}
-    for case_id, bag in bags.items():
+    for key, bag in bags.items():
         s = 0.0
         for t in terms:
             f = bag.get(t, 0)
             if not f:
                 continue
             idf = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
-            s += idf * f * (_K1 + 1) / (f + _K1 * (1 - _B + _B * lengths[case_id] / avg))
-        scores[case_id] = s
+            s += idf * f * (_K1 + 1) / (f + _K1 * (1 - _B + _B * lengths[key] / avg))
+        scores[key] = s
     return scores
 
 
@@ -149,6 +154,7 @@ __all__ = [
     "DEFAULT_WEIGHTS",
     "Citation",
     "MemoryDoc",
+    "bm25",
     "bm25_scores",
     "graph_similarity",
     "rank",

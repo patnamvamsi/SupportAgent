@@ -9,7 +9,13 @@ from supportagent.app.doctor.checks.endpoints import (
     McpCheck,
     OIDCCheck,
 )
-from supportagent.app.doctor.checks.local import ConfigCheck, DbCheck, PacksCheck, PagingCheck
+from supportagent.app.doctor.checks.local import (
+    ConfigCheck,
+    DbCheck,
+    KnowledgeCheck,
+    PacksCheck,
+    PagingCheck,
+)
 from supportagent.app.doctor.checks.servicenow import (
     AuditRetentionCheck,
     AuthCheck,
@@ -25,6 +31,7 @@ def default_checks() -> list[Check]:
     return [
         ConfigCheck(),
         PacksCheck(),
+        KnowledgeCheck(),
         DbCheck(),
         AuthCheck(),
         JournalVisibilityCheck(),
