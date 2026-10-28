@@ -1,0 +1,1 @@
+{"latency_ms": 8675, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api is returning 504s because web workers time out while awaiting the payment provider, indicating upstream payment latency/timeout.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1004, "tokens_out": 294}
