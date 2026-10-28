@@ -4,32 +4,20 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
-### LM Studio down: live lab recordings for the PR stack (2026-10-27)
+### Review and merge the PR stack (#62–#66)
 
-- **Blocked:** CI replays the incident lab from recorded Qwen responses. New scenarios and changed prompts have no recordings yet, so each PR's `eval` job fails with "responses were not recorded". Every other check passes. All the PRs are drafts.
-- **The stack, merge in order:**
+- **Status (2026-10-28):** LM Studio is back and every branch has live Qwen recordings (`qwen/qwen3.8-27b`, `--samples 3 --split all`), with all gates passing and no false causes:
 
-  | PR | Branch | Needs recordings? |
-  |---|---|---|
-  | #62 | `wp-m08-knowledge` | yes: 4 doc scenarios |
-  | #63 | `wp-m07-connector-seam` | no new prompts (same recordings as #62) |
-  | #64 | `wp-m09-extensions` | no new prompts |
-  | #65 | `wp-m09-walkthrough-disk-full` | yes: new pack hypothesis, so every python-postgres prompt changes |
-  | #66 | `bl-050-logs-search` | yes: 1 new scenario (on top of #65's) |
+  | PR | Branch | Live lab (python-postgres) | Lower bounds |
+  |---|---|---|---|
+  | #62 | `wp-m08-knowledge` | 19/19 | 0.832 |
+  | #63 | `wp-m07-connector-seam` | same as #62 | |
+  | #64 | `wp-m09-extensions` | same as #62 | |
+  | #65 | `wp-m09-walkthrough-disk-full` | 20/20 | 0.839 |
+  | #66 | `bl-050-logs-search` | 21/21 | 0.845 |
 
-- **Tried:** `lms server start` over ssh on 192.168.0.201 times out waiting for the daemon (it seems to need the desktop session).
-- **Unblock:** start LM Studio on 192.168.0.201 with `qwen/qwen3.8-27b` loaded and the server on port 1234. Then, from the LAN, on each branch marked "yes":
-
-  ```
-  uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --live --samples 3 --split all
-  ```
-
-  1. On #62, record and commit (the baseline too if the gates pass), then merge #62, #63 and #64 in order.
-  2. Rebase #65 and #66 onto main.
-  3. On #66's branch, run once more (it records everything #65 and #66 need), and commit the recordings to #65 or split them.
-  4. Merge #65, then #66.
-
-  The walkthrough doc (`docs/walkthroughs/wp-m09-disk-full.md`) gets the live numbers.
+  `common` is 5/5 on every branch. Each branch merges its parent (no force-pushes), so they can merge in order with no rebase.
+- **Needs:** your review. Merge in order, #62 to #66. They are drafts because you asked to review everything together.
 
 ### BL-051 Confluence knowledge source
 
@@ -37,7 +25,7 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ### WP-M08's last part: SOP-driven requests and runbook distillation
 
-- **Deferred:** both are LLM features that the plan says must be eval-gated, so they wait until the lab can run live again.
+- **Deferred:** both are LLM features that the plan says must be eval-gated. The live lab is back, so runbook distillation can start; SOP-driven requests still need the design call below.
 - **SOP-driven requests** also need a design call: how a written procedure maps onto the typed action kinds and the gate. Options: (a) SOP steps only *propose* existing action kinds, each through the gate as today; (b) a reviewed SOP becomes a runbook-like file that names action kinds. (a) needs no trust-core change.
 - **Runbook distillation** (team docs to draft runbooks, reviewed by an analyst, then lab-gated) needs no decision; it waits only for the live lab.
 

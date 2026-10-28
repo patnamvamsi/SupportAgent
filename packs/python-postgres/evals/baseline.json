@@ -4,6 +4,7 @@
     "celery-backlog": true,
     "control-metrics-outage": true,
     "control-noisy-5xx-blip": true,
+    "dns-failure-loki-logs": true,
     "dns-resolution-failure": true,
     "docs-injected-verdict": true,
     "docs-stale-replica": true,
