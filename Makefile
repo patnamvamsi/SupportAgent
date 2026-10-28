@@ -12,7 +12,7 @@
 
 UV ?= uv
 
-.PHONY: help check test contract invariants e2e record-sn
+.PHONY: help check test contract invariants e2e record-sn ci-local
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -42,3 +42,6 @@ e2e: ## End-to-end suites (04 §6)
 record-sn: ## Record ServiceNow fixtures from a developer instance (04 §3; re-record each release)
 	@test -n "$(SN_HOST)" || { echo "usage: make record-sn SN_HOST=<developer-instance-host>"; exit 1; }
 	@rc=0; if [ ! -d tests/integration ]; then echo "tests/integration does not exist yet — it lands red-first with its WP (05 §2)"; exit 0; fi; $(UV) run pytest -m "integration and sn" --allow-hosts="$(SN_HOST)" || rc=$$?; exit $$rc
+
+ci-local: ## Every ci.yml job on this machine, with a pass/fail table (when Actions can't run)
+	@scripts/ci-local.sh
