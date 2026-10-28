@@ -267,6 +267,8 @@ policy_grants = sa.Table(
     sa.Column("granted_by", sa.Text, sa.ForeignKey("users.id")),
     sa.Column("granted_at_ts", sa.BigInteger),
     sa.Column("valid_to_ts", sa.BigInteger),
+    # ADR-0014 part 2: an SOP auto grant's conditions (domain.auto), else NULL.
+    sa.Column("conditions_json", sa.Text),
     _check("status", POLICY_GRANT_STATUSES),
     # INV-01: self-approval — a grant cannot be approved by its own requester
     # (enforced as a trigger in 0003 as well; the CHECK is the portable floor).

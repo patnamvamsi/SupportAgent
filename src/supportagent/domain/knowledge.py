@@ -203,6 +203,17 @@ class KnowledgeIndex:
             )
         return out
 
+    def sop_docs(self, *, today: date) -> list[tuple[DocMeta, Sop, bool]]:
+        """ADR-0014 part 2: each SOP doc once, with its block and whether it is stale."""
+        out: list[tuple[DocMeta, Sop, bool]] = []
+        seen: set[str] = set()
+        for chunk in self.chunks:
+            meta, sop = chunk.meta, chunk.meta.sop
+            if sop is not None and meta.doc_id not in seen:
+                seen.add(meta.doc_id)
+                out.append((meta, sop, self.is_stale(chunk, today)))
+        return out
+
     def is_stale(self, chunk: DocChunk, today: date) -> bool:
         updated = chunk.meta.last_updated
         return updated is not None and (today - updated).days > self.stale_after_days

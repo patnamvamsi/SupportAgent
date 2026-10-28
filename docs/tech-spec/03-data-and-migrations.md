@@ -86,6 +86,7 @@ ALTER TABLE outbox     ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox     ADD COLUMN next_attempt_ts INTEGER;
 ALTER TABLE outbox     ADD COLUMN last_error TEXT;
 ALTER TABLE outbox     ADD COLUMN external_ref TEXT;            -- sys_id of the journal entry etc.
+ALTER TABLE policy_grants ADD COLUMN conditions_json TEXT;     -- 0015, ADR-0014 part 2: SOP auto grant conditions
 CREATE INDEX ix_proposals_pending ON proposals(tenant_id, status, expires_ts);
 CREATE INDEX ix_outbox_due ON outbox(tenant_id, status, next_attempt_ts);
 ```
@@ -206,6 +207,7 @@ Alembic revisions live in `migrations/versions/`, named `NNNN_<slug>.py`, with l
 | 0011 | memory | WP-108 | v0.1 | `nodes`, `edges`, `kb_docs` (planned as 0101; BM25 computed in the app on both engines) |
 | 0010 | feedback | WP-109 | v0.1 | `feedback` (planned as 0102; v0.1 migrations continue the sequence) |
 | 0103 | rca | WP-110 | v0.1 | `rca_artifacts` |
+| 0015 | grant_conditions | BL-054 | modular | `policy_grants.conditions_json` (ADR-0014 part 2; a plain ADD/DROP COLUMN on both engines, no rebuild under the INV-01 trigger) |
 | 0201 | lineage | WP-205 | v0.2 | `versions` |
 | 0202 | two_person | WP-206 | v0.2 | `approvals` multi-approver support + trigger update |
 

@@ -45,6 +45,7 @@ import sqlalchemy as sa
 from pydantic import Field
 
 from supportagent.app.propose import rca_page_spec, sop_step_spec
+from supportagent.domain.auto import AutoEvidence
 from supportagent.domain.errors import DomainValidationError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
@@ -53,8 +54,10 @@ from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.base import DomainModel
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.event import Event
+from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.model.runbook import Probe, RcaBudget, Runbook
 from supportagent.domain.packs import PackSet
+from supportagent.domain.proposal_state import ProposalStatus
 from supportagent.domain.rca_reduce import (
     CHANGE_HYPOTHESIS,
     Claim,
@@ -694,7 +697,14 @@ def entail_variables(claim: str, cited: Sequence[object]) -> dict[str, str]:
 
 
 class _Gate(Protocol):
-    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> object: ...
+    def submit(
+        self,
+        case_id: str,
+        spec: ActionSpec,
+        trace: TraceContext,
+        *,
+        evidence: AutoEvidence | None = None,
+    ) -> Proposal | Skipped: ...
 
 
 class RcaJob:
@@ -786,21 +796,32 @@ class RcaJob:
                     "ts": int(self._clock.now().astimezone(UTC).timestamp()),
                 },
             )
-            pending = self._propose_sop_steps(case, artifact, artifact_id)
-            self._enrich_page(case, artifact, pending)
+            pending, auto = self._propose_sop_steps(case, artifact, artifact_id)
+            self._enrich_page(case, artifact, pending, auto)
             self._uow.commit()
         return artifact_id
 
-    def _propose_sop_steps(self, case: RcaCase, artifact: RcaArtifact, artifact_id: str) -> int:
+    def _propose_sop_steps(
+        self, case: RcaCase, artifact: RcaArtifact, artifact_id: str
+    ) -> tuple[int, int]:
         """ADR-0014: each applicable SOP step through the gate, in the artifact's UoW.
 
         Without a gate (shadow mode), the steps stay in the artifact only.
-        Returns how many were submitted.
+        The gate gets the RCA's tool results as evidence, which an SOP auto
+        grant's conditions read (part 2). Returns how many steps wait for a
+        human, and how many an auto grant covered.
         """
         if self._gate is None or case.service is None or not case.external_id:
-            return 0
-        submitted = 0
+            return 0, 0
+        pending = auto = 0
         trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
+        _, confirmed = _confirmed_by(artifact)
+        evidence = AutoEvidence(
+            service=case.service.name,
+            positive=frozenset(e.step.hypothesis for e in artifact.evidence if e.step.ok),
+            confirmed=bool(confirmed),
+            rca_artifact=artifact_id,
+        )
         for match in artifact.sop_steps:
             spec = sop_step_spec(
                 match,
@@ -811,28 +832,27 @@ class RcaJob:
             if spec is None:
                 continue
             payload = {**spec.payload, "rca_artifact": artifact_id}
-            self._gate.submit(case.id, spec.model_copy(update={"payload": payload}), trace)
-            submitted += 1
-        return submitted
+            proposal = self._gate.submit(
+                case.id, spec.model_copy(update={"payload": payload}), trace, evidence=evidence
+            )
+            if not isinstance(proposal, Proposal):
+                continue
+            if proposal.status is ProposalStatus.PENDING_APPROVAL:
+                pending += 1
+            else:
+                auto += 1
+        return pending, auto
 
-    def _enrich_page(self, case: RcaCase, artifact: RcaArtifact, sop_pending: int) -> None:
+    def _enrich_page(
+        self, case: RcaCase, artifact: RcaArtifact, sop_pending: int, sop_auto: int
+    ) -> None:
         """BL-040: the RCA result on the case's open page, when a check ran (assisted mode)."""
         service = case.service
         if self._gate is None or service is None or not case.external_id:
             return
         if not service.paging_integration or not any(e.step.ran for e in artifact.evidence):
             return
-        by_step = {e.step.step_id: e for e in artifact.evidence}
-        lead = by_step.get(artifact.supported_by or "")
-        confirmed = sorted(
-            {
-                by_step[c].tool
-                for claim in artifact.claims
-                if claim.sendable and lead is not None and lead.step.step_id in claim.cites
-                for c in claim.cites
-                if c in by_step
-            }
-        )
+        lead, confirmed = _confirmed_by(artifact)
         spec = rca_page_spec(
             case_id=case.id,
             service=service.name,
@@ -843,9 +863,26 @@ class RcaJob:
             confirmed_by=confirmed,
             tested=[e.step.hypothesis for e in artifact.evidence if e.step.ran],
             sop_pending=sop_pending,
+            sop_auto=sop_auto,
         )
         trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
         self._gate.submit(case.id, spec, trace)
+
+
+def _confirmed_by(artifact: RcaArtifact) -> tuple[Evidence | None, list[str]]:
+    """The supported step, and the tools its sendable (``entail``-passed) claims cite."""
+    by_step = {e.step.step_id: e for e in artifact.evidence}
+    lead = by_step.get(artifact.supported_by or "")
+    tools = sorted(
+        {
+            by_step[c].tool
+            for claim in artifact.claims
+            if claim.sendable and lead is not None and lead.step.step_id in claim.cites
+            for c in claim.cites
+            if c in by_step
+        }
+    )
+    return lead, tools
 
 
 def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:

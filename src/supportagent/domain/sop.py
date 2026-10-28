@@ -10,10 +10,10 @@ executed, and its body text never becomes a payload:
 - The SOP must be fresh (a stale SOP proposes nothing) and in the case's
   scope (its space, its services, internal audience).
 - Each proposal has the literal scope ``sop:<doc>@<hash>:<step>:<kind>``,
-  where ``hash`` covers the SOP block itself, so no existing setup grant
-  covers it and an edited SOP is a new scope. Every SOP step waits for a
-  human approval. ADR-0014 part 2 (auto mode) adds conditioned grants on
-  exactly this scope.
+  where ``hash`` covers the SOP block itself, so no service-wide setup grant
+  covers it and an edited SOP is a new scope. A step waits for a human
+  approval unless an auto-mode grant on exactly this scope covers it, and
+  only when that grant's conditions hold (ADR-0014 part 2, ``domain.auto``).
 - Provenance (doc, version, content hash, step) is recorded on the proposal
   and in the RCA artifact.
 """
@@ -27,9 +27,9 @@ from dataclasses import dataclass
 
 from supportagent.domain.kinds import ActionKind
 
-#: Kinds an SOP step may propose in part 1: internal notes with a fixed
-#: payload contract. Field updates, reruns and customer-facing kinds need
-#: part 2's per-kind revert declarations first.
+#: Kinds an SOP step may propose: internal notes with a fixed payload
+#: contract, each with a revert declared in ``domain.auto.REVERTS``. Field
+#: updates, reruns and customer-facing kinds would need a revert of their own.
 SOP_KINDS: frozenset[ActionKind] = frozenset({ActionKind.WORK_NOTE, ActionKind.ENRICH_PAGE})
 MAX_SOP_STEPS = 5
 MAX_NOTE_CHARS = 240
@@ -94,7 +94,12 @@ class SopMatch:
 
 def sop_scope(match: SopMatch) -> str:
     """``sop:<doc>@<hash>:<step>:<kind>``: literal, and new whenever the SOP block changes."""
-    return f"sop:{match.doc_id}@{match.content_hash}:{match.step.id}:{match.step.kind.value}"
+    return step_scope(match.doc_id, match.content_hash, match.step)
+
+
+def step_scope(doc_id: str, digest: str, step: SopStep) -> str:
+    """The literal scope of one step of the SOP block with ``digest``."""
+    return f"sop:{doc_id}@{digest}:{step.id}:{step.kind.value}"
 
 
 def unique_steps(matches: Iterable[SopMatch]) -> list[SopMatch]:
@@ -116,5 +121,6 @@ __all__ = [
     "SopMatch",
     "SopStep",
     "sop_scope",
+    "step_scope",
     "unique_steps",
 ]

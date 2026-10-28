@@ -65,7 +65,8 @@ A Git doc can carry a procedure: `sop: {when: [<hypothesis ids>], steps: [{id, k
 - When RCA's tools SUPPORT a hypothesis in `when`, each step becomes a proposal.
 - `kind` must be an existing internal note kind (`work_note` or `enrich_page`). Anything else is refused at load, as is a new action kind.
 - `note` (at most 240 characters) is redacted at ingest and wrapped in a fixed template.
-- The proposal's scope is `sop:<doc>@<hash>:<step>:<kind>`. No setup grant covers it, so every SOP step waits for a human approval, and editing the SOP changes the scope.
+- The proposal's scope is `sop:<doc>@<hash>:<step>:<kind>`. No service-wide setup grant covers it, so a step waits for a human approval, and editing the SOP changes the scope.
+- Auto mode (ADR-0014 part 2) is not an extension: an admin turns it on per step with `supportagent sop auto <scope> --check … --max-per-day N` plus an approval in `/ui/grants`. An analyst can't grant it from a pack or a doc.
 - A stale or out-of-scope SOP proposes nothing.
 - Prove it in the lab: a scenario doc carries the `sop` block, and the truth's `sop_steps` lists exactly the `<doc>/<step>` keys RCA should propose (`[]` for none).
 

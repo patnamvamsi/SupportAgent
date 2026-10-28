@@ -487,6 +487,13 @@ Implemented as a pure function, `next_status(current, event) -> ProposalStatus`,
 | pending_approval / approved | `case_retriaged` | superseded |
 | approved | `outbox_inserted` | executed (set by trigger `trg_outbox_mark_executed`) |
 
+**Conditioned grants (ADR-0014 part 2).** `grant_matched` needs more than a covering grant in two cases. If the grant has `conditions_json`, or the scope is an SOP step's (`sop:…`), the gate evaluates the conditions against the evidence the caller passes: `rca.run` passes the RCA's positive checks and whether the cause's claim passed `entail`. The rules:
+- An `sop:` grant without conditions covers nothing.
+- A condition that is unreadable, unknown or can't be evaluated fails closed, and so does a confidence condition before ADR-0003 calibration. The proposal goes to `submitted`.
+- Only kinds in `domain.auto.REVERTS` qualify.
+- Each evaluation writes a `gate` event with an `auto` record: grant, conditions, evidence, the daily count, refusals. The transition is `grant_enqueued` or `auto_declined`.
+- The DB trigger (path 2) is unchanged: conditions only narrow what a grant covers.
+
 ### 7.11 Case lifecycle
 
 | From | Event | To |

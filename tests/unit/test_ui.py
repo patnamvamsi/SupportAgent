@@ -121,6 +121,7 @@ _UI_POSTS = [
     "/ui/setup/approve",
     "/ui/grants/grnt_x/approve",
     "/ui/grants/grnt_x/revoke",
+    "/ui/proposals/prop_1/retract",
 ]
 
 
@@ -156,3 +157,107 @@ def test_ui_pages_render_for_admin(client: TestClient, oidc: FakeOIDC, db: Any) 
     assert grants.count("service:payments:") == 3
     assert "<h2>Approved</h2>" in grants
     assert "None." in grants  # nothing requested or revoked any more
+
+
+def _auto_sent(db: Any, master_key: bytes, clock: Any) -> None:
+    """An SOP step sent on an auto grant: the proposal and its gate event (ADR-0014 part 2)."""
+    from supportagent.adapters.crypto.aead import Aead  # noqa: PLC0415
+    from supportagent.adapters.db.repos.blobs import SqlKeyStore  # noqa: PLC0415
+    from supportagent.adapters.db.repos.events import SqlEventSink  # noqa: PLC0415
+    from supportagent.adapters.db.uow import SqlUnitOfWork  # noqa: PLC0415
+    from supportagent.domain.events import EventKind  # noqa: PLC0415
+    from supportagent.domain.model.event import Event  # noqa: PLC0415
+    from tests.unit.api_support import TENANT  # noqa: PLC0415
+
+    payload: dict[str, object] = {
+        "template_id": "sop_step_v1",
+        "sop_doc": "wiki:deploy-sop.md",
+        "sop_step": "roll-back",
+        "text": "SOP step for recent_change_push: roll back.",
+        "revert": "retraction_note",
+    }
+    seed_proposal(db, proposal_id="prop_1", status="executed", payload=payload)
+    uow = SqlUnitOfWork(db)
+    sink = SqlEventSink(
+        uow=uow, cipher=Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
+    )
+    auto = {
+        "grant_id": "grnt_auto",
+        "conditions": {"checks": ["recent_change_push"], "max_per_day": 3, "services": []},
+        "evidence": {
+            "service": "payments",
+            "positive": ["recent_change_push"],
+            "confirmed": True,
+            "rca_artifact": "rca_1",
+        },
+        "used_today": 0,
+        "refused": [],
+    }
+    with uow:
+        sink.append(
+            Event(
+                id="evt_auto_1",
+                tenant_id=TENANT,
+                trace_id="tr_prop_1",
+                span_id="rca_case_0001",
+                parent_span_id=None,
+                kind=EventKind.GATE,
+                actor="agent",
+                payload={
+                    "v": 1,
+                    "proposal_id": "prop_1",
+                    "transition": "grant_enqueued",
+                    "auto": auto,
+                },
+                ts=clock.now(),
+            )
+        )
+        uow.commit()
+
+
+def test_ui_case_timeline_shows_an_auto_step_and_retracts_it(
+    client: TestClient, oidc: FakeOIDC, db: Any, master_key: bytes, clock: Any
+) -> None:
+    _auto_sent(db, master_key, clock)
+    login(client, oidc, ADA)
+    page = client.get("/ui/cases/case_0001").text
+    assert "<h2>SOP auto mode</h2>" in page
+    assert "sent on auto" in page and "grnt_auto" in page
+    assert "checks recent_change_push · cap 3/day (0 before this)" in page
+    assert "positive recent_change_push · claim confirmed" in page
+    resp = client.post(
+        "/ui/proposals/prop_1/retract",
+        data={"csrf_token": _field(page, "csrf_token")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    retraction = client.get(resp.headers["location"]).text
+    assert "was posted in auto mode and is withdrawn" in retraction
+    again = client.get("/ui/cases/case_0001").text
+    assert "/ui/proposals/prop_1/retract" not in again  # one live retraction per action
+    assert "retraction</a> pending_approval" in again
+
+
+def test_ui_grants_page_shows_auto_conditions(client: TestClient, oidc: FakeOIDC, db: Any) -> None:
+    login(client, oidc, ADA)
+    with db.begin() as conn:
+        for gid, scope, conditions in (
+            (
+                "grnt_a",
+                "sop:wiki:x.md@abc:s1:work_note",
+                '{"checks":["db_locks"],"max_per_day":2,"services":[]}',
+            ),
+            ("grnt_b", "sop:wiki:x.md@abc:s2:work_note", None),
+        ):
+            conn.execute(
+                text(
+                    "INSERT INTO policy_grants (id, tenant_id, action_kind, scope, status, "
+                    "requested_by, requested_at_ts, conditions_json) VALUES (:id, 'acme', "
+                    "'work_note', :scope, 'requested', 'cli:sop-auto', 0, :c)"
+                ),
+                {"id": gid, "scope": scope, "c": conditions},
+            )
+    page = client.get("/ui/grants").text
+    assert "SOP auto mode: checks db_locks must hold" in page
+    assert "at most 2 a day" in page
+    assert "none: covers nothing" in page  # an sop: grant without conditions

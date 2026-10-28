@@ -7,10 +7,12 @@
 {% set rows = grants | selectattr("status", "equalto", status) | list %}
 {% if rows %}
 <div class="table-wrap"><table>
-  <thead><tr><th>Scope</th><th>Kind</th><th>Requested by</th><th>Granted by</th><th>Valid to</th><th></th></tr></thead>
+  <thead><tr><th>Scope</th><th>Kind</th><th>Conditions</th><th>Requested by</th><th>Granted by</th><th>Valid to</th><th></th></tr></thead>
   <tbody>{% for g in rows %}
   <tr>
-    <td><code>{{ g.scope }}</code></td><td>{{ g.action_kind }}</td><td>{{ g.requested_by }}</td>
+    <td><code>{{ g.scope }}</code></td><td>{{ g.action_kind }}</td>
+    <td>{% if g.conditions %}{% if g.conditions.unreadable %}<span class="warn">unreadable: covers nothing</span>{% else %}SOP auto mode: checks {{ g.conditions.checks | join(", ") }} must hold, the cause's claim must pass the evidence check, at most {{ g.conditions.max_per_day }} a day{% if g.conditions.services %}, services {{ g.conditions.services | join(", ") }}{% endif %}{% endif %}{% elif g.scope.startswith("sop:") %}<span class="warn">none: covers nothing</span>{% else %}—{% endif %}</td>
+    <td>{{ g.requested_by }}</td>
     <td>{{ g.granted_by or "—" }}</td><td>{{ g.valid_to_ts | date }}</td>
     <td>
       {% if g.status == "requested" %}

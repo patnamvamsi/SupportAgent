@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
+from supportagent.app.queries import auto_timeline
 from supportagent.app.setup import SessionUser
 from supportagent.app.stats import Mode as StatsMode
 from supportagent.app.stats import parse_window
@@ -235,10 +236,26 @@ def case_page(
     def build(user: SessionUser) -> Response:
         view = ctx.queries().case(case_id)
         service = view.case.get("service")
+        scope = service_role_scope(str(service) if service else None)
         can_hand_back = view.case.get("status") == "human_owned" and user.can(
-            Permission.HAND_BACK, service_role_scope(str(service) if service else None)
+            Permission.HAND_BACK, scope
         )
-        return _render(request, ctx, "case.html", user, c=view, can_hand_back=can_hand_back)
+        # ADR-0014 part 2: the case's SOP auto decisions, from its decrypted trace.
+        try:
+            events = ctx.replay(str(view.case["trace_id"])).events
+        except NotFound:  # a case whose trace has no events yet
+            events = ()
+        auto = auto_timeline(view, events)
+        return _render(
+            request,
+            ctx,
+            "case.html",
+            user,
+            c=view,
+            can_hand_back=can_hand_back,
+            auto=auto,
+            can_retract=user.can(Permission.DECIDE_PROPOSAL, scope),
+        )
 
     return _page(request, ctx, Permission.VIEW, build)
 
@@ -325,6 +342,21 @@ async def approve_form(
             grants=user.grants,
         )
         return RedirectResponse(f"/ui/proposals/{proposal_id}", status_code=303)
+
+    return await _post(request, ctx, Permission.DECIDE_PROPOSAL, act)
+
+
+@router.post("/ui/proposals/{proposal_id}/retract")
+async def retract_form(
+    proposal_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    """ADR-0014 part 2: propose the retraction of an auto action; it waits for approval."""
+
+    def act(user: SessionUser, _form: Mapping[str, str]) -> Response:
+        retraction = ctx.approvals().retract(proposal_id, user.id, grants=user.grants)
+        return RedirectResponse(f"/ui/proposals/{retraction}", status_code=303)
 
     return await _post(request, ctx, Permission.DECIDE_PROPOSAL, act)
 
