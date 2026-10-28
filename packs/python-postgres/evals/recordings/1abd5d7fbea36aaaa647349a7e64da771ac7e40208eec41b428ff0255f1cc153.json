@@ -1,0 +1,1 @@
+{"latency_ms": 3979, "raw_text": "{\"classification\":\"database/failure\",\"severity\":\"P1\",\"summary\":\"Orders writes are failing with DiskFull while reads still work, indicating the orders database has exhausted storage and cannot extend files.\",\"confidence\":0.98}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1048, "tokens_out": 225}

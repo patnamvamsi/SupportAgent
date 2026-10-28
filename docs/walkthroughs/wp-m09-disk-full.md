@@ -39,4 +39,4 @@ problem: scenario pg-disk-full: unknown hypothesis id(s) ['pg_disk_full']
 ## 4. Measure
 
 - **After (oracle): 20/20**, with zero false causes. The trap held: bloat was checked and came back negative.
-- **Live (Qwen, `--samples 3 --split all`): pending.** LM Studio on the LAN host is down (see [`docs/AWAITING-INPUT.md`](../AWAITING-INPUT.md)). The pack change alters the classify guidance and the propose hypothesis list, so every python-postgres request is new and the whole pack is re-recorded in the same live run as WP-M08's doc scenarios. Merge once that run passes the gates and its per-case diff against the baseline shows no regressions.
+- **Live (Qwen `qwen/qwen3.8-27b`, `--samples 3 --split all`, 2026-10-28): 20/20**, with zero false causes. Classification and root-cause lower bounds are 0.839 (the gates are 0.7 and 0.6); before the pack change they were 0.832 over 19 cases. No regressions against the baseline, and `common` is unchanged at 5/5. The pack change re-recorded every python-postgres request, as expected.

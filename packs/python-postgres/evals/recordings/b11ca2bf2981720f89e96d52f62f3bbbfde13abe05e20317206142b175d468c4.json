@@ -1,0 +1,1 @@
+{"latency_ms": 4677, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout-api workers are timing out while serving order history pages, indicating worker-level request timeouts or hangs.\",\n  \"confidence\": 0.93\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1016, "tokens_out": 259}
