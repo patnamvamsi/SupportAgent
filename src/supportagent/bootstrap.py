@@ -61,7 +61,7 @@ from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_ca
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
-from supportagent.adapters.files.knowledge_loader import load_markdown_source
+from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.identity.oidc import OIDCClient
@@ -127,7 +127,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
-from supportagent.app.extend import Scaffold, scenario_from_incident
+from supportagent.app.extend import Scaffold, runbook_from_doc, scenario_from_incident
 from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
@@ -188,6 +188,7 @@ from supportagent.domain.model.calibration import (
 )
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.knowledge import DocFrontMatter
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.runbook import RcaBudget
@@ -2298,6 +2299,46 @@ def write_scaffold(scaffold: Scaffold, root: Path) -> list[Path]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     return [path for path, _ in targets]
+
+
+def distill_runbook(
+    config: AppConfig,
+    pack_dir: Path,
+    doc_file: Path,
+    *,
+    classification: str,
+    slug: str | None = None,
+) -> Scaffold:
+    """``runbook new --doc`` (WP-M08): a Git doc's front-matter hypotheses as a draft runbook."""
+    pack_dir = pack_dir.resolve()
+    cfg = config.model_copy(
+        update={"paths": config.paths.model_copy(update={"packs": str(pack_dir.parent)})}
+    )
+    try:
+        packs = _pack_set(cfg)
+        pack = packs.get(pack_dir.name)
+    except KeyError:
+        raise ConfigError(f"unknown pack {pack_dir.name!r}") from None  # noqa: TRY003
+    knowledge = build_rca_knowledge(cfg, registered=KNOWN_TOOL_SCHEMAS)
+    raw = doc_file.read_text(encoding="utf-8")
+    front, _ = split_front_matter(raw, doc_file)
+    front.setdefault("title", doc_file.stem)
+    try:
+        matter = DocFrontMatter.model_validate(front)
+    except ValidationError as exc:
+        raise ConfigError(f"{doc_file}: front matter: {exc}") from exc  # noqa: TRY003
+    own = {h.id for h in pack.hypotheses}
+    version = matter.version or hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return runbook_from_doc(
+        pack_id=pack.id,
+        slug=slug or doc_file.stem.lower().replace("_", "-")[:40],
+        classification=classification,
+        doc_ref=f"{doc_file.name} ({matter.title}, version {version})",
+        hypotheses=[h for h in matter.hypotheses if h in own],
+        probes={h: probe for h, (probe, _) in knowledge.probes.items() if h in own},
+        labels={label.id for label in pack.labels},
+        taken={r.applies_when.classification: r.id for r, _ in knowledge.runbooks},
+    )
 
 
 def incident_scenario(  # noqa: PLR0913 — the CLI's options
