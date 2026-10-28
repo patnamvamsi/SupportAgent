@@ -2,7 +2,7 @@
 
 - **Status:** accepted (part 1); proposed (part 2, needs its own WP and review before code)
 - **Date:** 2026-10-28
-- **Code PR:** part 1 lands with WP-M08's last part (SOP-driven requests)
+- **Code PR:** part 1: WP-M08 SOP-driven requests
 - **Spec sections changed:** none yet; part 2 will change 01 §6 (gate) and 03 (audit)
 
 ## Context
@@ -24,16 +24,18 @@ What exists already:
 
 ### Part 1 (accepted): SOPs propose, the gate decides
 
-- An SOP is a knowledge doc (Git or Confluence) that names, per step, an **existing action kind** and its arguments as literals or case placeholders. No new kinds, no free text executed.
-- RCA or triage may cite an SOP step. The step becomes a normal **proposal**: same kind, same validation, same tier, same gate, same approval or grant path. The SOP is recorded on the proposal as provenance (doc id, version, content hash, step).
-- An SOP never raises a step's tier, never satisfies a check on its own (docs are guidance, ADR-0011 §4), and never names a target outside the case's service (the catalog check is unchanged).
-- Eval-gated like every LLM feature: lab scenarios with SOP fixtures, including an SOP that names a wrong or unsafe step (it must still be gated) and a stale SOP.
+- An SOP is a Git knowledge doc whose front matter has an `sop:` block: `when` (the hypotheses it applies to) and `steps` (`id`, `kind`, a short `note`). Steps use **existing internal note kinds only** (`work_note`, `enrich_page`); anything else, including a new kind, is refused at load. Field updates, reruns and customer-facing kinds wait for part 2's revert declarations. No body text is executed or becomes a payload.
+- A step applies when RCA's outcome is SUPPORTED for a hypothesis in `when`. The `rca.run` job then submits it as a normal **proposal** through the gate, in the artifact's UoW. Shadow mode records the steps in the artifact only.
+- The text is a fixed template around the step's reviewed, redacted note. The proposal records its provenance: doc, version, SOP hash, step, and the RCA artifact id.
+- **The scope is the SOP's own:** `sop:<doc>@<hash>:<step>:<kind>`, where the hash covers the SOP block. No setup grant covers that scope, so in part 1 every SOP step waits for a human approval, even where a service-wide `work_note` grant exists. An edited SOP gets a new scope.
+- An SOP never satisfies a check on its own (docs are guidance, ADR-0011 §4). A stale or out-of-scope SOP proposes nothing. The target is always the case's own record (the catalog check is unchanged).
+- Eval-gated: the lab's `truth.sop_steps` names exactly the steps to propose. The scenarios cover the applicable SOP, an SOP for the wrong cause with an injected instruction, and a stale SOP.
 
 ### Part 2 (proposed): auto mode as a conditioned SOP grant
 
 Auto mode is not a bypass of the gate. It is a **grant**, so INV-01 still holds: the trace leads to a human who approved the grant.
 
-- **Opt-in per SOP, by a human.** A grant with scope `sop:<doc id>@<version>:<step>:<kind>`. A new SOP version, or an edited step, needs a new grant: approving one text never approves another.
+- **Opt-in per SOP, by a human.** A grant on part 1's scope `sop:<doc>@<hash>:<step>:<kind>`. An edited SOP has a new hash and needs a new grant: approving one text never approves another.
 - **Conditions on the grant**, all of which must hold at enqueue time:
   - named checks returned positive (tool results, not doc text);
   - a minimum confidence (the calibrated score, ADR-0002; thresholds from ADR-0003);
@@ -55,6 +57,6 @@ Auto mode is not a bypass of the gate. It is a **grant**, so INV-01 still holds:
 
 ## Consequences
 
-- Part 1 needs no change to the trust core. It adds provenance to proposals and a lab suite.
+- Part 1 needs no change to the trust core: new proposals with their own scope, provenance in the payload, and a lab check.
 - Part 2 is a trust-core change: grant conditions, a revert declaration per action kind, and the audit timeline. It gets its own WP, with INV-01 and fault tests on both DB engines, before any code.
 - Open for part 2: which existing kinds declare a safe revert; whether a confidence condition is allowed before ADR-0003's thresholds are calibrated on partner data (proposed: no).

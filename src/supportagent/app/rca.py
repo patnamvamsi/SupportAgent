@@ -44,10 +44,12 @@ from typing import Literal, Protocol, Self
 import sqlalchemy as sa
 from pydantic import Field
 
+from supportagent.app.propose import sop_step_spec
 from supportagent.domain.errors import DomainValidationError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.knowledge import DocHit, DocScope, guidance_text, suggested_hypotheses
+from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.base import DomainModel
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.event import Event
@@ -64,6 +66,7 @@ from supportagent.domain.rca_reduce import (
     reduce,
 )
 from supportagent.domain.slots import SlotName
+from supportagent.domain.sop import MAX_SOP_STEPS, SopMatch, unique_steps
 from supportagent.domain.trace import TraceContext
 from supportagent.ports.checks import CompiledCheck
 from supportagent.ports.clock import Clock
@@ -99,6 +102,8 @@ class RcaCase:
     opened_ts: int
     #: WP-M05: the case's redacted incident text (case memory), for planning only.
     summary: str = ""
+    #: ADR-0014: the source record, for the SOP proposals' target.
+    external_id: str | None = None
 
     def as_cel(self) -> dict[str, object]:
         return {
@@ -160,6 +165,8 @@ class RcaArtifact:
     budget: dict[str, int] = field(default_factory=dict)
     #: WP-M08: the docs read (refs, never text) and what each suggested.
     guidance: list[dict[str, object]] = field(default_factory=list)
+    #: ADR-0014: SOP steps that apply to the SUPPORTED cause (proposed by the job).
+    sop_steps: list[SopMatch] = field(default_factory=list)
 
     @property
     def score(self) -> float | None:
@@ -198,6 +205,7 @@ class RcaArtifact:
             ),
             "budget": self.budget,
             "guidance": self.guidance,
+            "sop_steps": [m.ref() for m in self.sop_steps],
         }
 
 
@@ -378,9 +386,26 @@ class RcaService:
             ),
             budget=_spent(budget),
             guidance=_guidance_refs(hits, suggested),
+            sop_steps=(
+                self._sop_steps(case, kb, supported)
+                if reduction.outcome == "SUPPORTED" and supported is not None
+                else []
+            ),
         )
         self._decision(trace, case, artifact.outcome, artifact.reason)
         return artifact
+
+    def _sop_steps(self, case: RcaCase, kb: Knowledge, hypothesis: str) -> list[SopMatch]:
+        """ADR-0014: steps of in-scope, fresh SOPs for the cause the tools supported."""
+        if self._docs is None:
+            return []
+        service = case.service
+        spaces = kb.doc_spaces | frozenset(service.docs if service is not None else ())
+        if not spaces:
+            return []
+        scope = DocScope(spaces, service.name if service is not None else None, "internal")
+        found = self._docs.sops_for(hypothesis, scope, today=self._clock.now().date())
+        return unique_steps(found)[:MAX_SOP_STEPS]
 
     # -- docs (WP-M08) -------------------------------------------------------
 
@@ -648,7 +673,7 @@ class _UoW(Protocol):
 _SUMMARY_CHARS = 1500
 _CANDIDATES = (
     "SELECT c.id, c.trace_id, c.service, c.classification, c.severity, c.origin, "
-    "c.opened_ts, c.decision_json, d.text AS summary FROM cases c "
+    "c.opened_ts, c.decision_json, c.external_id, d.text AS summary FROM cases c "
     "LEFT JOIN kb_docs d ON d.tenant_id = c.tenant_id AND d.ref = c.id "
     "WHERE c.tenant_id = :t AND c.status <> 'resolved' "
     "AND NOT EXISTS (SELECT 1 FROM rca_artifacts r WHERE r.case_id = c.id) "
@@ -660,6 +685,10 @@ _INSERT = (
     "INSERT INTO rca_artifacts (id, tenant_id, case_id, outcome, artifact_json, created_ts) "
     "VALUES (:id, :t, :c, :o, :a, :ts)"
 )
+
+
+class _Gate(Protocol):
+    def submit(self, case_id: str, spec: ActionSpec, trace: TraceContext) -> object: ...
 
 
 class RcaJob:
@@ -679,8 +708,10 @@ class RcaJob:
         clock: Clock,
         tenant_id: str,
         max_per_run: int = 10,
+        gate: _Gate | None = None,
     ) -> None:
         self._uow = uow
+        self._gate = gate
         self._service = service
         self._services = {s.name: s for s in catalog.services}
         self._buffer = buffer
@@ -717,6 +748,7 @@ class RcaJob:
                         origin=str(row["origin"]),
                         opened_ts=int(row["opened_ts"]),
                         summary=str(row["summary"] or "")[:_SUMMARY_CHARS],
+                        external_id=row["external_id"],
                     )
                 )
                 if len(out) >= self._max:
@@ -748,8 +780,29 @@ class RcaJob:
                     "ts": int(self._clock.now().astimezone(UTC).timestamp()),
                 },
             )
+            self._propose_sop_steps(case, artifact, artifact_id)
             self._uow.commit()
         return artifact_id
+
+    def _propose_sop_steps(self, case: RcaCase, artifact: RcaArtifact, artifact_id: str) -> None:
+        """ADR-0014: each applicable SOP step through the gate, in the artifact's UoW.
+
+        Without a gate (shadow mode), the steps stay in the artifact only.
+        """
+        if self._gate is None or case.service is None or not case.external_id:
+            return
+        trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
+        for match in artifact.sop_steps:
+            spec = sop_step_spec(
+                match,
+                service=case.service.name,
+                external_id=case.external_id,
+                integration=case.service.paging_integration,
+            )
+            if spec is None:
+                continue
+            payload = {**spec.payload, "rca_artifact": artifact_id}
+            self._gate.submit(case.id, spec.model_copy(update={"payload": payload}), trace)
 
 
 def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:

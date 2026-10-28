@@ -38,7 +38,7 @@ from supportagent.bootstrap import (
 )
 from supportagent.config.schema import McpServer, ToolBinding
 from supportagent.domain.errors import ConfigError
-from supportagent.domain.model.knowledge import DocFrontMatter
+from supportagent.domain.model.knowledge import DocFrontMatter, SopMatter, SopStepMatter
 from supportagent.domain.model.pack import AppliesTo, KnowledgeScope, PackManifest
 from supportagent.domain.model.preclass import PreclassRule
 from supportagent.domain.model.runbook import AppliesWhen, Probe, Runbook, RunbookStep
@@ -253,6 +253,8 @@ _CONTRACTS: tuple[type[BaseModel], ...] = (
     LabTruth,
     LabDoc,
     DocFrontMatter,
+    SopMatter,
+    SopStepMatter,
     McpServer,
     ToolBinding,
 )
