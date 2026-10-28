@@ -47,6 +47,8 @@ banned-api = {
 "tests/integration/test_record_sn.py" = ["TID251"]
 # WP-M06: the opt-in live MCP contract reads its endpoints from the environment.
 "tests/contract/test_mcp_grafana_live.py" = ["TID251"]
+# BL-051: the opt-in live Confluence contract reads its site and token from the environment.
+"tests/contract/test_confluence_live.py" = ["TID251"]
 
 [lint.isort]
 known-first-party = ["supportagent"]

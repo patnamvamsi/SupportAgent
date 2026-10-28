@@ -55,6 +55,8 @@ Every pack hypothesis needs a scenario with it as `root_cause`. Every pack needs
 
 `title`, `url`, `owner`, `version`, `last_updated`, `visibility`, `services`, `labels`, `hypotheses` (which hypotheses the doc suggests checking; the tools decide).
 
+In a Confluence space (BL-051), page labels carry the same scope: `hypothesis-<id>`, `service-<name>`, and `visibility-customer` (honoured only on a page with no read restrictions). Title, URL, version and last-updated come from the page. A page whose labels don't validate is skipped and logged.
+
 ### Tool capabilities (one result schema each)
 
 The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.

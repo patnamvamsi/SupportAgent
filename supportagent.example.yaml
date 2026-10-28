@@ -95,6 +95,13 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 # knowledge:                         # WP-M08: team docs as RCA guidance, never evidence
 #   sources:
 #     - {kind: git_markdown, space: wiki, path: /srv/kb/wiki}   # *.md, optional front matter
+#     - kind: confluence                # BL-051: a Cloud space, read-only, loaded at startup
+#       space: ops-wiki
+#       base_url: https://<site>.atlassian.net/wiki
+#       space_key: OPS
+#       user_env: CONFLUENCE_USER       # the account email
+#       token_env: CONFLUENCE_API_TOKEN # a read-only API token
+#       max_pages: 200                  # labels: hypothesis-<id>, service-<name>, visibility-customer
 #   top_k: 3                           # one chunk per doc
 #   max_suggested: 2                   # probes docs may add to a plan
 #   stale_after_days: 365              # older docs are shown but suggest nothing
