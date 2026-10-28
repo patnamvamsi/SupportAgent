@@ -14,15 +14,15 @@ from datetime import UTC, datetime
 
 import httpx
 
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.http import ServiceNowHTTP
 from supportagent.adapters.servicenow.mapping import (
     audit_row_to_change,
     journal_row_to_change,
     row_to_record,
 )
-from supportagent.domain.errors import ServiceNowError
 from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
-from supportagent.ports.tickets import PollBatch, SnTable
+from supportagent.ports.tickets import PollBatch, RecordType
 
 POLL_FIELDS = (
     "sys_id,number,short_description,description,priority,state,assigned_to,"
@@ -45,7 +45,7 @@ class ServiceNowSource:
     def __init__(self, *, http: ServiceNowHTTP) -> None:
         self._http = http
 
-    def poll(self, table: SnTable, since: datetime, limit: int, offset: int = 0) -> PollBatch:
+    def poll(self, table: RecordType, since: datetime, limit: int, offset: int = 0) -> PollBatch:
         query = f"sys_updated_on>={_format_since(since)}^ORDERBYsys_updated_on^ORDERBYsys_id"
         resp = self._http.request(
             "GET",
@@ -61,15 +61,15 @@ class ServiceNowSource:
         )
         rows = self._results(resp)
         records = [row_to_record(table.value, row) for row in rows]
-        next_cursor = max((r.sys_updated_on for r in records), default=since)
+        next_cursor = max((r.updated_at for r in records), default=since)
         return PollBatch(records=records, next_cursor=next_cursor)
 
-    def record(self, table: SnTable, sys_id: str) -> TicketRecord | None:
+    def record(self, table: RecordType, external_id: str) -> TicketRecord | None:
         """The record's current fields (ADR-0010), or ``None`` when it doesn't exist."""
         try:
             resp = self._http.request(
                 "GET",
-                f"/api/now/table/{table.value}/{sys_id}",
+                f"/api/now/table/{table.value}/{external_id}",
                 params={
                     "sysparm_fields": POLL_FIELDS,
                     "sysparm_display_value": "false",
@@ -88,20 +88,22 @@ class ServiceNowSource:
 
     def history(
         self,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         after_mod_count: int,
         since: datetime | None = None,
     ) -> Sequence[ChangeRecord]:
-        audit = self._audit(table, sys_id, after_mod_count)
-        journal = self._journal(table, sys_id, since)
+        audit = self._audit(table, external_id, after_mod_count)
+        journal = self._journal(table, external_id, since)
         return sorted(audit + journal, key=lambda c: (c.ts, c.source == "audit"))
 
     # -- internals ---------------------------------------------------------
 
-    def _audit(self, table: SnTable, sys_id: str, after_mod_count: int) -> list[ChangeRecord]:
+    def _audit(
+        self, table: RecordType, external_id: str, after_mod_count: int
+    ) -> list[ChangeRecord]:
         query = (
-            f"tablename={table.value}^documentkey={sys_id}"
+            f"tablename={table.value}^documentkey={external_id}"
             f"^record_checkpoint>{after_mod_count}^ORDERBYrecord_checkpoint"
         )
         resp = self._http.request(
@@ -116,9 +118,11 @@ class ServiceNowSource:
         )
         return [audit_row_to_change(row) for row in self._results(resp)]
 
-    def _journal(self, table: SnTable, sys_id: str, since: datetime | None) -> list[ChangeRecord]:
+    def _journal(
+        self, table: RecordType, external_id: str, since: datetime | None
+    ) -> list[ChangeRecord]:
         # 02 §6: journal entries for the record created at or after ``since``.
-        query = f"name={table.value}^element_id={sys_id}"
+        query = f"name={table.value}^element_id={external_id}"
         if since is not None:
             query += f"^sys_created_on>={_format_since(since)}"
         resp = self._http.request(

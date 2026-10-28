@@ -21,16 +21,17 @@ import pytest
 
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.servicenow.mapping import record_to_alert
+from supportagent.adapters.servicenow.semantics import ServiceNowSemantics
 from supportagent.app.sync import SyncService
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.external import ExternalCaseRef
 from supportagent.domain.model.ticket import ChangeRecord
 from supportagent.domain.severity import Severity
-from supportagent.ports.tickets import SnTable
+from supportagent.ports.tickets import RecordType
 from tests.builders import T0
 
 TENANT = "acme"
-TABLE = SnTable.INCIDENT
+TABLE = RecordType.INCIDENT
 TABLE_NAME = "incident"
 INTEGRATION_USER = "svc_supportagent"
 PAGE_SIZE = 2
@@ -52,20 +53,20 @@ class _RecordingHandler:
 
 
 def _seed(  # noqa: PLR0913
-    fake_sn: Any, sys_id: str, number: str, at: Any, *, user: str = "u1", mod_count: int = 1
+    fake_sn: Any, external_id: str, number: str, at: Any, *, user: str = "u1", mod_count: int = 1
 ) -> None:
     """Seed one incident record (a distinct number — required when origin is
     ``"ticket"`` — the ``AlertEvent`` validator enforces)."""
     fake_sn.seed_record(
         TABLE,
-        sys_id,
+        external_id,
         number=number,
-        short_description=f"desc {sys_id}",
+        short_description=f"desc {external_id}",
         priority="3",
         state="1",
-        sys_updated_on=at,
-        sys_updated_by=user,
-        sys_mod_count=mod_count,
+        updated_at=at,
+        updated_by=user,
+        revision=mod_count,
     )
 
 
@@ -80,6 +81,7 @@ def _service(uow: Any, fake_sn: Any, handler: _RecordingHandler, clock: Any) -> 
         clock=clock,
         integration_user=INTEGRATION_USER,
         to_alert=record_to_alert,
+        semantics=ServiceNowSemantics(),
         page_size=PAGE_SIZE,
         overlap_s=OVERLAP_S,
     )
@@ -218,7 +220,7 @@ def test_sync_new_record_first_update_is_change_not_second_alert(
     )
     service.poll_table(TABLE)
     assert len(handler.alerts) == 1
-    assert [ref.sys_id for ref, _ in handler.changes] == ["id_new"]
+    assert [ref.external_id for ref, _ in handler.changes] == ["id_new"]
 
 
 def test_sync_echo_filter_is_per_change_not_last_writer(uow: Any, clock: Any, fake_sn: Any) -> None:
@@ -301,9 +303,9 @@ def _raise_priority(fake_sn: Any, old: str, new: str, *, user: str = "u1") -> No
         short_description="desc id_p",
         priority=new,
         state="1",
-        sys_updated_on=later,
-        sys_updated_by=user,
-        sys_mod_count=2,
+        updated_at=later,
+        updated_by=user,
+        revision=2,
     )
     fake_sn.seed_audit(
         TABLE,

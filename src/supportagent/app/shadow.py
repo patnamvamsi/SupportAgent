@@ -316,7 +316,7 @@ class ShadowInbound:
     def on_changes(self, case_ref: ExternalCaseRef, changes: Sequence[ChangeRecord]) -> None:
         event_id = self._ids.new(IdPrefix.EVENT)
         with self._uow:
-            case = self._cases.by_external(self._tenant, case_ref.table, case_ref.sys_id)
+            case = self._cases.by_external(self._tenant, case_ref.table, case_ref.external_id)
             trace_id = str(case["trace_id"]) if case is not None else f"tr_{event_id}"
             self._events.append(
                 Event(
@@ -330,7 +330,7 @@ class ShadowInbound:
                     payload={
                         "v": 1,
                         "table": case_ref.table,
-                        "sys_id": case_ref.sys_id,
+                        "sys_id": case_ref.external_id,
                         "number": case_ref.number,
                         "case_id": None if case is None else str(case["id"]),
                         "rows": len(changes),

@@ -24,8 +24,9 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.mapping import _to_aware_utc, record_to_alert, row_to_record
-from supportagent.domain.errors import ConfigError, ServiceNowError
+from supportagent.domain.errors import ConfigError
 from supportagent.domain.model.shadow import HistoricalIncident
 from supportagent.domain.severity import Severity
 

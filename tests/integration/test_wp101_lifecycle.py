@@ -58,24 +58,30 @@ class _Ticket:
         self,
         sn: FakeServiceNowHTTP,
         clock: Any,
-        sys_id: str = "sys-1",
+        external_id: str = "sys-1",
         number: str = "INC0010001",
     ) -> None:
-        self.sn, self.clock, self.sys_id, self.number, self.mod = sn, clock, sys_id, number, 1
+        self.sn, self.clock, self.external_id, self.number, self.mod = (
+            sn,
+            clock,
+            external_id,
+            number,
+            1,
+        )
         self._put("alice")
 
     def _put(self, updated_by: str) -> None:
         self.sn.seed_record(
             "incident",
-            self.sys_id,
+            self.external_id,
             number=self.number,
             short_description="payroll-api 500s",
             priority="3",
             cmdb_ci="CI3003",
             caller_id="u-caller",
-            sys_updated_on=self.clock.now(),
-            sys_updated_by=updated_by,
-            sys_mod_count=self.mod,
+            updated_at=self.clock.now(),
+            updated_by=updated_by,
+            revision=self.mod,
         )
 
     def change(self, user: str, field: str, new: str) -> None:
@@ -83,7 +89,7 @@ class _Ticket:
         self.mod += 1
         self.sn.seed_audit(
             "incident",
-            self.sys_id,
+            self.external_id,
             user=user,
             ts=self.clock.now(),
             fieldname=field,
@@ -98,7 +104,7 @@ class _Ticket:
         self.mod += 1
         self.sn.seed_journal(
             "incident",
-            self.sys_id,
+            self.external_id,
             user=_SVC,
             ts=self.clock.now(),
             element="work_notes",
@@ -107,12 +113,12 @@ class _Ticket:
         self._put(_SVC)
 
 
-def _status(db: Engine, sys_id: str = "sys-1") -> str:
+def _status(db: Engine, external_id: str = "sys-1") -> str:
     with db.connect() as conn:
         return str(
             conn.execute(
                 text("SELECT status FROM cases WHERE external_id = :s ORDER BY opened_ts DESC"),
-                {"s": sys_id},
+                {"s": external_id},
             )
             .scalars()
             .first()
@@ -191,7 +197,7 @@ def test_new_alert_while_human_owned_is_duplicate_not_hand_back(
     assert _status(db) == "human_owned"
     # The same ticket identity arrives again as a new record: a duplicate.
     clock.advance(60)
-    _Ticket(sn, clock, sys_id="sys-1b", number="INC0010001")
+    _Ticket(sn, clock, external_id="sys-1b", number="INC0010001")
     worker.run_once()
     with db.connect() as conn:
         rows = conn.execute(text("SELECT status, duplicate_count FROM cases")).all()

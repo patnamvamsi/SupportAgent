@@ -141,22 +141,29 @@ class StructuredLLM(Protocol):    # implemented by adapters/llm/client.py:LLMCli
         # Returns None on any failure (timeout, schema-invalid, provider error); never raises to callers.
         # Emits llm + redact events through EventSink in every case.
 
-# ports/tickets.py
+# ports/tickets.py          [WP-M07, ADR-0013: the connector contract]
+class RecordType(StrEnum): INCIDENT = "incident"; ALERT = "em_alert"   # values = stored keys
+class NoteVisibility(StrEnum): INTERNAL = "internal"; CUSTOMER = "customer"
 @dataclass(frozen=True)
 class PollBatch:
     records: Sequence[TicketRecord]   # current state of each changed record
-    next_cursor: datetime             # max(sys_updated_on) seen; caller persists it
+    next_cursor: datetime             # max(updated_at) seen; caller persists it
 class TicketSource(Protocol):
-    def poll(self, table: SnTable, since: datetime, limit: int) -> PollBatch: ...
-    def history(self, table: SnTable, sys_id: str,
-                after_mod_count: int) -> Sequence[ChangeRecord]: ...   # sys_audit + sys_journal_field, ordered
+    def poll(self, record_type: RecordType, since: datetime, limit: int, offset: int = 0) -> PollBatch: ...
+    def record(self, record_type: RecordType, external_id: str) -> TicketRecord | None: ...
+    def history(self, record_type: RecordType, external_id: str,
+                after_mod_count: int, since: datetime | None = None) -> Sequence[ChangeRecord]: ...
+        # field + note changes, ordered; only when the manifest declares `history`
 class TicketSink(Protocol):
-    def append_journal(self, table: SnTable, sys_id: str,
-                       field: JournalField, text: str) -> ExternalRef: ...
-    def update_fields(self, table: SnTable, sys_id: str,
+    def append_journal(self, record_type: RecordType, external_id: str,
+                       visibility: NoteVisibility, text: str) -> ExternalRef: ...
+    def update_fields(self, record_type: RecordType, external_id: str,
                       fields: Mapping[str, str]) -> ExternalRef: ...
-    def find_marker(self, table: SnTable, sys_id: str, marker: str) -> ExternalRef | None: ...
+    def find_marker(self, record_type: RecordType, external_id: str, marker: str) -> ExternalRef | None: ...
         # reconciliation lookup (§7.5)
+class Connector(TicketSource, TicketSink, Protocol):
+    manifest: ConnectorManifest       # domain.connector: capabilities -> limits_for()
+    semantics: TicketSemantics        # state/assignee/priority fields, resolved states, severity
 
 # ports/tools.py            [v0.1]
 class Tool(Protocol):

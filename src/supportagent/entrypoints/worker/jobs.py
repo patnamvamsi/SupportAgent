@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from supportagent.domain.deprecation import DeprecationNotice
     from supportagent.ports.clock import Clock
     from supportagent.ports.leases import Lease
-    from supportagent.ports.tickets import SnTable
+    from supportagent.ports.tickets import RecordType
 
 
 class Executor(Protocol):
@@ -44,7 +44,7 @@ class Executor(Protocol):
 class Poller(Protocol):
     """The narrow ``SyncService`` surface the poll job drives (02 §7)."""
 
-    def poll_table(self, table: SnTable) -> SyncReport: ...
+    def poll_table(self, table: RecordType) -> SyncReport: ...
 
 
 #: 02 §7: the job's lease name (one global lock per job, 03 §2.5).
@@ -108,7 +108,7 @@ def outbox_execute(  # noqa: PLR0913
 SYNC_POLL_LEASE_TTL_S = 900
 
 
-def sync_poll_lease(table: SnTable) -> str:
+def sync_poll_lease(table: RecordType) -> str:
     """02 §7 / 10-wp WP-008: one lease per polled table, ``sync.poll.<table>``."""
     return f"sync.poll.{table.value}"
 
@@ -116,7 +116,7 @@ def sync_poll_lease(table: SnTable) -> str:
 def sync_poll(
     *,
     poller: Poller,
-    table: SnTable,
+    table: RecordType,
     lease: Lease,
     owner: str,
     lease_ttl_s: int = SYNC_POLL_LEASE_TTL_S,

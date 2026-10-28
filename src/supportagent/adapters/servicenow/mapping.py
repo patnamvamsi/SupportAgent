@@ -15,10 +15,10 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from supportagent.domain.errors import ServiceNowError
+from supportagent.adapters.servicenow.errors import ServiceNowError
+from supportagent.adapters.servicenow.semantics import severity_from_priority
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.ticket import ChangeRecord, TicketRecord
-from supportagent.domain.severity import Severity
 
 # 02 §6: the AlertEvent field → ServiceNow field mapping. There is no
 # ``field_map`` in the config schema, so the defaults live here and the
@@ -76,7 +76,7 @@ def row_to_record(table: str, row: Mapping[str, Any]) -> TicketRecord:
     """One ``/api/now/table`` row → ``TicketRecord`` (02 §6)."""
     return TicketRecord(
         table=table,
-        sys_id=str(row["sys_id"]),
+        external_id=str(row["sys_id"]),
         number=_opt_str(row.get("number")),
         short_description=_opt_str(row.get("short_description")),
         description=_opt_str(row.get("description")),
@@ -86,12 +86,12 @@ def row_to_record(table: str, row: Mapping[str, Any]) -> TicketRecord:
         assignment_group=_opt_str(row.get("assignment_group")),
         cmdb_ci=_opt_str(row.get("cmdb_ci")),
         cmdb_ci_name=_opt_str(row.get("cmdb_ci.name")),
-        sys_created_by=_opt_str(row.get("sys_created_by")),
+        created_by=_opt_str(row.get("sys_created_by")),
         caller_id=_opt_str(row.get("caller_id")),
-        u_alert_source=_opt_str(row.get("u_alert_source")),
-        sys_updated_on=_to_aware_utc(row["sys_updated_on"]),
-        sys_updated_by=str(row.get("sys_updated_by") or "unknown"),
-        sys_mod_count=_to_int(row["sys_mod_count"]),
+        alert_source=_opt_str(row.get("u_alert_source")),
+        updated_at=_to_aware_utc(row["sys_updated_on"]),
+        updated_by=str(row.get("sys_updated_by") or "unknown"),
+        revision=_to_int(row["sys_mod_count"]),
     )
 
 
@@ -126,27 +126,6 @@ def journal_row_to_change(row: Mapping[str, Any]) -> ChangeRecord:
     )
 
 
-def severity_from_priority(priority: str | None) -> Severity | None:
-    """Priority ``"1"``..``"4"`` → ``P1``..``P4`` (02 §6); ``"5"`` (Planning) → ``P4``.
-
-    Anything else → ``None``.
-
-    ADR-0009: this is the severity a case routes on, so the lowest
-    ServiceNow priority still yields one rather than falling back to the LLM.
-    """
-    if priority is None:
-        return None
-    try:
-        level = int(priority)
-    except ValueError:
-        return None
-    if 1 <= level <= 4:  # noqa: PLR2004
-        return Severity(f"P{level}")
-    if level == 5:  # noqa: PLR2004 — ServiceNow's Planning priority
-        return Severity.P4
-    return None
-
-
 def _mapped_field(rec: TicketRecord, field_map: Mapping[str, str], alert_field: str) -> str | None:
     vendor_field = field_map.get(alert_field, DEFAULT_FIELD_MAP[alert_field])
     # A dot-walked vendor field (``cmdb_ci.name``) is stored as ``cmdb_ci_name``.
@@ -168,7 +147,7 @@ def record_to_alert(
     """
     fmap = field_map if field_map is not None else DEFAULT_FIELD_MAP
     origin: Literal["alert", "ticket"] = (
-        "alert" if (rec.table == "em_alert" or rec.u_alert_source is not None) else "ticket"
+        "alert" if (rec.table == "em_alert" or rec.alert_source is not None) else "ticket"
     )
     subject = _mapped_field(rec, fmap, "subject") or ""
     body = _mapped_field(rec, fmap, "body") or ""
@@ -177,18 +156,18 @@ def record_to_alert(
         tenant_id=tenant_id,
         source="servicenow",
         origin=origin,
-        external_id=rec.sys_id,
+        external_id=rec.external_id,
         table=rec.table,
         ticket_number=rec.number,
         received_at=received_at,
         subject=subject,
         body=body,
         resource=resource,
-        alert_type=rec.u_alert_source if origin == "alert" else None,
+        alert_type=rec.alert_source if origin == "alert" else None,
         error_signature=None,
         severity_hint=severity_from_priority(rec.priority),
         cmdb_ci=rec.cmdb_ci,
-        raw_ref=f"servicenow:{rec.table}/{rec.sys_id}",
+        raw_ref=f"servicenow:{rec.table}/{rec.external_id}",
     )
 
 

@@ -45,6 +45,7 @@ from supportagent.adapters.llm.client import LLMClient, SlotSpec
 from supportagent.adapters.llm.detectors import built_in_detectors
 from supportagent.adapters.llm.prompts import PromptRegistry
 from supportagent.adapters.llm.redact import Redactor
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.app.classify import Classifier
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
@@ -52,7 +53,6 @@ from supportagent.app.handlers import HANDLERS
 from supportagent.app.outbox import DEFAULT_LEASE_S, OutboxExecutor, OutboxWriter
 from supportagent.app.spend import SpendBreaker
 from supportagent.app.triage import TriageService
-from supportagent.domain.errors import ServiceNowError
 from supportagent.domain.fingerprint import fingerprint
 from supportagent.domain.grouping import STORM_CASES
 from supportagent.domain.model.alert import AlertEvent
@@ -61,7 +61,7 @@ from supportagent.domain.model.external import ExternalRef
 from supportagent.domain.preclass import RuleSet
 from supportagent.domain.severity import Severity
 from supportagent.domain.slots import SlotName
-from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tickets import NoteVisibility, RecordType, TicketSink
 from tests.conftest import _reset_schema
 from tests.unit.test_triage_service import _MODEL, _llm_json, _routing, _table
 
@@ -154,22 +154,22 @@ class _ChaosSink:
             raise ServiceNowError("injected fault: sn_500", retryable=True, status=500)  # noqa: TRY003
 
     def append_journal(
-        self, table: SnTable, sys_id: str, field: JournalField, text: str
+        self, table: RecordType, external_id: str, field: NoteVisibility, text: str
     ) -> ExternalRef:
         self._maybe_fail()
-        ref = self.inner.append_journal(table, sys_id, field, text)
+        ref = self.inner.append_journal(table, external_id, field, text)
         if self.crashes < CRASHES:
             self.crashes += 1
             raise SimulatedCrash("injected fault: crash_after_send")  # noqa: TRY003
         return ref
 
-    def update_fields(self, table: SnTable, sys_id: str, fields: Any) -> ExternalRef:
+    def update_fields(self, table: RecordType, external_id: str, fields: Any) -> ExternalRef:
         self._maybe_fail()
-        return self.inner.update_fields(table, sys_id, fields)
+        return self.inner.update_fields(table, external_id, fields)
 
-    def find_marker(self, table: SnTable, sys_id: str, marker: str) -> ExternalRef | None:
+    def find_marker(self, table: RecordType, external_id: str, marker: str) -> ExternalRef | None:
         self._maybe_fail()
-        return self.inner.find_marker(table, sys_id, marker)
+        return self.inner.find_marker(table, external_id, marker)
 
 
 @dataclass(frozen=True)
@@ -323,10 +323,12 @@ def test_storm_zero_double_sends(storm: StormRun) -> None:
     assert rows > 0 and done == rows, "every queued note was delivered despite the faults"
     assert storm.crashes == CRASHES, "the crash-after-send window was exercised"
     markers: list[str] = []
-    for (sys_id,) in _rows(
+    for (external_id,) in _rows(
         storm.db, "SELECT c.external_id FROM outbox o JOIN cases c ON c.id = o.case_id"
     ):
-        for entry in storm.sn.journal_entries(SnTable.INCIDENT, sys_id, JournalField.WORK_NOTES):
+        for entry in storm.sn.journal_entries(
+            RecordType.INCIDENT, external_id, NoteVisibility.INTERNAL
+        ):
             markers.append(entry.splitlines()[-1])
     assert len(markers) == rows, "one work note per outbox row: 0 double-sends"
     assert len(set(markers)) == rows

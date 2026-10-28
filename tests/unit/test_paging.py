@@ -44,7 +44,7 @@ from supportagent.domain.model.triage import SafeDefaulted, Triaged
 from supportagent.domain.routing import Route
 from supportagent.domain.severity import Severity
 from supportagent.ports.paging import PageRef, PagingIntegration
-from supportagent.ports.tickets import SnTable
+from supportagent.ports.tickets import RecordType
 from tests.unit.api_support import ADA, TENANT, catalog, login, make_client, seed_proposal
 from tests.unit.test_triage_service import _catalog, _evt, _llm_json, _wire
 
@@ -97,8 +97,8 @@ def _payload(source_ref: str = "INC0000001") -> dict[str, object]:
 def _execute(paging: PagingIntegration, payload: dict[str, object]) -> ExternalRef:
     return EnrichPageHandler(paging).execute(
         sink=None,  # type: ignore[arg-type]  # a page isn't a ticket: the sink is unused
-        table=SnTable.INCIDENT,
-        sys_id="sys-1",
+        table=RecordType.INCIDENT,
+        external_id="sys-1",
         payload=payload,
         idempotency_key=_KEY,
     )
@@ -339,7 +339,7 @@ def test_case_view_shows_page_recommended_banner(  # noqa: PLR0913, PLR0917
 ) -> None:
     oidc = FakeOIDC()
     client = make_client(db, clock, ids, master_key, oidc, catalog("payments"))
-    seed_proposal(db, proposal_id="p_1", case_id="case_1", service="payments", sys_id="INC1")
+    seed_proposal(db, proposal_id="p_1", case_id="case_1", service="payments", external_id="INC1")
     login(client, oidc, ADA)
     assert "Page recommended" not in client.get("/ui/cases/case_1").text
     with db.connect() as conn:

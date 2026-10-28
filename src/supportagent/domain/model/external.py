@@ -35,7 +35,7 @@ class ExternalCaseRef(DomainModel):
     """
 
     table: str
-    sys_id: str
+    external_id: str
     number: str | None = None
 
 

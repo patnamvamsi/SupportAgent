@@ -16,7 +16,7 @@ from typing import Any
 from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.domain.model.triage import Triaged
 from supportagent.domain.proposal_state import ProposalStatus
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.integration.test_wp011_dod import (
     SYS_ID,
     _catalog,
@@ -86,7 +86,7 @@ def test_alert_to_approved_work_note_e2e(  # noqa: PLR0913, PLR0917
     result = executor.run_once(clock.now())
     assert result.status == "sent", result.error
     assert executor.run_once(clock.now()).status == "none"
-    notes = fake_sn.journal_entries(SnTable.INCIDENT, SYS_ID, JournalField.WORK_NOTES)
+    notes = fake_sn.journal_entries(RecordType.INCIDENT, SYS_ID, NoteVisibility.INTERNAL)
     assert len(notes) == 1
     assert fake_sn.write_count == 1
 

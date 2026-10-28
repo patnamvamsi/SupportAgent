@@ -53,7 +53,7 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
-from supportagent.ports.tickets import SnTable, TicketSink
+from supportagent.ports.tickets import RecordType, TicketSink
 
 #: The retry budget per outbox row (ARCH §6.2): after this many attempts the row
 #: is ``failed`` and the case is safe-defaulted to ``human_owned``.
@@ -186,8 +186,8 @@ class _Claim:
     kind: ActionKind
     handler: Handler
     payload: Mapping[str, Any]
-    table: SnTable
-    sys_id: str
+    table: RecordType
+    external_id: str
     token: int  # claimed_at_ts — the fencing token for the outcome write
 
     @property
@@ -339,7 +339,7 @@ class OutboxExecutor:
         key = str(claim.row["idempotency_key"])
         if claim.kind in JOURNAL_KINDS:
             try:
-                found = self._sink.find_marker(claim.table, claim.sys_id, marker(key))
+                found = self._sink.find_marker(claim.table, claim.external_id, marker(key))
             except ExternalServiceError as exc:
                 # Nothing was sent: an outage during the reconciliation read is
                 # retried like a failed send (11-wp WP-106, INV-05).
@@ -367,7 +367,7 @@ class OutboxExecutor:
             ref = claim.handler.execute(
                 sink=self._sink,
                 table=claim.table,
-                sys_id=claim.sys_id,
+                external_id=claim.external_id,
                 payload=claim.payload,
                 idempotency_key=key,
             )
@@ -420,7 +420,7 @@ class OutboxExecutor:
             if case is None or not case.get("external_table") or not case.get("external_id"):
                 return self._abort(row, token, now, "case has no external target")
             try:
-                table = SnTable(case["external_table"])
+                table = RecordType(case["external_table"])
             except ValueError:
                 return self._abort(
                     row, token, now, f"unknown external table {case['external_table']!r}"
@@ -432,7 +432,7 @@ class OutboxExecutor:
             handler=handler,
             payload=payload,
             table=table,
-            sys_id=str(case["external_id"]),
+            external_id=str(case["external_id"]),
             token=token,
         )
 

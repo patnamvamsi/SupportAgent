@@ -19,9 +19,9 @@ from typing import Any
 
 import pytest
 
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.adapters.servicenow.mapping import record_to_alert
-from supportagent.domain.errors import ServiceNowError
-from supportagent.ports.tickets import SnTable
+from supportagent.ports.tickets import RecordType
 from tests.builders import T0
 
 
@@ -30,25 +30,25 @@ def test_poll_returns_records_updated_in_same_second_as_cursor(sn_env: Any) -> N
     in the same second as ``since`` is returned; a strictly earlier one is not."""
     since = T0
     sn_env["seed"](
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec_same",
         number="INC100",
         short_description="same second",
-        sys_updated_on=since,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=since,
+        updated_by="u1",
+        revision=1,
     )
     sn_env["seed"](
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec_earlier",
         number="INC101",
         short_description="earlier",
-        sys_updated_on=since - timedelta(seconds=1),
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=since - timedelta(seconds=1),
+        updated_by="u1",
+        revision=1,
     )
-    batch = sn_env["source"].poll(SnTable.INCIDENT, since=since, limit=10)
-    ids = [r.sys_id for r in batch.records]
+    batch = sn_env["source"].poll(RecordType.INCIDENT, since=since, limit=10)
+    ids = [r.external_id for r in batch.records]
     assert "rec_same" in ids
     assert "rec_earlier" not in ids
     # an inclusive page whose max ts is the cursor itself
@@ -62,13 +62,13 @@ def test_poll_pagination_complete(sn_env: Any) -> None:
     limit = 2
     for i in range(5):
         sn_env["seed"](
-            SnTable.INCIDENT,
+            RecordType.INCIDENT,
             f"rec{i}",
             number=f"INC{200 + i}",
             short_description=f"record {i}",
-            sys_updated_on=T0 + timedelta(seconds=i),  # distinct seconds, no ties
-            sys_updated_by="u1",
-            sys_mod_count=1,
+            updated_at=T0 + timedelta(seconds=i),  # distinct seconds, no ties
+            updated_by="u1",
+            revision=1,
         )
 
     seen_ids: list[str] = []
@@ -76,13 +76,13 @@ def test_poll_pagination_complete(sn_env: Any) -> None:
     cursor = T0
     pages = 0
     while True:
-        batch = sn_env["source"].poll(SnTable.INCIDENT, since=cursor, limit=limit)
+        batch = sn_env["source"].poll(RecordType.INCIDENT, since=cursor, limit=limit)
         pages += 1
         assert pages < 10  # safety: no infinite paging loop
         cursors.append(batch.next_cursor)
         for rec in batch.records:
-            if rec.sys_id not in seen_ids:  # dedupe the re-fetched boundary record
-                seen_ids.append(rec.sys_id)
+            if rec.external_id not in seen_ids:  # dedupe the re-fetched boundary record
+                seen_ids.append(rec.external_id)
         if len(batch.records) < limit:  # a partial (final) page -> done
             break
         cursor = batch.next_cursor
@@ -97,7 +97,7 @@ def test_poll_pagination_complete(sn_env: Any) -> None:
 def test_history_returns_audit_and_journal_ordered(sn_env: Any) -> None:
     """``history`` merges ``sys_audit`` (checkpoint > ``after_mod_count``) with
     the ``sys_journal_field`` entries, ordered by time (02 §6)."""
-    table = SnTable.INCIDENT
+    table = RecordType.INCIDENT
     sid = "recH"
     # three audit field edits at distinct times (single-digit checkpoints)
     sn_env["seed_audit"](
@@ -167,17 +167,17 @@ def test_429_retry_after_honoured(sn_real: Any) -> None:
     sole sleep (02 §5) — asserted on the recorded sleep seam, not wall time."""
     stack = sn_real
     stack["fake_http"].seed_record(
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec429",
         number="INC100",
         short_description="throttled",
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
     )
     stack["fake_http"].queue_status(429, headers={"Retry-After": "7"})
-    batch = stack["facade"].poll(SnTable.INCIDENT, since=T0, limit=10)
-    assert [r.sys_id for r in batch.records] == ["rec429"]
+    batch = stack["facade"].poll(RecordType.INCIDENT, since=T0, limit=10)
+    assert [r.external_id for r in batch.records] == ["rec429"]
     # exactly one retry, sleeping exactly the advertised 7s (recorded, not waited)
     assert stack["sleeps"] == [7.0]
 
@@ -188,18 +188,18 @@ def test_5xx_retried_then_error(sn_real: Any) -> None:
     retryable ``ServiceNowError`` (02 §5)."""
     stack = sn_real
     stack["fake_http"].seed_record(
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec5xx",
         number="INC100",
         short_description="down",
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
     )
     for _ in range(5):  # one failure per attempt (max_tries = 5)
         stack["fake_http"].queue_status(500)
     with pytest.raises(ServiceNowError) as excinfo:
-        stack["facade"].poll(SnTable.INCIDENT, since=T0, limit=10)
+        stack["facade"].poll(RecordType.INCIDENT, since=T0, limit=10)
     assert excinfo.value.retryable is True
     # 0.5s x 2^n for the four non-final attempts; the final one fails fast
     assert stack["sleeps"] == [0.5, 1.0, 2.0, 4.0]
@@ -210,19 +210,19 @@ def test_poll_offset_pages_same_second_ties(sn_env: Any) -> None:
     every record even when more than ``limit`` share one second."""
     for i in range(5):
         sn_env["seed"](
-            SnTable.INCIDENT,
+            RecordType.INCIDENT,
             f"tie{i}",
             number=f"INC{300 + i}",
             short_description=f"tie {i}",
-            sys_updated_on=T0,  # all in the same second
-            sys_updated_by="u1",
-            sys_mod_count=1,
+            updated_at=T0,  # all in the same second
+            updated_by="u1",
+            revision=1,
         )
     ids: list[str] = []
     offset = 0
     while True:
-        batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=2, offset=offset)
-        ids.extend(r.sys_id for r in batch.records)
+        batch = sn_env["source"].poll(RecordType.INCIDENT, since=T0, limit=2, offset=offset)
+        ids.extend(r.external_id for r in batch.records)
         if len(batch.records) < 2:
             break
         offset += 2
@@ -231,7 +231,7 @@ def test_poll_offset_pages_same_second_ties(sn_env: Any) -> None:
 
 def test_history_since_filters_journal(sn_env: Any) -> None:
     """02 §6: journal history is limited to ``sys_created_on >= since``."""
-    table, sid = SnTable.INCIDENT, "rec_hist_since"
+    table, sid = RecordType.INCIDENT, "rec_hist_since"
     for offset_s, value in ((0, "old note"), (60, "new note")):
         sn_env["seed_journal"](
             table,
@@ -252,18 +252,18 @@ def test_poll_reference_fields_are_plain_sys_ids(sn_env: Any) -> None:
     ``{"link", "value"}`` object (a real instance renders references that way
     unless the request excludes reference links)."""
     sn_env["seed"](
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec_ref",
         number="INC200",
         short_description="ref fields",
         cmdb_ci="ci-sysid-1",
         caller_id="user-sysid-1",
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
     )
-    batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=10)
-    rec = next(r for r in batch.records if r.sys_id == "rec_ref")
+    batch = sn_env["source"].poll(RecordType.INCIDENT, since=T0, limit=10)
+    rec = next(r for r in batch.records if r.external_id == "rec_ref")
     assert rec.cmdb_ci == "ci-sysid-1"
     assert rec.caller_id == "user-sysid-1"
 
@@ -271,19 +271,19 @@ def test_poll_reference_fields_are_plain_sys_ids(sn_env: Any) -> None:
 def test_poll_carries_the_ci_name_as_the_alert_resource(sn_env: Any) -> None:
     """BL-045 / 02 §6: ``resource`` ← ``cmdb_ci.name``, so a catalog lists CI names."""
     sn_env["seed"](
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec_ci",
         number="INC300",
         short_description="mail down",
         cmdb_ci="ci-sysid-9",
         cmdb_ci_name="MailServerUS",
         caller_id="user-1",
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
     )
-    batch = sn_env["source"].poll(SnTable.INCIDENT, since=T0, limit=10)
-    rec = next(r for r in batch.records if r.sys_id == "rec_ci")
+    batch = sn_env["source"].poll(RecordType.INCIDENT, since=T0, limit=10)
+    rec = next(r for r in batch.records if r.external_id == "rec_ci")
     assert rec.cmdb_ci_name == "MailServerUS"
     evt = record_to_alert("acme", rec, received_at=T0)
     assert evt.resource == "MailServerUS"
@@ -293,17 +293,17 @@ def test_poll_carries_the_ci_name_as_the_alert_resource(sn_env: Any) -> None:
 def test_record_returns_current_fields_or_none(sn_env: Any) -> None:
     """ADR-0010: ``record`` reads one record, with its creator; a missing one is ``None``."""
     sn_env["seed"](
-        SnTable.INCIDENT,
+        RecordType.INCIDENT,
         "rec_one",
         number="INC400",
         state="2",
         priority="3",
-        sys_updated_on=T0,
-        sys_updated_by="u1",
-        sys_mod_count=1,
-        sys_created_by="ada",
+        updated_at=T0,
+        updated_by="u1",
+        revision=1,
+        created_by="ada",
     )
-    rec = sn_env["source"].record(SnTable.INCIDENT, "rec_one")
+    rec = sn_env["source"].record(RecordType.INCIDENT, "rec_one")
     assert rec is not None
-    assert (rec.number, rec.state, rec.priority, rec.sys_created_by) == ("INC400", "2", "3", "ada")
-    assert sn_env["source"].record(SnTable.INCIDENT, "no_such_record") is None
+    assert (rec.number, rec.state, rec.priority, rec.created_by) == ("INC400", "2", "3", "ada")
+    assert sn_env["source"].record(RecordType.INCIDENT, "no_such_record") is None

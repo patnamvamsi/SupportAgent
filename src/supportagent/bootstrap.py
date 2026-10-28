@@ -94,8 +94,13 @@ from supportagent.adapters.servicenow.auth import (
 )
 from supportagent.adapters.servicenow.export import read_export
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
-from supportagent.adapters.servicenow.mapping import record_to_alert, severity_from_priority
+from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
+from supportagent.adapters.servicenow.semantics import (
+    SERVICENOW_MANIFEST,
+    ServiceNowSemantics,
+    severity_from_priority,
+)
 from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
@@ -151,6 +156,7 @@ from supportagent.config.loader import (
 )
 from supportagent.config.schema import AppConfig, RoutingRow, Tools
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
+from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.errors import (
     ConfigError,
@@ -229,7 +235,7 @@ from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
-from supportagent.ports.tickets import SnTable, TicketSink, TicketSource
+from supportagent.ports.tickets import RecordType, TicketSink, TicketSource
 from supportagent.ports.tools import Tool
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
@@ -695,6 +701,7 @@ def build_cadence_job(  # noqa: PLR0913 — config plus the injectable ports
         templates=_comms(config).templates,
         tenant_id=config.tenant.id,
         integration_user=config.servicenow.integration_user,
+        semantics=ticket_semantics(config),
     )
 
 
@@ -736,6 +743,39 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
 def _event_sink(uow: SqlUnitOfWork, master_key: bytes | None, clock: Clock) -> SqlEventSink:
     key = master_key if master_key is not None else load_master_key_default()
     return SqlEventSink(uow=uow, cipher=Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock))
+
+
+def connector_manifest(config: AppConfig) -> ConnectorManifest:
+    """WP-M07: the configured connector's capabilities (ServiceNow is the only one)."""
+    del config
+    return SERVICENOW_MANIFEST
+
+
+def ticket_semantics(config: AppConfig) -> ServiceNowSemantics:
+    """WP-M07: the connector's lifecycle and severity mapping (BL-032 custom states)."""
+    return ServiceNowSemantics.with_resolved_states(config.servicenow.resolved_states)
+
+
+def require_connector_supports_mode(config: AppConfig, manifest: ConnectorManifest) -> None:
+    """WP-M07 safe degradation: a connector missing a capability never fails open.
+
+    Without ``history`` the agent can't see a human take a case over, and
+    without ``marker_read`` a send can't be reconciled (INV-04), so either
+    limits the agent to shadow mode. Customer comms need ``customer_notes``.
+    """
+    if config.mode == "shadow":
+        return
+    limits = limits_for(manifest)
+    if not limits.autonomous:
+        raise ConfigError(  # noqa: TRY003
+            f"mode '{config.mode}' needs a connector with history and marker_read; "
+            f"{manifest.name}: {'; '.join(limits.reasons)}"
+        )
+    routes = [*config.routing, *([config.default] if config.default else [])]
+    if any(r.comms for r in routes) and not limits.customer_notes:
+        raise ConfigError(  # noqa: TRY003
+            f"comms plans need the customer_notes capability, which {manifest.name} lacks"
+        )
 
 
 def _build_servicenow_source(
@@ -1035,6 +1075,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     """
     engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     require_automation_decided(config, SqlAutomationActors(engine))
+    require_connector_supports_mode(config, connector_manifest(config))
     clock = clock if clock is not None else SystemClock()
     ids = ids if ids is not None else UlidIdGenerator()
     key = master_key if master_key is not None else load_master_key_default()
@@ -1090,7 +1131,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             tenant_id=config.tenant.id,
             integration_user=config.servicenow.integration_user,
             integration_ids=_integration_ids(config, clock=clock, transport=transport),
-            resolved_states=config.servicenow.resolved_states,
+            semantics=ticket_semantics(config),
         ),
     )
     sync_uow = SqlUnitOfWork(engine)
@@ -1104,20 +1145,22 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         clock=clock,
         integration_user=sn.integration_user,
         to_alert=record_to_alert,
+        semantics=ticket_semantics(config),
+        history=limits_for(connector_manifest(config)).takeover_detection,
         page_size=sn.page_size,
         overlap_s=sn.overlap_s,
     )
     lease = SqlLease(SqlUnitOfWork(engine), clock)
     owner = _worker_owner()
 
-    def poll(table: SnTable) -> Callable[[], JobResult]:
+    def poll(table: RecordType) -> Callable[[], JobResult]:
         return lambda: sync_poll(poller=sync, table=table, lease=lease, owner=owner)
 
     jobs = [
         ScheduledJob(
-            name=sync_poll_lease(SnTable(name)),
+            name=sync_poll_lease(RecordType(name)),
             interval_s=float(sn.poll_interval_s),
-            run=poll(SnTable(name)),
+            run=poll(RecordType(name)),
         )
         for name in sn.tables
     ]
@@ -1314,9 +1357,10 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         load_bundle=lambda: _load_bundle(config),
         load_calibration=lambda: _build_calibration(config),
         schema=SqlSchemaProbe(engine, head=_head_revision()),
-        servicenow=ServiceNowTableProbe(
+        records=ServiceNowTableProbe(
             http=_servicenow_http(config, clock=clock, transport=transport, max_tries=2)
         ),
+        connector=connector_manifest(config),
         llm=_LazyModelProbe(lambda: _build_llm(config, _NullEvents(), ids, clock, llm_provider)),
         identity=oidc,
         automation=SqlAutomationActors(engine),
@@ -1336,7 +1380,7 @@ def run_doctor(config: AppConfig, *, discover_automation: bool = False) -> Docto
     reached is itself a failing check, so a save that fails is only logged.
     """
     ctx = build_doctor_context(config, discover_automation=discover_automation)
-    report = Doctor(default_checks()).run(ctx)
+    report = Doctor(default_checks(ctx.connector.name)).run(ctx)
     save_doctor_report(config, report, clock=ctx.clock)
     return report
 
@@ -2132,6 +2176,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     idp_label: str = "your identity provider",
     webhook_sources: Mapping[str, WebhookSource] | None = None,
     promotion_gate: PromotionGate | None = None,
+    semantics: TicketSemantics | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -2198,7 +2243,14 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def lifecycle() -> LifecycleService:
         # The API only hands back; ServiceNow-driven transitions run in the worker.
         uow, events = _ports()
-        return LifecycleService(uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id)
+        return LifecycleService(
+            uow=uow,
+            clock=clock,
+            ids=ids,
+            events=events,
+            tenant_id=tenant_id,
+            semantics=semantics or ServiceNowSemantics(),
+        )
 
     return ApiContext(
         setup=setup,
@@ -2251,6 +2303,7 @@ def build_api_context(
         proposal_ttl=timedelta(hours=config.proposals.ttl_hours),
         idp_label=urlparse(config.identity.oidc_issuer).hostname or "your identity provider",
         webhook_sources=_webhook_sources(config),
+        semantics=ticket_semantics(config),
         promotion_gate=_promotion_gate(config),
     )
 

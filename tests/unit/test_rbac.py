@@ -94,7 +94,7 @@ def client(db: Any, clock: Any, ids: Any, master_key: bytes, oidc: FakeOIDC) -> 
 def test_approver_scope_service_limited(client: TestClient, oidc: FakeOIDC, db: Any) -> None:
     pay = seed_proposal(db, proposal_id="prop_pay", case_id="case_pay", service="payments")
     srch = seed_proposal(
-        db, proposal_id="prop_srch", case_id="case_srch", service="search", sys_id="INC2"
+        db, proposal_id="prop_srch", case_id="case_srch", service="search", external_id="INC2"
     )
     login(client, oidc, ADA)
     logout(client)

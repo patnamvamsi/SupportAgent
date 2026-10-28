@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from supportagent.config.schema import AppConfig
+from supportagent.domain.connector import Capability, ConnectorManifest
 from supportagent.domain.knowledge import KnowledgeIndex
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog
@@ -24,8 +25,8 @@ from supportagent.ports.diagnostics import (
     AutomationActorStore,
     DiscoveryProbe,
     ModelProbe,
+    RecordProbe,
     SchemaProbe,
-    ServiceNowProbe,
 )
 
 CheckStatus = Literal["pass", "warn", "fail"]
@@ -68,7 +69,8 @@ class DoctorContext:
     load_bundle: Callable[[], Bundle]
     load_calibration: Callable[[], CalibrationTable]
     schema: SchemaProbe
-    servicenow: ServiceNowProbe
+    #: WP-M07: the connector's read-only probe, and what the connector can do.
+    records: RecordProbe
     llm: ModelProbe
     identity: DiscoveryProbe
     automation: AutomationActorStore
@@ -82,12 +84,28 @@ class DoctorContext:
     mcp_servers: Mapping[str, Callable[[], Sequence[str]]] = field(default_factory=dict)
     #: WP-M08: the knowledge index (``None``: no sources configured).
     load_knowledge: Callable[[], KnowledgeIndex | None] | None = None
+    connector: ConnectorManifest = field(
+        default_factory=lambda: ConnectorManifest("servicenow", frozenset(Capability))
+    )
 
 
 class Check(Protocol):
     name: str
 
     def run(self, ctx: DoctorContext) -> CheckResult: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorDoctor:
+    """WP-M07: one connector's doctor checks and its automation-actor discovery.
+
+    ``discover_automation`` returns ``(actor, kind)`` candidates: the
+    non-interactive identities that set a record's assignee (ARCH §8.2).
+    """
+
+    name: str
+    checks: Sequence[Check]
+    discover_automation: Callable[[DoctorContext], list[tuple[str, str]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +153,7 @@ __all__ = [
     "Check",
     "CheckResult",
     "CheckStatus",
+    "ConnectorDoctor",
     "Doctor",
     "DoctorContext",
     "DoctorReport",

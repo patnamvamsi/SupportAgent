@@ -22,7 +22,7 @@ from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.external import ExternalRef
 from supportagent.ports.paging import PagingIntegration
-from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tickets import NoteVisibility, RecordType, TicketSink
 
 
 class Handler(Protocol):
@@ -32,8 +32,8 @@ class Handler(Protocol):
         self,
         *,
         sink: TicketSink,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         payload: Mapping[str, object],
         idempotency_key: str,
     ) -> ExternalRef:
@@ -76,13 +76,13 @@ class WorkNoteHandler:
         self,
         *,
         sink: TicketSink,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         payload: Mapping[str, object],
         idempotency_key: str,
     ) -> ExternalRef:
         return sink.append_journal(
-            table, sys_id, JournalField.WORK_NOTES, _journal_text(payload, idempotency_key)
+            table, external_id, NoteVisibility.INTERNAL, _journal_text(payload, idempotency_key)
         )
 
 
@@ -93,13 +93,13 @@ class CustomerCommentHandler:
         self,
         *,
         sink: TicketSink,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         payload: Mapping[str, object],
         idempotency_key: str,
     ) -> ExternalRef:
         return sink.append_journal(
-            table, sys_id, JournalField.COMMENTS, _journal_text(payload, idempotency_key)
+            table, external_id, NoteVisibility.CUSTOMER, _journal_text(payload, idempotency_key)
         )
 
 
@@ -110,12 +110,12 @@ class TicketUpdateHandler:
         self,
         *,
         sink: TicketSink,
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         payload: Mapping[str, object],
         idempotency_key: str,  # part of the Handler contract signature
     ) -> ExternalRef:
-        return sink.update_fields(table, sys_id, _fields(payload))
+        return sink.update_fields(table, external_id, _fields(payload))
 
 
 #: ``enrich_page`` found no open page: done, with nothing attached (ARCH §14).
@@ -138,8 +138,8 @@ class EnrichPageHandler:
         self,
         *,
         sink: TicketSink,  # part of the Handler contract; a page isn't a ticket
-        table: SnTable,
-        sys_id: str,
+        table: RecordType,
+        external_id: str,
         payload: Mapping[str, object],
         idempotency_key: str,
     ) -> ExternalRef:

@@ -67,7 +67,7 @@ from supportagent.domain.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.severity import Severity
 from supportagent.domain.slots import SlotName
 from supportagent.ports.llm import LLMProvider
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.builders import an_alert
 
 pytestmark = pytest.mark.integration
@@ -307,7 +307,7 @@ def test_wp011_dod_work_note_posted_once_and_replayed(  # noqa: PLR0913, PLR0917
     assert fake_sn.write_count == 1, (
         f"expected exactly one external write, got {fake_sn.write_count}"
     )
-    entries = fake_sn.journal_entries(SnTable.INCIDENT, SYS_ID, JournalField.WORK_NOTES)
+    entries = fake_sn.journal_entries(RecordType.INCIDENT, SYS_ID, NoteVisibility.INTERNAL)
     assert len(entries) == 1, f"expected one journal entry, got {len(entries)}"
     # The idempotency marker is the last line of the posted entry (01 §7.5).
     assert entries[0].splitlines()[-1].startswith("[sa:")

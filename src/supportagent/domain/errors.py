@@ -105,8 +105,12 @@ class ExternalServiceError(SupportAgentError):
         self.retry_after_s = retry_after_s
 
 
-class ServiceNowError(ExternalServiceError):
-    """A ServiceNow call failed (01 §6). ``status`` is the HTTP status, when there was one."""
+class ConnectorError(ExternalServiceError):
+    """An incident-system call failed (01 §6, WP-M07). ``status`` is the HTTP status, if any.
+
+    Each connector raises its own subclass (``adapters.servicenow.errors``);
+    core code only ever catches this.
+    """
 
     status: int | None
 

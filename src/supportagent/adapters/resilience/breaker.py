@@ -6,7 +6,7 @@ through, and a success closes it while a failure re-opens it for another
 ``open_s``. Calls made while it's open fail at once, without touching the
 dependency:
 
-- ``CircuitBreakerTicketSink`` raises a retryable ``ServiceNowError`` whose
+- ``CircuitBreakerTicketSink`` raises a retryable ``ConnectorError`` whose
   ``retry_after_s`` is the time left. The outbox backs off and reconciles as
   for any other failure.
 - ``CircuitBreakerLLMProvider`` raises ``LLMCircuitOpen``. ``LLMClient`` turns
@@ -23,11 +23,11 @@ import threading
 from collections.abc import Callable, Mapping
 from typing import Literal, TypeVar
 
-from supportagent.domain.errors import ExternalServiceError, LLMCircuitOpen, ServiceNowError
+from supportagent.domain.errors import ConnectorError, ExternalServiceError, LLMCircuitOpen
 from supportagent.domain.model.external import ExternalRef
 from supportagent.ports.clock import Clock
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
-from supportagent.ports.tickets import JournalField, SnTable, TicketSink
+from supportagent.ports.tickets import NoteVisibility, RecordType, TicketSink
 
 BreakerState = Literal["closed", "open", "half_open"]
 T = TypeVar("T")
@@ -116,22 +116,24 @@ class CircuitBreakerTicketSink:
         try:
             return self._breaker.call(fn)
         except CircuitOpenError as exc:
-            raise ServiceNowError(  # noqa: TRY003
-                f"ServiceNow circuit open ({self._breaker.name})",
+            raise ConnectorError(  # noqa: TRY003
+                f"connector circuit open ({self._breaker.name})",
                 retryable=True,
                 retry_after_s=exc.retry_after_s,
             ) from exc
 
     def append_journal(
-        self, table: SnTable, sys_id: str, field: JournalField, text: str
+        self, table: RecordType, external_id: str, field: NoteVisibility, text: str
     ) -> ExternalRef:
-        return self._guard(lambda: self._inner.append_journal(table, sys_id, field, text))
+        return self._guard(lambda: self._inner.append_journal(table, external_id, field, text))
 
-    def update_fields(self, table: SnTable, sys_id: str, fields: Mapping[str, str]) -> ExternalRef:
-        return self._guard(lambda: self._inner.update_fields(table, sys_id, fields))
+    def update_fields(
+        self, table: RecordType, external_id: str, fields: Mapping[str, str]
+    ) -> ExternalRef:
+        return self._guard(lambda: self._inner.update_fields(table, external_id, fields))
 
-    def find_marker(self, table: SnTable, sys_id: str, marker: str) -> ExternalRef | None:
-        return self._guard(lambda: self._inner.find_marker(table, sys_id, marker))
+    def find_marker(self, table: RecordType, external_id: str, marker: str) -> ExternalRef | None:
+        return self._guard(lambda: self._inner.find_marker(table, external_id, marker))
 
 
 class CircuitBreakerLLMProvider:

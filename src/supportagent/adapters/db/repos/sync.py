@@ -58,18 +58,18 @@ class SyncRepo:
 
     # --- sync_seen -----------------------------------------------------------
 
-    def is_seen(self, tenant_id: str, sys_id: str, sys_mod_count: int) -> bool:
+    def is_seen(self, tenant_id: str, external_id: str, revision: int) -> bool:
         """Whether this exact record version was already delivered."""
         row = self._uow.connection.execute(
             sa.select(sync_seen.c.tenant_id).where(
                 sync_seen.c.tenant_id == tenant_id,
-                sync_seen.c.sys_id == sys_id,
-                sync_seen.c.sys_mod_count == sys_mod_count,
+                sync_seen.c.sys_id == external_id,
+                sync_seen.c.sys_mod_count == revision,
             )
         ).first()
         return row is not None
 
-    def mark_seen(self, tenant_id: str, sys_id: str, sys_mod_count: int, *, now_ts: int) -> None:
+    def mark_seen(self, tenant_id: str, external_id: str, revision: int, *, now_ts: int) -> None:
         """Record ``(sys_id, sys_mod_count)`` as processed (idempotent)."""
         self._uow.connection.execute(
             upsert_stmt(
@@ -77,8 +77,8 @@ class SyncRepo:
                 sync_seen,
                 {
                     "tenant_id": tenant_id,
-                    "sys_id": sys_id,
-                    "sys_mod_count": sys_mod_count,
+                    "sys_id": external_id,
+                    "sys_mod_count": revision,
                     "processed_ts": now_ts,
                 },
                 ["tenant_id", "sys_id", "sys_mod_count"],
@@ -110,7 +110,7 @@ class SyncRepo:
                 )
             )
 
-    def max_seen_mod_count(self, tenant_id: str, sys_id: str) -> int | None:
+    def max_seen_mod_count(self, tenant_id: str, external_id: str) -> int | None:
         """The highest ``sys_mod_count`` already processed for this record.
 
         ``None`` means never seen. That is distinct from ``0``: a new
@@ -120,7 +120,7 @@ class SyncRepo:
         row = self._uow.connection.execute(
             sa.select(sa.func.max(sync_seen.c.sys_mod_count)).where(
                 sync_seen.c.tenant_id == tenant_id,
-                sync_seen.c.sys_id == sys_id,
+                sync_seen.c.sys_id == external_id,
             )
         ).scalar()
         return None if row is None else int(row)

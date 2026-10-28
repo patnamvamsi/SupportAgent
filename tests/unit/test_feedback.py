@@ -46,7 +46,7 @@ def test_feedback_approval_reason_captured(
     oidc = FakeOIDC()
     client = make_client(db, clock, ids, master_key, oidc)
     ok = seed_proposal(db, proposal_id="prop_ok", case_id="case_a")
-    no = seed_proposal(db, proposal_id="prop_no", case_id="case_b", sys_id="INC2")
+    no = seed_proposal(db, proposal_id="prop_no", case_id="case_b", external_id="INC2")
     login(client, oidc, ADA)
     logout(client)
     seed_users(db, ("sub-bob", "approver"))

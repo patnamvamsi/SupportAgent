@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from supportagent.adapters.servicenow.auth import ServiceNowAuth
-from supportagent.domain.errors import ServiceNowError
+from supportagent.adapters.servicenow.errors import ServiceNowError
 
 DEFAULT_MAX_TRIES = 5
 DEFAULT_BACKOFF_BASE_S = 0.5

@@ -86,7 +86,7 @@ def _approval(  # noqa: PLR0913
     reason: str | None,
 ) -> None:
     seed_proposal(
-        db, proposal_id=pid, case_id=f"case_{pid}", created_at_ts=created, sys_id=f"INC_{pid}"
+        db, proposal_id=pid, case_id=f"case_{pid}", created_at_ts=created, external_id=f"INC_{pid}"
     )
     with db.begin() as conn:
         conn.execute(

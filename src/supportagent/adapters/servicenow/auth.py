@@ -16,7 +16,7 @@ from typing import Protocol, runtime_checkable
 
 import httpx
 
-from supportagent.domain.errors import ServiceNowError
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.ports.clock import Clock
 
 TOKEN_REFRESH_MARGIN_S = 60.0

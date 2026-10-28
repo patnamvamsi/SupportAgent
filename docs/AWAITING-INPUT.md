@@ -21,7 +21,16 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 - **Needs:** a Confluence site URL, a space key and a read-only API token (or a decision to use an MCP server for Confluence instead).
 
-### Carried over
+## Decisions taken for review
+
+Calls made without the maintainer so work could continue. Each can be reversed in a small PR.
+
+- **WP-M08 before WP-M07** (approved in chat, 2026-10-27).
+- **ADR-0013 (WP-M07):**
+  - A connector without change history runs **shadow-only**, which is stricter than ADR-0011 §3's "every write needs a human approval". That approval-only mode is BL-053.
+  - Stored keys keep their v0.0 values (`em_alert`, `servicenow:` scopes), so nothing is migrated.
+
+## Still open, carried over
 
 - Partner email: the last 50 incidents, the holdout set, and the change source.
 - ADR-0003 thresholds (informed by the lab calibration).

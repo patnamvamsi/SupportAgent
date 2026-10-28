@@ -32,7 +32,7 @@ from typing import Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.lifecycle import confirmed_automation_actors
-from supportagent.domain.classification import map_servicenow_classification
+from supportagent.domain.classification import map_source_classification
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.model.event import Event
@@ -193,7 +193,7 @@ class FeedbackService:
             severity = _PRIORITY.get(str(priority)) if priority else None
             category = latest.get("category", {}).get("actual")
             subcategory = latest.get("subcategory", {}).get("actual")
-            classification = map_servicenow_classification(
+            classification = map_source_classification(
                 str(category) if category else None,
                 str(subcategory) if subcategory else None,
                 self._classification_map,

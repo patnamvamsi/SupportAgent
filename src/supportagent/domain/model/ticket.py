@@ -27,7 +27,7 @@ class TicketRecord(DomainModel):
     """
 
     table: str
-    sys_id: str
+    external_id: str
     number: str | None = None
     short_description: str | None = None
     description: str | None = None
@@ -39,12 +39,12 @@ class TicketRecord(DomainModel):
     #: BL-045: the CI's name (``cmdb_ci.name``), what a catalog's ``resources`` list.
     cmdb_ci_name: str | None = None
     #: ADR-0010: who created the record; a human creator makes its creation values human-set.
-    sys_created_by: str | None = None
+    created_by: str | None = None
     caller_id: str | None = None
-    u_alert_source: str | None = None
-    sys_updated_on: datetime
-    sys_updated_by: str
-    sys_mod_count: int
+    alert_source: str | None = None
+    updated_at: datetime
+    updated_by: str
+    revision: int
 
 
 class ChangeRecord(DomainModel):

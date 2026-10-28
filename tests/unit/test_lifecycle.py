@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.oidc import FakeOIDC
+from supportagent.adapters.servicenow.semantics import ServiceNowSemantics
 from supportagent.app.gate import GateService
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.setup import SetupService
@@ -69,7 +70,7 @@ def _signals(changes: list[ChangeRecord], status: CaseStatus, **kw: Any) -> list
             integration_user=_SVC,
             integration_ids=kw.get("ids", {_SVC, "u-svc"}),
             automation_actors=kw.get("automation", set()),
-            **({"resolved_states": kw["resolved"]} if "resolved" in kw else {}),
+            semantics=ServiceNowSemantics.with_resolved_states(kw.get("resolved")),
         )
     ]
 
@@ -147,6 +148,7 @@ def lifecycle(db: Any, clock: Any, ids: Any, events: Any) -> LifecycleService:
         tenant_id=TENANT,
         integration_user=_SVC,
         integration_ids=lambda: {"u-svc"},
+        semantics=ServiceNowSemantics(),
     )
 
 
@@ -261,7 +263,11 @@ def client(db: Any, clock: Any, ids: Any, master_key: bytes, oidc: FakeOIDC) -> 
 
 def _human_owned(db: Any, case_id: str = "case_1", service: str = "payments") -> None:
     seed_proposal(
-        db, proposal_id=f"p_{case_id}", case_id=case_id, service=service, sys_id=f"INC_{case_id}"
+        db,
+        proposal_id=f"p_{case_id}",
+        case_id=case_id,
+        service=service,
+        external_id=f"INC_{case_id}",
     )
     with db.begin() as conn:
         conn.execute(text("UPDATE cases SET status = 'human_owned' WHERE id = :c"), {"c": case_id})

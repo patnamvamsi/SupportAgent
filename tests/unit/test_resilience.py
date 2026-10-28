@@ -25,9 +25,10 @@ from supportagent.adapters.resilience.breaker import (
     CircuitBreakerTicketSink,
 )
 from supportagent.adapters.resilience.retry import RetryingTicketSink
+from supportagent.adapters.servicenow.errors import ServiceNowError
 from supportagent.config.loader import load_fault_injection
 from supportagent.domain.deprecation import deprecation_notices
-from supportagent.domain.errors import ConfigError, LLMUnavailable, ServiceNowError
+from supportagent.domain.errors import ConfigError, ConnectorError, LLMUnavailable
 from supportagent.domain.events import EventKind
 from supportagent.domain.faults import Fault, parse_faults
 from supportagent.domain.model.external import ExternalRef
@@ -35,7 +36,7 @@ from supportagent.domain.model.triage import SafeDefaulted, TriageResult
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.worker.jobs import llm_deprecation_check
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 from tests.unit.test_triage_service import _evt, _wire
 
 _REF = ExternalRef(system="servicenow", ref="sys_journal/1")
@@ -54,15 +55,15 @@ class _FlakySink:
         if self.errors:
             raise self.errors.pop(0)
 
-    def append_journal(self, table: Any, sys_id: str, field: Any, text: str) -> ExternalRef:
+    def append_journal(self, table: Any, external_id: str, field: Any, text: str) -> ExternalRef:
         self._call("append_journal")
         return _REF
 
-    def update_fields(self, table: Any, sys_id: str, fields: Any) -> ExternalRef:
+    def update_fields(self, table: Any, external_id: str, fields: Any) -> ExternalRef:
         self._call("update_fields")
         return _REF
 
-    def find_marker(self, table: Any, sys_id: str, marker: str) -> ExternalRef | None:
+    def find_marker(self, table: Any, external_id: str, marker: str) -> ExternalRef | None:
         self._call("find_marker")
         return None
 
@@ -85,10 +86,10 @@ def test_breaker_opens_and_half_opens(clock: Any) -> None:
     sink = CircuitBreakerTicketSink(inner, breaker)
     for _ in range(5):
         with pytest.raises(ServiceNowError, match="500"):
-            sink.find_marker(SnTable.INCIDENT, "s", "m")
+            sink.find_marker(RecordType.INCIDENT, "s", "m")
     assert _state(breaker) == "open"
-    with pytest.raises(ServiceNowError, match="circuit open") as refused:
-        sink.find_marker(SnTable.INCIDENT, "s", "m")
+    with pytest.raises(ConnectorError, match="circuit open") as refused:
+        sink.find_marker(RecordType.INCIDENT, "s", "m")
     assert refused.value.retryable and refused.value.retry_after_s == pytest.approx(60)
     assert inner.calls["find_marker"] == 5, "an open breaker never calls through"
 
@@ -96,11 +97,11 @@ def test_breaker_opens_and_half_opens(clock: Any) -> None:
     assert _state(breaker) == "half_open"
     inner.errors = [_sn500()]
     with pytest.raises(ServiceNowError, match="500"):
-        sink.find_marker(SnTable.INCIDENT, "s", "m")  # the one probe fails
+        sink.find_marker(RecordType.INCIDENT, "s", "m")  # the one probe fails
     assert _state(breaker) == "open", "a failed probe re-opens at once"
 
     clock.advance(60)
-    assert sink.find_marker(SnTable.INCIDENT, "s", "m") is None  # the probe succeeds
+    assert sink.find_marker(RecordType.INCIDENT, "s", "m") is None  # the probe succeeds
     assert _state(breaker) == "closed"
 
 
@@ -123,13 +124,13 @@ def test_retry_respects_retry_after() -> None:
     limited = ServiceNowError("429", retryable=True, retry_after_s=7, status=429)
     inner = _FlakySink([limited])
     sink = RetryingTicketSink(inner, sleep=slept.append)
-    sink.append_journal(SnTable.INCIDENT, "s", JournalField.WORK_NOTES, "t")
+    sink.append_journal(RecordType.INCIDENT, "s", NoteVisibility.INTERNAL, "t")
     assert slept == [7] and inner.calls["append_journal"] == 2
     # Retry-After is capped; without it the backoff is exponential.
     inner.errors = [ServiceNowError("429", retryable=True, retry_after_s=999, status=429)]
-    sink.append_journal(SnTable.INCIDENT, "s", JournalField.WORK_NOTES, "t")
+    sink.append_journal(RecordType.INCIDENT, "s", NoteVisibility.INTERNAL, "t")
     inner.errors = [_sn500(), _sn500()]
-    sink.find_marker(SnTable.INCIDENT, "s", "m")
+    sink.find_marker(RecordType.INCIDENT, "s", "m")
     assert slept == [7, 30.0, 0.5, 1.0]
 
 
@@ -138,11 +139,11 @@ def test_ambiguous_journal_failure_is_not_retried() -> None:
     inner = _FlakySink([_sn500()])
     sink = RetryingTicketSink(inner, sleep=lambda _: None)
     with pytest.raises(ServiceNowError):
-        sink.append_journal(SnTable.INCIDENT, "s", JournalField.WORK_NOTES, "t")
+        sink.append_journal(RecordType.INCIDENT, "s", NoteVisibility.INTERNAL, "t")
     assert inner.calls["append_journal"] == 1
     inner.errors = [ServiceNowError("400", retryable=False, status=400)]
     with pytest.raises(ServiceNowError):
-        sink.update_fields(SnTable.INCIDENT, "s", {"a": "b"})
+        sink.update_fields(RecordType.INCIDENT, "s", {"a": "b"})
     assert inner.calls["update_fields"] == 1, "non-retryable errors are never retried"
 
 

@@ -43,13 +43,13 @@ from supportagent.domain.idempotency import approval_key
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.trace import TraceContext
-from supportagent.ports.tickets import JournalField, SnTable
+from supportagent.ports.tickets import NoteVisibility, RecordType
 
 TENANT = "acme"
 CASE_ID = "case_inv04_dod"
 CREATOR = "user_creator"
 APPROVER = "user_approver"
-TABLE = SnTable.INCIDENT
+TABLE = RecordType.INCIDENT
 SYS_ID = "sn123"
 
 #: The executor's five step boundaries (the crash points, 01 §7.5).
@@ -185,12 +185,12 @@ def _scalar(db: Any, sql: str, **params: Any) -> Any:
         return conn.execute(sa.text(sql), params).scalar_one()
 
 
-def _field_for(kind: ActionKind) -> JournalField:
+def _field_for(kind: ActionKind) -> NoteVisibility:
     """The journal field a journal kind appends to (01 §7.5)."""
     if kind is ActionKind.WORK_NOTE:
-        return JournalField.WORK_NOTES
+        return NoteVisibility.INTERNAL
     if kind is ActionKind.CUSTOMER_COMMENT:
-        return JournalField.COMMENTS
+        return NoteVisibility.CUSTOMER
     msg = f"not a journal kind: {kind!r}"
     raise ValueError(msg)
 
