@@ -140,10 +140,12 @@ from supportagent.app.rca import (
     Budget,
     BufferedEvents,
     DocPolicy,
+    Entailment,
     Knowledge,
     RcaCase,
     RcaJob,
     RcaService,
+    entail_variables,
     lite_route_ids,
 )
 from supportagent.app.replay import ReplayService, ReplayView
@@ -233,6 +235,8 @@ from supportagent.entrypoints.worker.jobs import (
 )
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
+from supportagent.evals.entail import EntailCase, EntailGates, EntailSuite
+from supportagent.evals.entail import Verdict as EntailVerdict
 from supportagent.evals.harness import Manifest
 from supportagent.evals.lab import (
     LabGates,
@@ -2408,6 +2412,74 @@ def build_lab_pipeline(
         return caching
 
     pipeline = LabPipeline(config, provider=None if live else _UnrecordedProvider(), decorate=cache)
+    pipeline.caching = holder[0] if holder else None
+    return pipeline
+
+
+#: BL-039: the citation-faithfulness suite and its recorded responses.
+ENTAIL_DIR = Path("evals/entail")
+
+
+class EntailPipeline:
+    """BL-039: each curated pair through the ``entail`` slot, exactly as RCA sends it."""
+
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        provider: LLMProvider | None = None,
+        decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+    ) -> None:
+        self._config = _lab_config(config)
+        self.model_id = self._config.llm.slots[SlotName.ENTAIL.value].model_id
+        self._clock = ReplayClock()
+        self._clock.set(datetime(2026, 1, 1, tzinfo=UTC))
+        self._llm = _build_llm(
+            self._config,
+            _NullEvents(),
+            UlidIdGenerator(),
+            self._clock,
+            provider,
+            decorate=decorate,
+            resilient=False,
+        )
+        self.caching: CachingLLMProvider | None = None
+
+    def judge(self, case: EntailCase, sample: int) -> EntailVerdict | None:
+        if self.caching is not None:
+            self.caching.sample = sample
+        trace = TraceContext(self._config.tenant.id, f"entail-{case.id}", "entail")
+        got = self._llm.structured(
+            SlotName.ENTAIL, entail_variables(case.claim, case.evidence), Entailment, trace
+        )
+        return got.verdict if got is not None else None
+
+
+def load_entail_suite(config: AppConfig) -> tuple[list[EntailCase], EntailGates]:
+    """BL-039: the curated pairs (``evals/entail/cases.yaml``) and the ``entail`` gates."""
+    try:
+        suite = EntailSuite.model_validate(load_yaml_document(ENTAIL_DIR / "cases.yaml"))
+        raw = load_yaml_document(Path(config.paths.gates)).get("entail") or {}
+        gates = EntailGates.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"entail suite: {exc}") from exc  # noqa: TRY003
+    return list(suite.cases), gates
+
+
+def build_entail_pipeline(config: AppConfig, *, live: bool) -> EntailPipeline:
+    """``live`` calls the configured model and records; otherwise replay only."""
+    holder: list[CachingLLMProvider] = []
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        caching = CachingLLMProvider(
+            inner, directory=ENTAIL_DIR / "recordings", snapshot_id="entail"
+        )
+        holder.append(caching)
+        return caching
+
+    pipeline = EntailPipeline(
+        config, provider=None if live else _UnrecordedProvider(), decorate=cache
+    )
     pipeline.caching = holder[0] if holder else None
     return pipeline
 
