@@ -55,13 +55,18 @@ def _docs() -> KnowledgeIndex:
     return KnowledgeIndex(chunk_document(meta, "# Bad deploy\nRoll back first.", redact=str))
 
 
-def _job(db: Engine, master_key: bytes, clock: Any, ids: Any) -> RcaJob:
+def _job(
+    db: Engine, master_key: bytes, clock: Any, ids: Any, *, paging: str | None = None
+) -> RcaJob:
     uow = SqlUnitOfWork(db)
     aead = Aead(master_key=master_key, keys=SqlKeyStore(uow), clock=clock)
     events = SqlEventSink(uow=uow, cipher=aead)
     buffer = BufferedEvents()
     kb = _knowledge(ROOT / "runbooks")
-    catalog = Catalog(version="1", services=[SERVICE.model_copy(update={"docs": ["wiki"]})])
+    catalog = Catalog(
+        version="1",
+        services=[SERVICE.model_copy(update={"docs": ["wiki"], "paging_integration": paging})],
+    )
     service = RcaService(
         knowledge=Knowledge(kb.runbooks, kb.probes, kb.excludes),
         tools=FakeTools({"gha.recent_runs": FAILED_RUN, "logs.grep": POOL_LOGS}),
@@ -126,3 +131,35 @@ def test_sop_step_proposed_for_approval_despite_a_work_note_grant(
     assert payload["rca_artifact"] == artifact[0] and payload["sop_step"] == "roll-back"
     assert "Ask the deployer to roll back." in payload["text"]
     assert outbox == 0  # nothing auto-approved, nothing enqueued
+
+
+def test_rca_result_attached_to_the_open_page_from_allowlisted_fields(
+    db: Engine, master_key: bytes, clock: Any, ids: Any
+) -> None:
+    """BL-040: one ``enrich_page`` after RCA, with the outcome, ids and tools only."""
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO cases (id, tenant_id, fingerprint, origin, service, classification, "
+                "severity, status, decision_json, opened_ts, last_alert_ts, trace_id, "
+                "external_table, external_id) "
+                "VALUES ('case_2', 'acme', 'fp-2', 'alert', 'payroll-api', "
+                "'database/saturation', 'P2', 'triaged', :d, 100, 100, 'tr-2', 'incident', 'sys-2')"
+            ),
+            {"d": _ROUTED},
+        )
+    job = _job(db, master_key, clock, ids, paging="pagerduty:payroll")
+    assert job.run_once() == 1
+    with db.connect() as conn:
+        rows = conn.execute(
+            text("SELECT action_kind, scope, payload_json FROM proposals ORDER BY action_kind")
+        ).all()
+    page = [r for r in rows if r[0] == "enrich_page"]
+    [(_, scope, payload_json)] = page
+    assert scope == "service:payroll-api:enrich_page"
+    payload = json.loads(payload_json)
+    assert payload["template_id"] == "enrich_page_rca_v1"
+    assert payload["integration"] == "pagerduty:payroll" and payload["source_ref"] == "sys-2"
+    assert payload["text"].startswith("SupportAgent RCA for case case_2: SUPPORTED.")
+    assert "Cause recent_change_push, confirmed by gha.recent_runs." in payload["text"]
+    assert "1 SOP step(s) await approval" in payload["text"]

@@ -44,7 +44,7 @@ from typing import Literal, Protocol, Self
 import sqlalchemy as sa
 from pydantic import Field
 
-from supportagent.app.propose import sop_step_spec
+from supportagent.app.propose import rca_page_spec, sop_step_spec
 from supportagent.domain.errors import DomainValidationError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
@@ -786,17 +786,20 @@ class RcaJob:
                     "ts": int(self._clock.now().astimezone(UTC).timestamp()),
                 },
             )
-            self._propose_sop_steps(case, artifact, artifact_id)
+            pending = self._propose_sop_steps(case, artifact, artifact_id)
+            self._enrich_page(case, artifact, pending)
             self._uow.commit()
         return artifact_id
 
-    def _propose_sop_steps(self, case: RcaCase, artifact: RcaArtifact, artifact_id: str) -> None:
+    def _propose_sop_steps(self, case: RcaCase, artifact: RcaArtifact, artifact_id: str) -> int:
         """ADR-0014: each applicable SOP step through the gate, in the artifact's UoW.
 
         Without a gate (shadow mode), the steps stay in the artifact only.
+        Returns how many were submitted.
         """
         if self._gate is None or case.service is None or not case.external_id:
-            return
+            return 0
+        submitted = 0
         trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
         for match in artifact.sop_steps:
             spec = sop_step_spec(
@@ -809,6 +812,40 @@ class RcaJob:
                 continue
             payload = {**spec.payload, "rca_artifact": artifact_id}
             self._gate.submit(case.id, spec.model_copy(update={"payload": payload}), trace)
+            submitted += 1
+        return submitted
+
+    def _enrich_page(self, case: RcaCase, artifact: RcaArtifact, sop_pending: int) -> None:
+        """BL-040: the RCA result on the case's open page, when a check ran (assisted mode)."""
+        service = case.service
+        if self._gate is None or service is None or not case.external_id:
+            return
+        if not service.paging_integration or not any(e.step.ran for e in artifact.evidence):
+            return
+        by_step = {e.step.step_id: e for e in artifact.evidence}
+        lead = by_step.get(artifact.supported_by or "")
+        confirmed = sorted(
+            {
+                by_step[c].tool
+                for claim in artifact.claims
+                if claim.sendable and lead is not None and lead.step.step_id in claim.cites
+                for c in claim.cites
+                if c in by_step
+            }
+        )
+        spec = rca_page_spec(
+            case_id=case.id,
+            service=service.name,
+            external_id=case.external_id,
+            integration=service.paging_integration,
+            outcome=artifact.outcome,
+            supported=lead.step.hypothesis if lead is not None else None,
+            confirmed_by=confirmed,
+            tested=[e.step.hypothesis for e in artifact.evidence if e.step.ran],
+            sop_pending=sop_pending,
+        )
+        trace = TraceContext(case.tenant_id, case.trace_id, f"rca_{case.id}")
+        self._gate.submit(case.id, spec, trace)
 
 
 def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:
