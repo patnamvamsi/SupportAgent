@@ -57,6 +57,7 @@ app.add_typer(grants_command.app, name="grants")
 app.add_typer(extend_command.pack_app, name="pack")
 app.add_typer(extend_command.tool_app, name="tool")
 app.add_typer(extend_command.scenario_app, name="scenario")
+app.add_typer(extend_command.runbook_app, name="runbook")
 
 
 @app.callback()

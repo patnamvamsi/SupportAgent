@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -31,11 +32,13 @@ from supportagent.app.extend import (
 from supportagent.bootstrap import (
     KNOWN_TOOL_SCHEMAS,
     LabPipeline,
+    distill_runbook,
     incident_scenario,
     load_lab,
     validate_pack,
     write_scaffold,
 )
+from supportagent.config.loader import load_config_offline
 from supportagent.config.schema import McpServer, ToolBinding
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.model.knowledge import DocFrontMatter, SopMatter, SopStepMatter
@@ -303,3 +306,68 @@ def test_cli_pack_new_then_validate(tmp_path: Path) -> None:
     strict = runner.invoke(app, ["pack", "validate", "--strict", pack_dir, "--config", config])
     assert strict.exit_code == 1
     assert "unfinished generator text" in strict.output
+
+
+# --- runbook distillation (WP-M08) -------------------------------------------------------
+
+_REPLICA_DOC = """---
+title: Order history is slow
+version: "4"
+hypotheses: [pg_replication_lag, pg_slow_query_regression, not_in_this_pack]
+---
+# Order history is slow
+Check replication lag first; if the replica is current, look for a slow query.
+"""
+
+
+def _pack_copy(tmp_path: Path) -> Path:
+    shutil.copytree(_REPO / "packs", tmp_path / "packs")
+    taxonomy = tmp_path / "packs" / "python-postgres" / "taxonomy.yaml"
+    taxonomy.write_text(
+        taxonomy.read_text(encoding="utf-8").replace(
+            "labels:\n",
+            "labels:\n  - id: app/replica_reads\n    description: >-\n"
+            "      Reads served from a replica are slow or stale.\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path / "packs" / "python-postgres"
+
+
+def test_runbook_distilled_from_a_doc_orders_the_packs_probes(tmp_path: Path) -> None:
+    pack_dir = _pack_copy(tmp_path)
+    doc = tmp_path / "order-history.md"
+    doc.write_text(_REPLICA_DOC, encoding="utf-8")
+    config = load_config_offline(_REPO / "supportagent.example.yaml")
+    scaffold = distill_runbook(config, pack_dir, doc, classification="app/replica_reads")
+    [(rel, text)] = scaffold.files.items()
+    assert rel == "packs/python-postgres/runbooks/order-history.yaml"
+    assert "Distilled from order-history.md (Order history is slow, version 4)" in text
+    runbook = yaml.safe_load(text)
+    assert runbook["applies_when"] == {"classification": "app/replica_reads"}
+    assert [s["hypothesis"] for s in runbook["steps"]] == [
+        "pg_replication_lag",
+        "pg_slow_query_regression",
+    ]
+    probes = yaml.safe_load((pack_dir / "probes.yaml").read_text(encoding="utf-8"))["probes"]
+    assert runbook["steps"][0]["check"] == probes["pg_replication_lag"]["check"]
+    # The draft compiles and loads with the pack; --strict holds it until reviewed.
+    write_scaffold(scaffold, tmp_path)
+    assert validate_pack(config, pack_dir).ok
+    strict = validate_pack(config, pack_dir, strict=True)
+    assert not strict.ok and "unfinished generator text" in strict.problems[0]
+
+
+def test_runbook_distillation_refusals(tmp_path: Path) -> None:
+    pack_dir = _pack_copy(tmp_path)
+    config = load_config_offline(_REPO / "supportagent.example.yaml")
+    doc = tmp_path / "doc.md"
+    doc.write_text(_REPLICA_DOC, encoding="utf-8")
+    with pytest.raises(ConfigError, match="already applies"):
+        distill_runbook(config, pack_dir, doc, classification="app/worker_timeout")
+    with pytest.raises(ConfigError, match="not a label"):
+        distill_runbook(config, pack_dir, doc, classification="made/up")
+    doc.write_text("# No front matter\nJust prose.\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="names no hypothesis"):
+        distill_runbook(config, pack_dir, doc, classification="app/replica_reads")

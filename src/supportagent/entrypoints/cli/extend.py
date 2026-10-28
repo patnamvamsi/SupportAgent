@@ -1,4 +1,5 @@
-"""Analyst extensions (WP-M09): ``pack new|validate``, ``tool new``, ``scenario new``.
+"""Analyst extensions (WP-M09): ``pack new|validate``, ``tool new``, ``scenario new``,
+``runbook new`` (WP-M08 runbook distillation).
 
 Every generator writes a scaffold that already validates and never
 overwrites a file. ``pack validate --strict`` is the PR check: it also fails
@@ -17,6 +18,7 @@ import typer
 from supportagent.app.extend import Scaffold, pack_scaffold, tool_scaffold
 from supportagent.bootstrap import (
     KNOWN_TOOL_SCHEMAS,
+    distill_runbook,
     incident_scenario,
     validate_pack,
     write_scaffold,
@@ -31,6 +33,7 @@ _PACK_DIR = typer.Argument(..., help="The pack directory (packs/<id>).")
 pack_app = typer.Typer(help="Skill packs (ADR-0011 §1).", no_args_is_help=True)
 tool_app = typer.Typer(help="Tool capabilities (ADR-0011 §2).", no_args_is_help=True)
 scenario_app = typer.Typer(help="Incident-lab scenarios (ADR-0011 §5).", no_args_is_help=True)
+runbook_app = typer.Typer(help="Runbooks distilled from team docs (WP-M08).", no_args_is_help=True)
 
 
 def _write(scaffold: Scaffold, root: Path) -> None:
@@ -132,4 +135,28 @@ def scenario_new(  # noqa: PLR0913, PLR0917 — one option per choice
         raise typer.Exit(2) from exc
 
 
-__all__ = ["pack_app", "scenario_app", "tool_app"]
+@runbook_app.command("new")
+def runbook_new(  # noqa: PLR0913, PLR0917 — one option per choice
+    path: Path = _PACK_DIR,
+    doc: Path = typer.Option(..., "--doc", help="A Git team doc with `hypotheses:` front matter."),  # noqa: B008
+    classification: str = typer.Option(
+        ..., "--classification", help="The pack label it applies to."
+    ),
+    runbook_id: str | None = typer.Option(
+        None, "--id", help="Runbook id (default: the doc's name)."
+    ),
+    config: Path = _CONFIG,
+    root: Path = _ROOT,
+) -> None:
+    """A draft runbook distilled from a team doc: its hypotheses, in order, as the pack's probes."""
+    try:
+        scaffold = distill_runbook(
+            load_config_offline(config), path, doc, classification=classification, slug=runbook_id
+        )
+        _write(scaffold, root)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+__all__ = ["pack_app", "runbook_app", "scenario_app", "tool_app"]

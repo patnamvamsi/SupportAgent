@@ -16,6 +16,7 @@ You turn a gap that someone describes in plain language ("it never checks Kafka 
 | it mislabels a symptom | a preclass rule or a classify fragment line in the pack | `edit the pack, then supportagent pack validate packs/<id>` |
 | it can't read a signal (a metric store, a queue, an API) | a read-only tool capability: first-party, or a binding to a registered MCP server | `supportagent tool new <capability> [--mcp <server> --mcp-tool <tool>]` |
 | it got a real incident wrong | a lab scenario from the incident, redacted, with its ground truth | `supportagent scenario new --pack <id> --from-incident <file>` |
+| a team doc says which checks to run, but the agent doesn't follow it | a runbook distilled from the doc's hypotheses and the pack's probes (a reviewed draft) | `supportagent runbook new packs/<id> --doc <file> --classification <label>` |
 | it should *do* something new (restart, rerun, page, edit a ticket field) | none: a new action kind is an engineering change (gate, grants, ADR) | `refused: NeedsEngineeringError` |
 
 Always start with the scenario: reproduce the miss in the lab first. Then make the pack change, and show the lab score move.
