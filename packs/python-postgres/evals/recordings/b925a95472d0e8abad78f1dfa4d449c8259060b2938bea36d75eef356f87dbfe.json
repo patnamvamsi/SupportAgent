@@ -1,0 +1,1 @@
+{"latency_ms": 5290, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api is returning 500 errors because SQLAlchemy QueuePool connections are exhausted, causing pool timeout errors under load.\",\n  \"confidence\": 0.98\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1024, "tokens_out": 276}

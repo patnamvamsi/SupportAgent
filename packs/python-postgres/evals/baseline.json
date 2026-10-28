@@ -11,6 +11,7 @@
     "docs-wrong-cause-dns": true,
     "memory-leak-oomkilled": true,
     "pg-connection-load": true,
+    "pg-disk-full": true,
     "pg-idle-in-transaction-leak": true,
     "pg-lock-contention": true,
     "pg-replication-lag-stale-reads": true,

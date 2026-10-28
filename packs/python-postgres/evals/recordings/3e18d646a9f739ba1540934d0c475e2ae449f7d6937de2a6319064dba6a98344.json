@@ -1,0 +1,1 @@
+{"latency_ms": 3841, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"Orders API writes are failing with psycopg.errors.DiskFull because orders-db has run out of disk space, while reads still succeed.\",\n  \"confidence\": 0.98\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1048, "tokens_out": 242}
