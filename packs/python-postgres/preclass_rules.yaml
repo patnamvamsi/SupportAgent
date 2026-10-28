@@ -4,6 +4,8 @@ version: 1.0.0
 rules:
   - when: {body: "QueuePool limit|too many clients|remaining connection slots|connection pool exhausted"}
     label: database/saturation
+  - when: {body: "DiskFull|No space left on device|could not extend file|could not write to file"}
+    label: database/failure
   - when: {body: "WORKER TIMEOUT|upstream request timeout|Gateway Time-?out"}
     label: app/worker_timeout
   - when: {body: "OOMKilled|MemoryError|Out of memory|exit code 137"}

@@ -59,3 +59,9 @@ probes:
       query: 'sum(rate(http_requests_total{service="{{service}}"}[5m])) / sum(rate(http_requests_total{service="{{service}}"}[5m] offset 1d))'
       service: "$service.name"
     check: "double(result.max_value) > 3.0"
+  pg_disk_full:
+    tool: metrics.query
+    args:
+      query: 'min(node_filesystem_avail_bytes{service="{{service}}",mountpoint="/var/lib/postgresql"} / node_filesystem_size_bytes{service="{{service}}",mountpoint="/var/lib/postgresql"})'
+      service: "$service.name"
+    check: "double(result.max_value) < 0.02"

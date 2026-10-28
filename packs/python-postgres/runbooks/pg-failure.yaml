@@ -1,0 +1,19 @@
+# Writes failing or the database refusing work (ARCH §5.1). WP-M09 walkthrough:
+# the first check is the data volume, the commonest cause of write-only failure.
+id: runbook:pg-failure
+applies_when: {classification: database/failure}
+budget: {max_tool_calls: 3, max_tokens: 2000, max_hypotheses: 2}
+steps:
+  - id: disk
+    hypothesis: pg_disk_full
+    tool: metrics.query
+    args:
+      query: 'min(node_filesystem_avail_bytes{service="{{service}}",mountpoint="/var/lib/postgresql"} / node_filesystem_size_bytes{service="{{service}}",mountpoint="/var/lib/postgresql"})'
+      service: "$service.name"
+    check: "double(result.max_value) < 0.02"
+    stop_if: true
+  - id: bloat
+    hypothesis: pg_table_bloat
+    tool: postgres.storage
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_dead_ratio) > 0.5"
