@@ -17,8 +17,10 @@ from sqlalchemy import Engine, text
 from supportagent.adapters.crypto.aead import Aead
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.events import SqlEventSink
+from supportagent.adapters.db.repos.outbox import OutboxRepo
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.app.gate import GateService
+from supportagent.app.outbox import OutboxWriter
 from supportagent.app.rca import BufferedEvents, DocPolicy, Knowledge, RcaJob, RcaService
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.knowledge import DocMeta, KnowledgeIndex, chunk_document
@@ -79,7 +81,13 @@ def _job(
         doc_policy=DocPolicy(),
     )
     gate = GateService(
-        uow=uow, clock=clock, ids=ids, events=events, catalog=catalog, ttl=timedelta(hours=4)
+        uow=uow,
+        clock=clock,
+        ids=ids,
+        events=events,
+        catalog=catalog,
+        ttl=timedelta(hours=4),
+        outbox=OutboxWriter(uow=uow, repo=OutboxRepo(uow), ids=ids),
     )
     return RcaJob(
         uow=uow,
@@ -136,8 +144,21 @@ def test_sop_step_proposed_for_approval_despite_a_work_note_grant(
 def test_rca_result_attached_to_the_open_page_from_allowlisted_fields(
     db: Engine, master_key: bytes, clock: Any, ids: Any
 ) -> None:
-    """BL-040: one ``enrich_page`` after RCA, with the outcome, ids and tools only."""
+    """BL-040: one ``enrich_page`` after RCA, with the outcome, ids and tools only.
+
+    The service's ``enrich_page`` setup grant covers it, so it is enqueued in
+    the artifact's UoW, authorized by that grant.
+    """
+    _seed_grant(db)
     with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO policy_grants (id, tenant_id, action_kind, scope, status, "
+                "requested_by, requested_at_ts, granted_by, granted_at_ts, valid_to_ts) "
+                "VALUES ('grnt_page', 'acme', 'enrich_page', 'service:payroll-api:enrich_page', "
+                "'approved', 'user_ada', 0, 'user_bo', 0, 9999999999)"
+            )
+        )
         conn.execute(
             text(
                 "INSERT INTO cases (id, tenant_id, fingerprint, origin, service, classification, "
@@ -154,6 +175,7 @@ def test_rca_result_attached_to_the_open_page_from_allowlisted_fields(
         rows = conn.execute(
             text("SELECT action_kind, scope, payload_json FROM proposals ORDER BY action_kind")
         ).all()
+        sends = conn.execute(text("SELECT action_kind, policy_grant_id FROM outbox")).all()
     page = [r for r in rows if r[0] == "enrich_page"]
     [(_, scope, payload_json)] = page
     assert scope == "service:payroll-api:enrich_page"
@@ -163,3 +185,4 @@ def test_rca_result_attached_to_the_open_page_from_allowlisted_fields(
     assert payload["text"].startswith("SupportAgent RCA for case case_2: SUPPORTED.")
     assert "Cause recent_change_push, confirmed by gha.recent_runs." in payload["text"]
     assert "1 SOP step(s) await approval" in payload["text"]
+    assert [tuple(r) for r in sends] == [("enrich_page", "grnt_page")]
