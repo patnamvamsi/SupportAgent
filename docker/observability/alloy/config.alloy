@@ -1,0 +1,24 @@
+// BL-050: ship ./demo-logs/<service>.log to Loki, labelled service="<service>".
+local.file_match "demo" {
+  path_targets = [{"__path__" = "/var/log/demo/*.log"}]
+}
+
+discovery.relabel "demo" {
+  targets = local.file_match.demo.targets
+  rule {
+    source_labels = ["__path__"]
+    regex         = ".*/([^/]+)\\.log"
+    target_label  = "service"
+  }
+}
+
+loki.source.file "demo" {
+  targets    = discovery.relabel.demo.output
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

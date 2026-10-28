@@ -21,6 +21,7 @@ from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
 from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
+from supportagent.adapters.tools.loki import LokiSearchTool
 from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
@@ -41,6 +42,7 @@ class _Declares(Protocol):
 
 _FIRST_PARTY: tuple[type[_Declares], ...] = (
     LogsTool,
+    LokiSearchTool,
     CronStatusTool,
     AirflowTool,
     GitHubActionsTool,

@@ -57,12 +57,12 @@ Every pack hypothesis needs a scenario with it as `root_cause`. Every pack needs
 
 ### Tool capabilities (one result schema each)
 
-The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `metrics.query`, `oncall.who`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.
+The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.
 
 - **A new first-party capability** (`tool new <area>.<verb>`) generates the adapter (with `result_schema`), its fake upstream, and a contract test. Engineering reviews and registers it.
 - **Binding an existing capability to MCP** (`tool new <capability> --mcp <server> --mcp-tool <tool>`) generates a config snippet:
   - the `McpServer`: `url`, `token`, `tools` (declared tools only), `trust_class`, `tier`, `timeout_s`;
-  - the `ToolBinding`: `mcp`, `tool`, `profile` (`passthrough` or `grafana.query_prometheus`), `args`.
+  - the `ToolBinding`: `mcp`, `tool`, `profile` (`passthrough`, `grafana.query_prometheus` or `grafana.query_loki_logs`), `args`.
 
   The reply must fit the capability's schema.
 

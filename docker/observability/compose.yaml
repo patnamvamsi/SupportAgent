@@ -1,8 +1,10 @@
 # WP-M06: a small observability stack for the MCP binding (ADR-0011 §2).
 #
-# Prometheus scrapes itself and Grafana. Grafana has one provisioned
-# Prometheus datasource (uid ``prometheus``) and serves anonymous *Viewer*
-# access only, so the MCP server behind it can read but never write.
+# Prometheus scrapes itself and Grafana. Loki (BL-050) stores logs that
+# Alloy ships from ./demo-logs/<service>.log with a ``service`` label.
+# Grafana has provisioned Prometheus (uid ``prometheus``) and Loki (uid
+# ``loki``) datasources and serves anonymous *Viewer* access only, so the
+# MCP server behind it can read but never write.
 # ``mcp-grafana`` speaks streamable HTTP on :8810/mcp and requires a bearer
 # token (MCP_GRAFANA_SERVER_TOKEN, generated into .env; see README.md).
 name: supportagent-observability
@@ -17,6 +19,25 @@ services:
     ports: ["9390:9090"]
     restart: unless-stopped
 
+  loki:
+    image: grafana/loki:3.5.3
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports: ["3110:3100"]
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.2
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./demo-logs:/var/log/demo:ro
+      - alloy-data:/var/lib/alloy
+    depends_on: [loki]
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:12.1.1
     environment:
@@ -27,7 +48,7 @@ services:
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
     ports: ["3300:3000"]
-    depends_on: [prometheus]
+    depends_on: [prometheus, loki]
     restart: unless-stopped
 
   mcp-grafana:
@@ -49,3 +70,5 @@ services:
 
 volumes:
   prometheus-data:
+  loki-data:
+  alloy-data:

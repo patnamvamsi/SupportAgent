@@ -113,6 +113,7 @@ from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
 from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
+from supportagent.adapters.tools.loki import LokiSearchTool
 from supportagent.adapters.tools.mcp import McpBoundTool, McpHttpClient, verify_server
 from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
@@ -1900,6 +1901,15 @@ def _pack_tools(
             else {}
         )
         tools.append(PrometheusQueryTool(client=client(cfg.prometheus.base_url, auth)))
+    if cfg.loki:  # BL-050
+        headers = (
+            {"Authorization": f"Bearer {cfg.loki.token.get_secret_value()}"}
+            if cfg.loki.token
+            else {}
+        )
+        if cfg.loki.org_id:
+            headers["X-Scope-OrgID"] = cfg.loki.org_id
+        tools.append(LokiSearchTool(client=client(cfg.loki.base_url, headers), clock=clock))
     k8s_client: httpx.Client | None = None
     if cfg.kubernetes:
         k8s = cfg.kubernetes

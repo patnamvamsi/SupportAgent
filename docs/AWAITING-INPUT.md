@@ -4,29 +4,38 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
-### LM Studio down: WP-M08 lab recordings (2026-10-27)
+### Review and merge the PR stack (#62–#66)
 
-- **Blocked:** the 4 new doc scenarios in `packs/python-postgres/evals/docs-*.yaml` have no recorded Qwen responses, so the CI lab replay fails on them ("responses were not recorded") and the WP-M08 PR can't go green.
-- **Meanwhile:** the code is complete and every other gate passes on both DB engines; the 15 existing scenarios replay byte-identically (the v3 prompt renders as v2 without docs). Later WPs are stacked on the WP-M08 branch.
-- **Tried:** `lms server start` over ssh on 192.168.0.201 times out waiting for the daemon (it seems to need the desktop session).
-- **Unblock:** start LM Studio on 192.168.0.201 with `qwen/qwen3.8-27b` loaded and the server on port 1234, then from the LAN:
+- **Status (2026-10-28):** LM Studio is back and every branch has live Qwen recordings (`qwen/qwen3.8-27b`, `--samples 3 --split all`), with all gates passing and no false causes:
 
-  ```
-  uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --live --samples 3 --split all
-  ```
+  | PR | Branch | Live lab (python-postgres) | Lower bounds |
+  |---|---|---|---|
+  | #62 | `wp-m08-knowledge` | 19/19 | 0.832 |
+  | #63 | `wp-m07-connector-seam` | same as #62 | |
+  | #64 | `wp-m09-extensions` | same as #62 | |
+  | #65 | `wp-m09-walkthrough-disk-full` | 20/20 | 0.839 |
+  | #66 | `bl-050-logs-search` | 21/21 | 0.845 |
 
-  Commit the new recordings (and the baseline report if the run passes), then merge the stacked PRs in order.
-- **Also covers the WP-M09 walkthrough** (PR on top of WP-M09). That pack change, `pg_disk_full`, alters the python-postgres prompts, so the run above on that branch re-records the whole pack (about 60 responses). Run it there once, and the earlier branches only need their own recordings. The walkthrough's oracle lab goes from 19/20 to 20/20; the live numbers fill in its doc.
+  `common` is 5/5 on every branch. Each branch merges its parent (no force-pushes), so they can merge in order with no rebase.
+- **Needs:** your review. Merge in order, #62 to #66. They are drafts because you asked to review everything together.
 
 ### BL-051 Confluence knowledge source
 
 - **Needs:** a Confluence site URL, a space key and a read-only API token (or a decision to use an MCP server for Confluence instead).
+
+### WP-M08's last part: SOP-driven requests and runbook distillation
+
+- **Deferred:** both are LLM features that the plan says must be eval-gated. The live lab is back, so runbook distillation can start; SOP-driven requests still need the design call below.
+- **SOP-driven requests** also need a design call: how a written procedure maps onto the typed action kinds and the gate. Options: (a) SOP steps only *propose* existing action kinds, each through the gate as today; (b) a reviewed SOP becomes a runbook-like file that names action kinds. (a) needs no trust-core change.
+- **Runbook distillation** (team docs to draft runbooks, reviewed by an analyst, then lab-gated) needs no decision; it waits only for the live lab.
 
 ## Decisions taken for review
 
 Calls made without the maintainer so work could continue. Each can be reversed in a small PR.
 
 - **WP-M08 before WP-M07** (approved in chat, 2026-10-27).
+- **BL-050 (#66):** Loki and Alloy were added to the observability stack on 192.168.0.201 (ports 3110 for Loki; Alloy tails `~/supportagent-observability/demo-logs/`). To remove them: `docker compose rm -sf loki alloy` there.
+- **WP-M09 walkthrough gap:** `pg_disk_full` (writes fail on a full data volume) was picked as the plain-language gap.
 - **ADR-0013 (WP-M07):**
   - A connector without change history runs **shadow-only**, which is stricter than ADR-0011 §3's "every write needs a human approval". That approval-only mode is BL-053.
   - Stored keys keep their v0.0 values (`em_alert`, `servicenow:` scopes), so nothing is migrated.

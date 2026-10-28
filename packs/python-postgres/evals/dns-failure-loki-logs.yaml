@@ -1,0 +1,45 @@
+# Lab scenario (ADR-0011 §5, BL-050). Edit only with a `why` note.
+id: dns-failure-loki-logs
+pack: python-postgres
+split: holdout
+description: DNS stops resolving the payments host; the service logs to Loki, not to a file path.
+incident:
+  subject: checkout payments calls failing
+  priority: '2'
+  body: 'requests.exceptions.ConnectionError: HTTPSConnectionPool(host=payments): Max retries exceeded'
+service:
+  name: checkout-api
+  stack: [python, fastapi, gunicorn, postgres]
+  databases: [orders]
+  repos: ['github:acme/checkout']
+  k8s_namespace: shop
+  k8s_selector: app=checkout-api
+world:
+  logs.search:
+    result:
+      query: '{service="checkout-api"} |~ "Name or service not known|Temporary failure in name resolution|NXDOMAIN"'
+      window_min: 60
+      count: 2
+      matches:
+      - ts: '2026-10-27T12:20:25Z'
+        line: 'socket.gaierror: [Errno -3] Temporary failure in name resolution'
+        labels: {service: checkout-api}
+      - ts: '2026-10-27T12:20:24Z'
+        line: 'socket.gaierror: [Errno -2] Name or service not known'
+        labels: {service: checkout-api}
+  metrics.query:
+    result:
+      query: p95 upstream latency
+      series:
+      - labels: {}
+        value: 0.3
+      count: 1
+      max_value: 0.3
+truth:
+  classification: network/outage
+  severity: P2
+  root_cause: dns_resolution_failure
+  verdict: SUPPORTED
+  must_cite: [logs.search]
+  must_not_claim: [slow_upstream]
+why: The resolver errors are in the service's Loki stream; there are no log files to grep (no log_paths), and upstream latency is normal, so it isn't a slow upstream.

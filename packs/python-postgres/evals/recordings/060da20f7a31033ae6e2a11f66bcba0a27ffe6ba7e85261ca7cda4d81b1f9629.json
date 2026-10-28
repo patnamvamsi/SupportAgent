@@ -1,0 +1,1 @@
+{"latency_ms": 7459, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout payments calls are failing with connection errors to the payments host, indicating loss of connectivity to an upstream network dependency.\",\n  \"confidence\": 0.75\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 394}

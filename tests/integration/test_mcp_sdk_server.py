@@ -232,7 +232,14 @@ def test_same_lab_result_first_party_and_mcp(sdk: tuple[str, _World]) -> None:
     scenarios = _metric_scenarios()
     assert len(scenarios) >= 5
     registry = _registry(_client(url))
-    first_party = _outcomes(scenarios, _Oracle(scenarios))
+    worlds: list[WorldTools] = []
+
+    def recording(scenario: LabScenario) -> WorldTools:
+        worlds.append(WorldTools.of(scenario))
+        return worlds[-1]
+
+    first_party = _outcomes(scenarios, _Oracle(scenarios), tools_for=recording)
+    metric_calls = sum(w.calls.count("metrics.query") for w in worlds)
     on_mcp = _outcomes(
         scenarios,
         _Oracle(scenarios),
@@ -241,7 +248,9 @@ def test_same_lab_result_first_party_and_mcp(sdk: tuple[str, _World]) -> None:
     # Token counts differ only because MCP echoes the rendered PromQL where a world
     # fixture echoes the query its author wrote; every conclusion is the same.
     assert [replace(o, tokens=0) for o in on_mcp] == [replace(o, tokens=0) for o in first_party]
-    assert len(world.exprs) >= len(scenarios) - 1  # metrics.query really went over MCP
+    # Every metrics.query the first-party run made went over MCP instead.
+    assert metric_calls >= len(scenarios) // 2
+    assert len(world.exprs) == metric_calls
     assert any(o.supported for o in on_mcp)
 
 
