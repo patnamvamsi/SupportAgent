@@ -31,8 +31,9 @@ evals/.cache/
 # Per-run reports (02 §4); calibration.json is committed.
 evals/artifacts/*/
 
-# Claude Code local runtime state (locks, per-user settings)
-.claude/
+# Claude Code local runtime state (locks, per-user settings); project skills are shared
+.claude/*
+!.claude/skills/
 
 # Local configs (BL-042)
 supportagent.local.yaml

@@ -21,6 +21,7 @@ import re
 import secrets
 import socket
 from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -120,6 +121,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
+from supportagent.app.extend import Scaffold, scenario_from_incident
 from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
@@ -180,7 +182,7 @@ from supportagent.domain.model.runbook import RcaBudget
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
-from supportagent.domain.packs import PackScope, PackSet, labels_text
+from supportagent.domain.packs import Pack, PackScope, PackSet, labels_text
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
@@ -2108,6 +2110,148 @@ def lab_evals_dir(config: AppConfig, pack_id: str) -> Path:
     if pack.evals is None:
         raise ConfigError(f"pack {pack_id!r} has no evals: directory (not evaluated)")  # noqa: TRY003
     return Path(pack.evals)
+
+
+@dataclass(frozen=True, slots=True)
+class PackValidation:
+    """``supportagent pack validate`` (WP-M09): what blocks the pack, and what to know."""
+
+    pack_id: str
+    problems: list[str]
+    notes: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+#: Text the generators leave for the analyst; ``--strict`` fails while any is left.
+_UNFINISHED = ("Replace me", "FILL IN")
+
+
+def validate_pack(config: AppConfig, pack_dir: Path, *, strict: bool = False) -> PackValidation:
+    """Everything the lab and the runtime would reject, before a PR (WP-M09).
+
+    The pack loads with the tenant's ``common`` pack and its siblings in
+    ``pack_dir``'s parent, its probes and runbooks compile against the tool
+    schemas, every hypothesis has a check, and its scenarios load and cover
+    every hypothesis with at least one control and one holdout.
+    """
+    pack_dir = pack_dir.resolve()
+    pack_id = pack_dir.name
+    cfg = config.model_copy(
+        update={"paths": config.paths.model_copy(update={"packs": str(pack_dir.parent)})}
+    )
+    problems: list[str] = []
+    notes: list[str] = []
+    try:
+        packs = _pack_set(cfg)
+        pack = packs.get(pack_id)
+        knowledge = build_rca_knowledge(cfg, registered=KNOWN_TOOL_SCHEMAS)
+    except (ConfigError, KeyError) as exc:
+        return PackValidation(pack_id, [f"does not load: {exc}"], notes)
+    unbound = sorted(set(pack.tools) - set(KNOWN_TOOL_SCHEMAS))
+    if unbound:
+        notes.append(f"tools this build doesn't know (their checks are skipped): {unbound}")
+    checked = set(knowledge.probes) | {s.hypothesis for r, _ in knowledge.runbooks for s in r.steps}
+    problems += [
+        f"hypothesis {h.id!r} has no probe or runbook step"
+        for h in pack.hypotheses
+        if h.id not in checked
+    ]
+    if pack.evals is None:
+        problems.append("no evals: directory; an unevaluated pack can't pass the lab gate")
+    else:
+        problems += _scenario_problems(packs, pack, Path(pack.evals))
+    leftovers = sorted(
+        str(f.relative_to(pack_dir))
+        for f in pack_dir.rglob("*")
+        if f.is_file() and any(m in f.read_text(errors="ignore") for m in _UNFINISHED)
+    )
+    if leftovers:
+        message = f"unfinished generator text in {leftovers}"
+        (problems if strict else notes).append(message)
+    return PackValidation(pack_id, problems, notes)
+
+
+def _scenario_problems(packs: PackSet, pack: Pack, evals: Path) -> list[str]:
+    try:
+        scenarios = load_scenarios(
+            evals, pack=pack.id, tool_schemas=KNOWN_TOOL_SCHEMAS, read_yaml=load_yaml_document
+        )
+    except ConfigError as exc:
+        return [f"scenarios: {exc}"]
+    scope = [p for p in packs.packs if p.always or p.id == pack.id]
+    labels = {label.id for p in scope for label in p.labels}
+    hypotheses = {h.id for p in scope for h in p.hypotheses}
+    problems: list[str] = []
+    for s in scenarios:
+        bad_labels = {s.truth.classification, *s.truth.also_acceptable} - labels
+        if bad_labels:
+            problems.append(f"scenario {s.id}: unknown label(s) {sorted(bad_labels)}")
+        claimed = [s.truth.root_cause] if s.truth.root_cause is not None else []
+        named = {*claimed, *s.truth.must_not_claim} - hypotheses
+        if named:
+            problems.append(f"scenario {s.id}: unknown hypothesis id(s) {sorted(named)}")
+    causes = {s.truth.root_cause for s in scenarios}
+    uncovered = sorted({h.id for h in pack.hypotheses} - causes)
+    if uncovered:
+        problems.append(f"no scenario has these as its root cause: {uncovered}")
+    if None not in causes:
+        problems.append("no control scenario (root_cause: null): show it can claim nothing")
+    if not any(s.split == "holdout" for s in scenarios):
+        problems.append("no holdout scenario: tuning can't be checked against unseen cases")
+    return problems
+
+
+def write_scaffold(scaffold: Scaffold, root: Path) -> list[Path]:
+    """Write a generator's files under ``root``; refuses to overwrite any (WP-M09)."""
+    targets = [(root / rel, text) for rel, text in scaffold.files.items()]
+    existing = [str(path) for path, _ in targets if path.exists()]
+    if existing:
+        raise ConfigError(f"refusing to overwrite: {', '.join(existing)}")  # noqa: TRY003
+    for path, text in targets:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return [path for path, _ in targets]
+
+
+def incident_scenario(  # noqa: PLR0913 — the CLI's options
+    config: AppConfig,
+    pack_id: str,
+    incident_file: Path,
+    *,
+    scrub: Sequence[str] = (),
+    service: str | None = None,
+    split: str = "holdout",
+) -> Scaffold:
+    """``scenario new --from-incident``: the file's incident, redacted (INV-06), as a scenario."""
+    raw = load_yaml_document(incident_file)
+    row = raw.get("result", raw) if isinstance(raw, dict) else None
+    if isinstance(row, list):
+        row = row[0] if row else None
+    if not isinstance(row, dict):
+        raise ConfigError(f"{incident_file}: expected one incident record")  # noqa: TRY003
+    try:
+        pack = _pack_set(config).get(pack_id)
+    except KeyError:
+        raise ConfigError(f"unknown pack {pack_id!r}") from None  # noqa: TRY003
+    entry: dict[str, object] | None = None
+    if service is not None:
+        found = _build_catalog(config).service(service)
+        if found is None:
+            raise ConfigError(f"service {service!r} is not in the catalog")  # noqa: TRY003
+        entry = found.model_dump(mode="json", exclude_none=True)
+    redactor = Redactor(detectors=built_in_detectors())
+    return scenario_from_incident(
+        pack_id,
+        row,
+        redact=lambda text: redactor.redact(text).text,
+        scrub=[*scrub, *config.redaction.tenant_constants],
+        service=entry,
+        tools=[t for t in pack.tools if t in KNOWN_TOOL_SCHEMAS],
+        split=split,
+    )
 
 
 def load_lab(config: AppConfig, pack_id: str) -> tuple[list[LabScenario], LabGates, Path]:

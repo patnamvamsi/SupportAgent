@@ -41,3 +41,15 @@ When a stack pack and `common` both have a runbook for a case's label, the stack
 
 A pack's `knowledge.spaces` and a catalog service's `docs:` name the knowledge spaces RCA may search for a case. A doc can name hypotheses in its front matter (`hypotheses: [pg_slow_query_regression]`); when a search returns it, those hypotheses' probes join the plan, and the tools decide. A doc never makes a claim SUPPORTED on its own. Lab scenarios carry `docs:` fixtures (helpful, wrong-cause, stale and injected), with `truth.guidance` naming the docs a good search should return.
 
+## Extending (WP-M09)
+
+An analyst closes a gap with a generator, then proves it in the lab. The gap-to-extension table, the trust rules and every contract are in the project skill [`.claude/skills/extend-supportagent/SKILL.md`](../.claude/skills/extend-supportagent/SKILL.md).
+
+```
+supportagent pack new kafka-jvm --stack kafka,jvm --description "Kafka consumers on the JVM"
+supportagent scenario new --pack kafka-jvm --from-incident incident.json --scrub "Acme"
+supportagent pack validate --strict packs/kafka-jvm
+supportagent eval lab --pack kafka-jvm --live --samples 3 --split all
+```
+
+Extensions are read-only: a tool is trust class `read`, tier `T0`, and a request for a new action kind is refused and routed to engineering.

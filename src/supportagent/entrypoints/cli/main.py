@@ -1,7 +1,8 @@
 """``supportagent`` CLI (typer). v0.0 surface: ``--version`` (WP-000),
 ``migrate`` (WP-003), ``replay`` (WP-004), ``grants request`` (WP-012),
 ``serve`` (WP-013), ``stats`` / ``shadow import`` (WP-014), ``worker`` /
-``run``, ``doctor`` (WP-015), ``eval run`` (WP-016).
+``run``, ``doctor`` (WP-015), ``eval run`` (WP-016); ``pack``, ``tool`` and
+``scenario`` generators (WP-M09).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import typer
 import supportagent
 from supportagent.entrypoints.cli import doctor as doctor_command
 from supportagent.entrypoints.cli import eval as eval_command
+from supportagent.entrypoints.cli import extend as extend_command
 from supportagent.entrypoints.cli import grants as grants_command
 from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
@@ -51,6 +53,10 @@ app.add_typer(shadow_command.app, name="shadow")
 app.add_typer(eval_command.app, name="eval")
 # 02 §4: ``supportagent grants request --from config`` (WP-012).
 app.add_typer(grants_command.app, name="grants")
+# WP-M09: analyst extensions (``pack new|validate``, ``tool new``, ``scenario new``).
+app.add_typer(extend_command.pack_app, name="pack")
+app.add_typer(extend_command.tool_app, name="tool")
+app.add_typer(extend_command.scenario_app, name="scenario")
 
 
 @app.callback()
