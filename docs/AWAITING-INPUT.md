@@ -21,6 +21,7 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Resolved (2026-10-29)
 
+- **ADR-0015 (system onboarding, plugins):** accepted. One instance per system; plugins as proposed (third parties ship data plugins and MCP servers; in-process code is ours, signed); onboarding uses the frontier model when both a local and a frontier model are configured; SME review made easy visually; read-only prod access for discovery and triage; readiness bar 70%.
 - **ADR-0014 part 2 (SOP auto mode):** reviewed ("go ahead") and delivered as BL-054. Auto mode is a grant an admin approves on one SOP step, with conditions that must hold every time it is used: named checks positive, the cause's claim passing `entail`, a daily cap, optional services. If any condition fails or can't be read, the step goes to a person. Every decision is recorded on the case, and each auto note can be retracted from the case page. The two open questions went as proposed: only `work_note` and `enrich_page` declare a revert, and there is no confidence condition until the ADR-0003 thresholds are calibrated.
 - **Confluence account email:** received; the live contract passes.
 - **#71 fix found while merging:** RCA's gate had no outbox writer, so a page note covered by the `enrich_page` grant was approved but never sent. Fixed and tested in #71 before it merged.
