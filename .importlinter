@@ -105,6 +105,7 @@ modules =
     supportagent.adapters.paging
     supportagent.adapters.webhook
     supportagent.adapters.fakes
+    supportagent.adapters.install
 
 [importlinter:contract:adapters-no-app]
 name = adapters-no-app

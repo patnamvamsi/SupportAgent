@@ -100,6 +100,12 @@ class Identity(DomainModel):
     client_secret: SecretStr
     redirect_url: str = Field(min_length=1)
     session_secret: SecretStr
+    #: Where the server itself reaches the IdP when that differs from the
+    #: issuer the browser sees (a Keycloak container: the browser uses
+    #: ``http://localhost:8880``, the app ``http://keycloak:8080``). Only the
+    #: scheme and host of server-side requests change; the issuer checked in
+    #: discovery and in the id token stays ``oidc_issuer``.
+    backchannel_url: str | None = None
 
     @field_validator("session_secret")
     @classmethod
@@ -111,6 +117,11 @@ class Identity(DomainModel):
         return value
 
 
+def is_floating_alias(model_id: str) -> bool:
+    """02 §1: no date or version component, or an alias token such as ``latest``."""
+    return _VERSION_COMPONENT.search(model_id) is None or bool(_FLOATING_ALIAS.search(model_id))
+
+
 class LLMSlot(DomainModel):
     model_id: str = Field(min_length=1)
     timeout_s: int = Field(gt=0)
@@ -119,7 +130,7 @@ class LLMSlot(DomainModel):
     @field_validator("model_id")
     @classmethod
     def _no_floating_aliases(cls, value: str) -> str:
-        if _VERSION_COMPONENT.search(value) is None or _FLOATING_ALIAS.search(value):
+        if is_floating_alias(value):
             raise ValueError(  # noqa: TRY003
                 f"model_id '{value}' looks like a floating alias (no date or version "
                 "component); pin a dated snapshot (02 §1, ARCH §9)"

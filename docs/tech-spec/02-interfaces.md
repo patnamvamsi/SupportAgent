@@ -32,6 +32,8 @@ identity:
   client_secret_env: OIDC_CLIENT_SECRET
   redirect_url: https://supportagent.acme.internal/auth/callback
   session_secret_env: SA_SESSION_SECRET  # ≥ 32 bytes
+  backchannel_url: null               # optional: how the server reaches the IdP when the browser's issuer
+                                       # host differs (local install: http://keycloak:8080); iss is still oidc_issuer
 llm:
   provider: anthropic                   # anthropic | openai | ollama | fixture
   api_key_env: ANTHROPIC_API_KEY        # absent for ollama/fixture
@@ -173,6 +175,8 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 | `supportagent pack validate [--strict] <dir>` | WP-M09 | Loads and compiles the pack with `common`, checks every hypothesis has a check and a scenario, a control and a holdout exist; `--strict` also fails on unfinished generator text (the PR check) | 0 ok, 1 problems, 2 config |
 | `supportagent tool new <area.verb> [--mcp SERVER --mcp-tool NAME]` | WP-M09 | A read-only capability (adapter, fake, contract test) or an MCP binding snippet for an existing one; any trust class but `read` / tier but `T0` is refused and routed to engineering | 0, 2 usage or refused |
 | `supportagent scenario new --pack ID --from-incident FILE [--service NAME] [--scrub TERM]… [--split holdout\|tune]` | WP-M09 | A lab scenario from an incident record, redacted (secrets, emails, phones, IPs, hosts, scrub terms), with a ground-truth form that must be filled in before it loads | 0, 2 usage |
+| `supportagent init [--dir local] [--answers FILE] [--no-probe]` | local install | The setup wizard `./install.sh` runs in the image. It asks for the LLM, ServiceNow (or the demo instance), optional Confluence and PagerDuty, and the first sign-in, checking each credential as it's typed. It writes `local/` (`supportagent.yaml`, `catalog.yaml`, the Keycloak realm, and `.env` with every secret, mode 600). A re-run keeps the generated secrets. | 0, 2 invalid answers |
+| `supportagent demo-servicenow [--port 8081] [--interval-s 300]` | local install | The demo ServiceNow: the Table API, seeded so every ServiceNow doctor check passes, plus a new sample incident every interval. Local install only; never point a real config at it | runs until stopped |
 | `supportagent sop list [--config]` | BL-054 | Every SOP step in the configured knowledge sources, with the literal scope (`sop:<doc>@<hash>:<step>:<kind>`) an auto grant names and whether the SOP is stale | 0, 2 config |
 | `supportagent sop auto SCOPE --check H [--check H…] --max-per-day N [--service S…]` | BL-054 | Requests an auto-mode grant on one current, fresh SOP step: named checks that must hold, a daily cap, optional services. Refuses a kind without a revert, a stale or outdated scope and a duplicate request. It does nothing until an admin approves it in `/ui/grants`; revoking it stops auto mode at once | 0, 2 refusal, 1 database |
 | `supportagent runbook new PACK_DIR --doc FILE --classification LABEL [--id ID]` | WP-M08 | A draft runbook distilled from a Git team doc: its front-matter `hypotheses`, in order, as the pack's registered probes. Refuses a label that isn't the pack's or already has a runbook. `pack validate --strict` fails until it is reviewed | 0, 2 usage or refusal |

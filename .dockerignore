@@ -1,0 +1,13 @@
+# The build context is an allow-list: only what the Dockerfiles COPY. Everything
+# else (local/ and its secrets, .env files, .venv, data/, eval artifacts) never
+# reaches the Docker daemon.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!alembic.ini
+!migrations/
+!docker/fake_sn.py
+**/__pycache__
+**/*.py[cod]

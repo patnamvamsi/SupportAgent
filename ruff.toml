@@ -49,6 +49,8 @@ banned-api = {
 "tests/contract/test_mcp_grafana_live.py" = ["TID251"]
 # BL-051: the opt-in live Confluence contract reads its site and token from the environment.
 "tests/contract/test_confluence_live.py" = ["TID251"]
+# The installer's probes exist to tell a person what to fix: each message is the point.
+"src/supportagent/adapters/install/probes.py" = ["TRY003"]
 
 [lint.isort]
 known-first-party = ["supportagent"]

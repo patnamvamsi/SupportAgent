@@ -1,0 +1,128 @@
+# SupportAgent on your laptop: driven by ./install.sh (see README "Install").
+#
+#   ./install.sh            set up (wizard), build, calibrate, start
+#   ./install.sh doctor     diagnose a broken install
+#
+#   SupportAgent  http://localhost:${SA_APP_PORT}       admin UI, API and worker (shadow mode)
+#   Keycloak      http://localhost:${SA_KEYCLOAK_PORT}  sign-in (realm supportagent)
+#   Postgres 16   internal only
+#   demo-servicenow  internal; only with the demo profile (no ServiceNow instance needed)
+#
+# Every value comes from local/.env, which `supportagent init` writes (secrets
+# included, chmod 600, git-ignored). Ports bind 127.0.0.1 only: nothing here
+# is reachable from your network. The app mounts the repo's data directories
+# read-only, and local/ read-write for its config and calibration.
+name: supportagent-local
+
+x-app: &app
+  image: supportagent:local
+  build:
+    context: ../..
+    dockerfile: docker/Dockerfile
+  env_file: ../../local/.env
+  # Your user, so files the app writes under local/ stay yours (install.sh sets these).
+  user: "${SA_UID:-10001}:${SA_GID:-10001}"
+  working_dir: /app
+  extra_hosts:
+    # How a container reaches a server on this machine (a local LLM): Linux needs
+    # this line; Docker Desktop provides the name already.
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - ../../catalog:/app/catalog:ro
+    - ../../taxonomy:/app/taxonomy:ro
+    - ../../packs:/app/packs:ro
+    - ../../prompts:/app/prompts:ro
+    - ../../runbooks:/app/runbooks:ro
+    - ../../evals:/app/evals:ro
+    - ../../templates:/app/templates:ro
+    - ../../local:/app/local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: supportagent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./install.sh first}
+      POSTGRES_DB: supportagent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportagent -d supportagent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    command: ["start-dev", "--http-port=8080", "--import-realm", "--health-enabled=true"]
+    environment:
+      # The browser signs in at localhost; the app reaches Keycloak as
+      # keycloak:8080 (identity.backchannel_url). Tokens carry the localhost issuer.
+      KC_HOSTNAME: http://localhost:${SA_KEYCLOAK_PORT:-8880}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?run ./install.sh first}
+    ports:
+      - "127.0.0.1:${SA_KEYCLOAK_PORT:-8880}:8080"
+    volumes:
+      - ../../local/keycloak:/opt/keycloak/data/import:ro
+      - kcdata:/opt/keycloak/data
+    healthcheck:
+      # The image has no curl: ask the management port with bash's /dev/tcp.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    restart: unless-stopped
+
+  demo-servicenow:
+    <<: *app
+    profiles: [demo]
+    command: ["demo-servicenow", "--port", "8081"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8081/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # One-off: bring the database schema to head, then exit (the app waits for it).
+  migrate:
+    <<: *app
+    command: ["migrate", "--config", "local/supportagent.yaml"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *app
+    command: ["run", "--host", "0.0.0.0", "--port", "8000", "--config", "local/supportagent.yaml"]
+    ports:
+      - "127.0.0.1:${SA_APP_PORT:-8800}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      demo-servicenow:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  kcdata:

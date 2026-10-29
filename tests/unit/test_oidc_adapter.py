@@ -194,3 +194,27 @@ def test_discover_rejects_a_mismatched_issuer(client: OIDCClient, idp: _IdP) -> 
     idp.issuer_in_discovery = "https://evil.test"
     with pytest.raises(AuthenticationFailed, match="issuer"):
         client.discover()
+
+
+def test_backchannel_carries_server_requests_but_not_the_browser_url(idp: _IdP, clock: Any) -> None:
+    """Local install: the browser sees the public issuer, the app reaches the IdP in Docker."""
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(f"{request.url.scheme}://{request.url.host}:{request.url.port}")
+        return idp.handler(request)
+
+    client = OIDCClient(
+        issuer=ISSUER,
+        client_id=CLIENT_ID,
+        client_secret="shh",  # noqa: S106 — fake IdP
+        redirect_url=REDIRECT,
+        http=httpx.Client(transport=httpx.MockTransport(handler)),
+        clock=clock,
+        backchannel_url="http://keycloak:8080",
+    )
+    start = client.begin_login()
+    assert start.url.startswith(f"{ISSUER}/authorize?")  # the browser's URL is public
+    idp.nonce = start.nonce
+    assert client.complete_login(code="c", pending=start).sub == "sub-ada"  # iss still ISSUER
+    assert set(hosts) == {"http://keycloak:8080"}  # discovery, token and JWKS

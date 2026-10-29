@@ -10,10 +10,12 @@ from __future__ import annotations
 import typer
 
 import supportagent
+from supportagent.entrypoints.cli import demo_servicenow as demo_sn_command
 from supportagent.entrypoints.cli import doctor as doctor_command
 from supportagent.entrypoints.cli import eval as eval_command
 from supportagent.entrypoints.cli import extend as extend_command
 from supportagent.entrypoints.cli import grants as grants_command
+from supportagent.entrypoints.cli import init as init_command
 from supportagent.entrypoints.cli import migrate as migrate_command
 from supportagent.entrypoints.cli import replay as replay_command
 from supportagent.entrypoints.cli import serve as serve_command
@@ -42,6 +44,9 @@ app.command("migrate")(migrate_command.migrate)
 app.command("replay")(replay_command.replay)
 # 02 §4: ``supportagent doctor`` (WP-015).
 app.command("doctor")(doctor_command.doctor)
+# The local installer (./install.sh): the setup wizard and the demo ServiceNow.
+app.command("init")(init_command.init)
+app.command("demo-servicenow")(demo_sn_command.demo_servicenow)
 # 02 §4: ``supportagent serve`` — the API + admin UI (WP-013).
 app.command("serve")(serve_command.serve)
 # 02 §4: ``supportagent worker`` (jobs only) and ``run`` (API + worker).

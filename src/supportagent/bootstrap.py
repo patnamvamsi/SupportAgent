@@ -37,6 +37,7 @@ from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.types import ASGIApp
 
 from supportagent.adapters.cel.check import CelCheckCompiler
 from supportagent.adapters.crypto.aead import Aead
@@ -54,6 +55,7 @@ from supportagent.adapters.db.repos.shadow import ShadowRepo
 from supportagent.adapters.db.repos.sync import SyncRepo
 from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
 from supportagent.adapters.db.uow import SqlUnitOfWork
+from supportagent.adapters.fakes.demo_servicenow import build as _build_demo_servicenow
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink, FaultInjectingTool
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
@@ -65,6 +67,7 @@ from supportagent.adapters.files.knowledge_loader import load_markdown_source, s
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.identity.oidc import OIDCClient
+from supportagent.adapters.install import probes as _probes
 from supportagent.adapters.knowledge.confluence import (
     ConfluenceLoad,
     load_confluence_space,
@@ -1393,6 +1396,7 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         redirect_url=config.identity.redirect_url,
         http=httpx.Client(timeout=10.0, transport=transport),
         clock=clock,
+        backchannel_url=config.identity.backchannel_url,
     )
     return DoctorContext(
         config=config,
@@ -2635,6 +2639,7 @@ def build_api_context(
         redirect_url=config.identity.redirect_url,
         http=httpx.Client(timeout=10.0),
         clock=clock,
+        backchannel_url=config.identity.backchannel_url,
     )
     return api_context_for(
         make_engine(config.database.url.get_secret_value()),
@@ -2853,3 +2858,78 @@ def run_migrations(
         command.upgrade(cfg, "head")
     except SQLAlchemyError as exc:
         raise ExternalServiceError(f"database migration failed: {exc}") from exc  # noqa: TRY003
+
+
+def demo_servicenow_app(*, interval_s: float, first_after_s: float) -> ASGIApp:
+    """``supportagent demo-servicenow``: the local install's demo instance (an ASGI app)."""
+    sn, _ = _build_demo_servicenow(
+        clock=SystemClock(), interval_s=interval_s, first_after_s=first_after_s
+    )
+    return sn.app
+
+
+# --- local install probes (``supportagent init``) -----------------------------
+# Each check is one read-only request; a failure is a ConfigError whose message
+# says what to fix, so the wizard can ask again.
+
+
+def probe_llm_models(
+    kind: str,
+    *,
+    base_url: str | None,
+    api_key: str | None,
+    transport: httpx.BaseTransport | None = None,
+) -> list[str]:
+    """The model ids an LLM provider offers with these credentials."""
+    try:
+        return _probes.list_models(kind, base_url=base_url, api_key=api_key, transport=transport)
+    except _probes.ProbeError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
+def probe_servicenow(  # noqa: PLR0913 — basic or OAuth credentials, plus the test seam
+    instance_url: str,
+    *,
+    integration_user: str,
+    user: str | None = None,
+    password: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> list[tuple[str, str, int]]:
+    """Check the credentials and integration user; ``(ci name, sys_id, incidents)``."""
+    try:
+        headers = _probes.servicenow_auth(
+            instance_url,
+            user=user,
+            password=password,
+            client_id=client_id,
+            client_secret=client_secret,
+            transport=transport,
+        )
+        cis = _probes.servicenow_cis(
+            instance_url,
+            headers=headers,
+            integration_user=integration_user,
+            transport=transport,
+        )
+    except _probes.ProbeError as exc:
+        raise ConfigError(str(exc)) from exc
+    return [(c.name, c.sys_id, c.incidents) for c in cis]
+
+
+def probe_confluence(
+    base_url: str,
+    *,
+    space_key: str,
+    user: str,
+    token: str,
+    transport: httpx.BaseTransport | None = None,
+) -> str:
+    """The Confluence space's name, read with these credentials."""
+    try:
+        return _probes.confluence_space(
+            base_url, space_key=space_key, user=user, token=token, transport=transport
+        )
+    except _probes.ProbeError as exc:
+        raise ConfigError(str(exc)) from exc
