@@ -15,7 +15,7 @@ from supportagent.bootstrap import demo_servicenow_app
 
 
 def demo_servicenow(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind address (a container port)."),  # noqa: S104
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind address (a container port)."),  # noqa: S104  # nosec B104
     port: int = typer.Option(8081, "--port", help="Port."),
     interval_s: float = typer.Option(300.0, "--interval-s", help="Seconds between incidents."),
     first_after_s: float = typer.Option(45.0, "--first-after-s", help="Before the first one."),

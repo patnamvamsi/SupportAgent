@@ -48,7 +48,7 @@ from supportagent.config.local_install import (
 from supportagent.config.schema import is_floating_alias
 from supportagent.domain.errors import ConfigError
 
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})  # noqa: S104 — matched, not bound
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})  # noqa: S104  # nosec B104 — matched, not bound
 _DOCKER_HOST = "host.docker.internal"
 _MAX_CIS_SHOWN = 15
 _DEFAULT_CIS = 5
