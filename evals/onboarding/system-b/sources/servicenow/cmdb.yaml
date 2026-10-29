@@ -1,0 +1,64 @@
+# CMDB extract for business service Customer Analytics.
+# rel-b-06 is stale: Redshift was retired in 2025 (Confluence 30002).
+cis:
+- sys_id: ci-b-si
+  name: stream-ingest
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-b-cdc
+  name: orders-cdc-ingest
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-b-dst
+  name: daily-sales-task
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-b-bf
+  name: batch-features
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-b-ci
+  name: customer-insights
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-b-msk
+  name: analytics-msk
+  sys_class_name: cmdb_ci_cluster
+  install_status: Installed
+- sys_id: ci-b-sf
+  name: acme-analytics (Snowflake)
+  sys_class_name: cmdb_ci_cloud_database
+  install_status: Installed
+- sys_id: ci-b-rs
+  name: analytics-rs (Redshift)
+  sys_class_name: cmdb_ci_cloud_database
+  install_status: Retired
+- sys_id: ci-b-af
+  name: analytics-airflow
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+relationships:
+- sys_id: rel-b-01
+  parent: stream-ingest
+  type: Depends on::Used by
+  child: analytics-msk
+- sys_id: rel-b-02
+  parent: stream-ingest
+  type: Depends on::Used by
+  child: acme-analytics (Snowflake)
+- sys_id: rel-b-03
+  parent: orders-cdc-ingest
+  type: Depends on::Used by
+  child: analytics-msk
+- sys_id: rel-b-04
+  parent: customer-insights
+  type: Depends on::Used by
+  child: acme-analytics (Snowflake)
+- sys_id: rel-b-05
+  parent: daily-sales-task
+  type: Depends on::Used by
+  child: analytics-airflow
+- sys_id: rel-b-06
+  parent: customer-insights
+  type: Depends on::Used by
+  child: analytics-rs (Redshift)

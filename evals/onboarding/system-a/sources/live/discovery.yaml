@@ -1,0 +1,29 @@
+# What read-only discovery returns once access is granted (ADR-0015 decision 5).
+# Keys are <capability>[@<target>].
+k8s.workloads:
+  cluster: prod-eu1
+  namespace: payments
+  deployments:
+  - payments-gateway
+  - orders-service
+  - payment-service
+  - customer-service
+  cronjobs:
+  - name: settlement-batch
+    schedule: 30 1 * * *
+oracle.schemas@paydb:
+  database: PAYDB
+  schemas:
+  - ORDERS
+  - PAYMENTS
+  - SETTLEMENT
+oracle.schemas@crmdb:
+  database: CRMDB
+  schemas:
+  - CUSTOMERS
+grafana.datasources:
+  datasources:
+  - name: Loki
+    type: loki
+  - name: Prometheus
+    type: prometheus

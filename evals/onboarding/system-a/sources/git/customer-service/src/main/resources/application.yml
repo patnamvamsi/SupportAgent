@@ -1,0 +1,5 @@
+spring:
+  application: {name: customer-service}
+  datasource:
+    url: jdbc:oracle:thin:@//crmdb.acme.internal:1521/CRMDB
+    username: crm_app

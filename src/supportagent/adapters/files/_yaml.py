@@ -27,3 +27,25 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ConfigError(f"{path}: expected a YAML mapping at the top level")  # noqa: TRY003
     return data
+
+
+def load_yaml_any(path: Path) -> object:
+    """Load a YAML file whatever its top level (a list of records, say)."""
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigError(f"cannot read {path}: {exc}") from exc  # noqa: TRY003
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"invalid YAML in {path}: {exc}") from exc  # noqa: TRY003
+
+
+def front_matter(path: Path) -> dict[str, Any]:
+    """A Markdown file's ``---`` front matter as a mapping; empty when it has none."""
+    parts = path.read_text(encoding="utf-8").split("---", 2)
+    if len(parts) != 3 or parts[0].strip():  # noqa: PLR2004 — before, inside, after
+        return {}
+    try:
+        data: object = yaml.safe_load(parts[1])
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"invalid front matter in {path}: {exc}") from exc  # noqa: TRY003
+    return data if isinstance(data, dict) else {}

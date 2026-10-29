@@ -1,0 +1,1 @@
+{"projects": {"payments-portal": {"architect": {"build": {"options": {"outputPath": "dist/payments-portal"}}}}}}

@@ -1,0 +1,10 @@
+{
+  "name": "orders-cdc-ingest",
+  "config": {
+    "connector.class": "com.snowflake.kafka.connector.SnowflakeSinkConnector",
+    "topics": "events.orders,cdc.customers",
+    "snowflake.database.name": "RAW",
+    "snowflake.topic2table.map": "events.orders:ORDERS,cdc.customers:CUSTOMERS",
+    "errors.deadletterqueue.topic.name": "dlq.orders-cdc-ingest"
+  }
+}

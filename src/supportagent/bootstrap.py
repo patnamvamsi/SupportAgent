@@ -61,7 +61,12 @@ from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
-from supportagent.adapters.files.eval_loader import load_eval_documents, load_yaml_document
+from supportagent.adapters.files.eval_loader import (
+    load_eval_documents,
+    load_front_matter,
+    load_yaml_document,
+    load_yaml_records,
+)
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
 from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
@@ -250,6 +255,12 @@ from supportagent.evals.lab import (
     WorldTools,
     cited_tools,
     load_scenarios,
+)
+from supportagent.evals.onboarding import (
+    Inventory,
+    OnboardingGates,
+    ReferenceSystem,
+    Truth,
 )
 from supportagent.evals.quality import RecallReport
 from supportagent.evals.scoring import CaseRun
@@ -2933,3 +2944,63 @@ def probe_confluence(
         )
     except _probes.ProbeError as exc:
         raise ConfigError(str(exc)) from exc
+
+
+# --- the onboarding lab (ADR-0015, WP-O7) --------------------------------------------
+
+ONBOARDING_DIR = _REPO_ROOT / "evals" / "onboarding"
+
+
+def load_reference_system(path: Path) -> ReferenceSystem:
+    """One reference system: the manifest, the truth, and an inventory of its sources."""
+    try:
+        manifest = load_yaml_document(path / "system.yaml")
+        truth = Truth.model_validate(
+            {
+                **load_yaml_document(path / "truth.yaml"),
+                **load_yaml_document(path / "truth_incidents.yaml"),
+            }
+        )
+    except ValidationError as exc:
+        raise ConfigError(f"reference system {path.name}: {exc}") from exc  # noqa: TRY003
+    sources = path / "sources"
+    pages: set[str] = set()
+    for page in sorted((sources / "confluence").rglob("*.md")):
+        meta = load_front_matter(page)
+        if meta.get("page_id"):
+            pages.add(str(meta["page_id"]))
+    git_root = sources / "git"
+    files = {p.relative_to(git_root).as_posix() for p in git_root.rglob("*") if p.is_file()}
+    cmdb = load_yaml_document(sources / "servicenow" / "cmdb.yaml")
+    cmdb_ids = {str(r["sys_id"]) for r in [*cmdb.get("cis", []), *cmdb.get("relationships", [])]}
+    live = load_yaml_document(sources / "live" / "discovery.yaml")
+    records = load_yaml_records(sources / "servicenow" / "incidents.yaml")
+    incidents = {str(i["number"]): str(i["priority"]) for i in records}
+    system = manifest.get("system") or {}
+    return ReferenceSystem(
+        id=str(system.get("id", path.name)),
+        name=str(system.get("name", path.name)),
+        manifest=manifest,
+        truth=truth,
+        inventory=Inventory(
+            confluence=frozenset(pages),
+            git=frozenset(files),
+            cmdb=frozenset(cmdb_ids),
+            live=frozenset(str(k) for k in live),
+            incidents=incidents,
+        ),
+    )
+
+
+def load_reference_systems(root: Path = ONBOARDING_DIR) -> list[ReferenceSystem]:
+    """Every reference system under ``evals/onboarding`` (a directory with a ``truth.yaml``)."""
+    return [
+        load_reference_system(d) for d in sorted(root.iterdir()) if (d / "truth.yaml").is_file()
+    ]
+
+
+def load_onboarding_gates(root: Path = ONBOARDING_DIR) -> OnboardingGates:
+    try:
+        return OnboardingGates.model_validate(load_yaml_document(root / "gates.yaml"))
+    except ValidationError as exc:
+        raise ConfigError(f"onboarding gates: {exc}") from exc  # noqa: TRY003

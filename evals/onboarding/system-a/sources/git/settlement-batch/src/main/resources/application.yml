@@ -1,0 +1,7 @@
+spring:
+  application: {name: settlement-batch}
+  datasource:
+    url: jdbc:oracle:thin:@//paydb-scan.acme.internal:1521/PAYDB
+    username: settlement_app
+settlement:
+  sftp: {host: sftp.bank.example, path: /inbound/acme}

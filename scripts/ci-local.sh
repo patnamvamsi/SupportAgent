@@ -52,7 +52,8 @@ evals() {
   uv run supportagent eval run --suite smoke &&
     uv run supportagent eval lab --pack common --config evals/lab/lab.yaml --split all &&
     uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --split all &&
-    if [ -d evals/entail ]; then uv run supportagent eval entail --config evals/lab/lab.yaml; fi
+    if [ -d evals/entail ]; then uv run supportagent eval entail --config evals/lab/lab.yaml; fi &&
+    if [ -d evals/onboarding ]; then uv run supportagent eval onboarding; fi
 }
 security() {
   local reqs

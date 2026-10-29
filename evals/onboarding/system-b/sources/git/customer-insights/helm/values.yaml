@@ -1,0 +1,3 @@
+cluster: prod-us1
+namespace: analytics-apps
+replicas: 2

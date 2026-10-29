@@ -1,0 +1,88 @@
+# CMDB extract: CIs and relationships for business service Payments.
+# rel-a-07 is stale (customer-service moved to CRMDB in 2024; Confluence 10004).
+cis:
+- sys_id: ci-a-gw
+  name: payments-gateway
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-a-ord
+  name: orders-service
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-a-pay
+  name: payment-service
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-a-cus
+  name: customer-service
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-a-set
+  name: settlement-batch
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-a-ui
+  name: payments-portal
+  sys_class_name: cmdb_ci_appl
+  install_status: Installed
+- sys_id: ci-a-ref
+  name: refund-service
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Retired
+- sys_id: ci-a-paydb
+  name: PAYDB
+  sys_class_name: cmdb_ci_db_ora_instance
+  install_status: Installed
+- sys_id: ci-a-crmdb
+  name: CRMDB
+  sys_class_name: cmdb_ci_db_ora_instance
+  install_status: Installed
+- sys_id: ci-a-ns
+  name: prod-eu1/payments
+  sys_class_name: cmdb_ci_kubernetes_namespace
+  install_status: Installed
+relationships:
+- sys_id: rel-a-01
+  parent: payments-gateway
+  type: Depends on::Used by
+  child: orders-service
+- sys_id: rel-a-02
+  parent: payments-gateway
+  type: Depends on::Used by
+  child: payment-service
+- sys_id: rel-a-03
+  parent: payments-gateway
+  type: Depends on::Used by
+  child: customer-service
+- sys_id: rel-a-04
+  parent: orders-service
+  type: Depends on::Used by
+  child: PAYDB
+- sys_id: rel-a-05
+  parent: payment-service
+  type: Depends on::Used by
+  child: PAYDB
+- sys_id: rel-a-06
+  parent: settlement-batch
+  type: Depends on::Used by
+  child: PAYDB
+- sys_id: rel-a-07
+  parent: customer-service
+  type: Depends on::Used by
+  child: PAYDB
+- sys_id: rel-a-08
+  parent: payments-portal
+  type: Depends on::Used by
+  child: payments-gateway
+- sys_id: rel-a-09
+  parent: refund-service
+  type: Depends on::Used by
+  child: PAYDB
+- sys_id: rel-a-10
+  parent: orders-service
+  type: Runs on::Runs
+  child: prod-eu1/payments
+- sys_id: rel-a-11
+  parent: payment-service
+  type: Runs on::Runs
+  child: prod-eu1/payments
