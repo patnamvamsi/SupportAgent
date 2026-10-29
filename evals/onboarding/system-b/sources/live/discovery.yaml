@@ -1,0 +1,44 @@
+# What read-only discovery returns once access is granted (ADR-0015 decision 5).
+kafka.topics@analytics-msk:
+  topics:
+  - events.clickstream
+  - events.orders
+  - cdc.customers
+  - dlq.orders-cdc-ingest
+kafka.consumer_groups@analytics-msk:
+  groups:
+  - group: stream-ingest
+    topics:
+    - events.clickstream
+  - group: connect-orders-cdc-ingest
+    topics:
+    - events.orders
+    - cdc.customers
+snowflake.objects@acme-analytics:
+  databases:
+    RAW:
+    - CLICKSTREAM
+    - ORDERS
+    - CUSTOMERS
+    ANALYTICS:
+    - DAILY_SALES
+    - CUSTOMER_FEATURES
+  warehouses:
+  - WH_LOAD
+  - WH_TRANSFORM
+  - WH_BI
+  tasks:
+  - ANALYTICS.TASK_BUILD_DAILY_SALES
+  resource_monitors:
+  - RM_ANALYTICS
+airflow.dags@analytics-airflow:
+  dags:
+  - dag_id: daily_sales
+    schedule: 0 3 * * *
+  - dag_id: customer_features
+    schedule: 0 2 * * *
+k8s.workloads:
+  cluster: prod-us1
+  namespace: analytics-apps
+  deployments:
+  - customer-insights

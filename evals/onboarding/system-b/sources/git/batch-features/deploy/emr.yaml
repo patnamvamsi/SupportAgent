@@ -1,0 +1,2 @@
+cluster: emr-batch
+step: spark-submit features.py

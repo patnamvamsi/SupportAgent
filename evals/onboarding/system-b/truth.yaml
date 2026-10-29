@@ -1,0 +1,70 @@
+# Ground truth for reference System B (WP-O7, ADR-0015 outcomes O1, O3, O4).
+# The incident classes (O2) are in truth_incidents.yaml, written by the generator.
+# Source references and must_not as for System A. Lineage edges (consumes,
+# reads, writes) matter most here: a stale dashboard is solved by walking upstream.
+graph:
+  nodes:
+    - {id: "topic:events.clickstream", kind: Topic, tech: [kafka], sources: ["confluence:30001", "git:stream-ingest/job.py", "live:kafka.topics@analytics-msk"]}
+    - {id: "topic:events.orders", kind: Topic, tech: [kafka], sources: ["confluence:30001", "git:orders-cdc-ingest/connector.json", "live:kafka.topics@analytics-msk"]}
+    - {id: "topic:cdc.customers", kind: Topic, tech: [kafka], sources: ["confluence:30001", "git:orders-cdc-ingest/connector.json", "live:kafka.topics@analytics-msk"]}
+    - {id: "job:stream-ingest", kind: Job, tech: [pyspark, spark-streaming], sources: ["git:stream-ingest/job.py", "git:stream-ingest/requirements.txt", "confluence:30001", "cmdb:ci-b-si"]}
+    - {id: "job:orders-cdc-ingest", kind: Job, tech: [kafka-connect], sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001", "cmdb:ci-b-cdc"]}
+    - {id: "job:daily-sales-task", kind: Job, tech: [snowflake-task], sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql", "confluence:30001", "cmdb:ci-b-dst"]}
+    - {id: "job:batch-features", kind: Job, tech: [pyspark], sources: ["git:batch-features/features.py", "confluence:30001", "cmdb:ci-b-bf"]}
+    - {id: "ui:customer-insights", kind: UI, tech: [streamlit], sources: ["git:customer-insights/app.py", "git:customer-insights/requirements.txt", "confluence:30001", "cmdb:ci-b-ci"]}
+    - {id: "table:raw.clickstream", kind: Datastore, tech: [snowflake], sources: ["git:stream-ingest/job.py", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "table:raw.orders", kind: Datastore, tech: [snowflake], sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "table:raw.customers", kind: Datastore, tech: [snowflake], sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "table:analytics.daily_sales", kind: Datastore, tech: [snowflake], sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "table:analytics.customer_features", kind: Datastore, tech: [snowflake], sources: ["git:batch-features/features.py", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "runtime:snowflake/wh_load", kind: Runtime, tech: [snowflake], sources: ["confluence:30001", "git:stream-ingest/job.py", "live:snowflake.objects@acme-analytics"]}
+    - {id: "runtime:snowflake/wh_transform", kind: Runtime, tech: [snowflake], sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql", "live:snowflake.objects@acme-analytics"]}
+    - {id: "runtime:snowflake/wh_bi", kind: Runtime, tech: [snowflake], sources: ["git:customer-insights/app.py", "confluence:30001", "live:snowflake.objects@acme-analytics"]}
+    - {id: "runtime:emr/emr-streaming", kind: Runtime, tech: [emr, spark], sources: ["git:stream-ingest/deploy/emr.yaml", "confluence:30001"]}
+    - {id: "runtime:emr/emr-batch", kind: Runtime, tech: [emr, spark], sources: ["git:batch-features/deploy/emr.yaml", "confluence:40004"]}
+    - {id: "runtime:airflow/analytics-airflow", kind: Runtime, tech: [airflow], sources: ["confluence:30001", "cmdb:ci-b-af", "live:airflow.dags@analytics-airflow"]}
+    - {id: "runtime:prod-us1/analytics-apps", kind: Runtime, tech: [kubernetes], sources: ["git:customer-insights/helm/values.yaml", "confluence:30001", "live:k8s.workloads"]}
+  edges:
+    - {src: "job:stream-ingest", kind: consumes, dst: "topic:events.clickstream", sources: ["git:stream-ingest/job.py", "confluence:30001", "live:kafka.consumer_groups@analytics-msk"]}
+    - {src: "job:stream-ingest", kind: writes, dst: "table:raw.clickstream", sources: ["git:stream-ingest/job.py", "confluence:30001"]}
+    - {src: "job:stream-ingest", kind: runs_on, dst: "runtime:emr/emr-streaming", sources: ["git:stream-ingest/deploy/emr.yaml", "confluence:30001"]}
+    - {src: "job:orders-cdc-ingest", kind: consumes, dst: "topic:events.orders", sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001"]}
+    - {src: "job:orders-cdc-ingest", kind: consumes, dst: "topic:cdc.customers", sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001"]}
+    - {src: "job:orders-cdc-ingest", kind: writes, dst: "table:raw.orders", sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001"]}
+    - {src: "job:orders-cdc-ingest", kind: writes, dst: "table:raw.customers", sources: ["git:orders-cdc-ingest/connector.json", "confluence:30001"]}
+    - {src: "job:daily-sales-task", kind: reads, dst: "table:raw.orders", sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql", "confluence:30001"]}
+    - {src: "job:daily-sales-task", kind: writes, dst: "table:analytics.daily_sales", sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql", "confluence:30001"]}
+    - {src: "job:daily-sales-task", kind: runs_on, dst: "runtime:snowflake/wh_transform", sources: ["git:snowflake-tasks/tasks/build_daily_sales.sql"]}
+    - {src: "job:daily-sales-task", kind: scheduled_by, dst: "runtime:airflow/analytics-airflow", sources: ["git:airflow-dags/dags/daily_sales.py", "confluence:30001", "cmdb:rel-b-05"]}
+    - {src: "job:batch-features", kind: reads, dst: "table:raw.clickstream", sources: ["git:batch-features/features.py", "confluence:30001"]}
+    - {src: "job:batch-features", kind: reads, dst: "table:raw.customers", sources: ["git:batch-features/features.py", "confluence:30001"]}
+    - {src: "job:batch-features", kind: writes, dst: "table:analytics.customer_features", sources: ["git:batch-features/features.py", "confluence:30001"]}
+    - {src: "job:batch-features", kind: runs_on, dst: "runtime:emr/emr-batch", sources: ["git:batch-features/deploy/emr.yaml", "confluence:40004"]}
+    - {src: "job:batch-features", kind: scheduled_by, dst: "runtime:airflow/analytics-airflow", sources: ["git:airflow-dags/dags/customer_features.py", "confluence:30001"]}
+    - {src: "ui:customer-insights", kind: reads, dst: "table:analytics.daily_sales", sources: ["git:customer-insights/app.py", "confluence:30001"]}
+    - {src: "ui:customer-insights", kind: reads, dst: "table:analytics.customer_features", sources: ["git:customer-insights/app.py", "confluence:30001"]}
+    - {src: "ui:customer-insights", kind: runs_on, dst: "runtime:prod-us1/analytics-apps", sources: ["git:customer-insights/helm/values.yaml", "live:k8s.workloads"]}
+    - {src: "ui:customer-insights", kind: uses, dst: "runtime:snowflake/wh_bi", sources: ["git:customer-insights/app.py", "confluence:30001"]}
+  must_not:
+    nodes:
+      - {id: "database:analytics-rs", why: "the retired 2024 Redshift cluster (confluence:30002; CMDB Retired)"}
+      - {id: "ui:quicksight", why: "2024 dashboards (confluence:30002)"}
+    edges:
+      - {src: "ui:customer-insights", kind: reads, dst: "table:raw.orders", why: "the 2025 draft (confluence:30003); app.py reads ANALYTICS"}
+      - {src: "ui:customer-insights", kind: uses, dst: "database:analytics-rs", why: "CMDB rel-b-06 is stale"}
+  questions:
+    - {about: "ui:customer-insights reads RAW or ANALYTICS", sources: ["confluence:30003", "git:customer-insights/app.py"]}
+
+plugins:
+  required: [snowflake, kafka, spark, streamlit, airflow, data-quality, kubernetes]
+  must_not: [oracle, java-spring, angular, python-postgres]
+
+requests:
+  expected:
+    - {plugin: snowflake, access: snowflake_ro, target: acme-analytics}
+    - {plugin: kafka, access: kafka_ro, target: analytics-msk}
+    - {plugin: spark, access: spark_history_ro, target: emr-streaming}
+    - {plugin: spark, access: spark_history_ro, target: emr-batch}
+    - {plugin: airflow, access: airflow_ro, target: analytics-airflow}
+    - {plugin: kubernetes, access: k8s_ro, target: prod-us1/analytics-apps}
+  forbidden_scope: ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN', '\bOPERATE\b', '\b(ALTER|RESUME|EXECUTE)\s+(TASK|WAREHOUSE)\b', '\bwrite\b', 'cluster-admin']

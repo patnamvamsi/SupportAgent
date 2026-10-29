@@ -1,0 +1,4 @@
+namespace: payments
+replicas: 4
+resources: {limits: {memory: 2Gi}}
+jvm: {opts: "-Xmx1536m"}

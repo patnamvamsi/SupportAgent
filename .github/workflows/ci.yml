@@ -239,6 +239,12 @@ jobs:
         # evals/entail/recordings: faithfulness >= 0.95 and no false support.
         if: steps.filter.outputs.triggered == 'true'
         run: uv run supportagent eval entail --config evals/lab/lab.yaml
+      - name: onboarding lab (ADR-0015, WP-O7)
+        # Reference systems A and B: fixtures self-consistent, the oracle passes
+        # every gate, the null result fails every stage; enforced stages gate
+        # the pipeline as WP-O1..O6 land.
+        if: steps.filter.outputs.triggered == 'true'
+        run: uv run supportagent eval onboarding
 
   security:
     runs-on: ubuntu-latest

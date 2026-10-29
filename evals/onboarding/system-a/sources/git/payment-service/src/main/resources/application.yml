@@ -1,0 +1,9 @@
+spring:
+  application: {name: payment-service}
+  datasource:
+    url: jdbc:oracle:thin:@//paydb-scan.acme.internal:1521/PAYDB
+    username: payments_app
+    hikari: {maximum-pool-size: 40}
+cardco:
+  base-url: https://api.cardco.example/v2
+  timeout-ms: 4000

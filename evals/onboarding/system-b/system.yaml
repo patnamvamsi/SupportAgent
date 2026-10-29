@@ -1,0 +1,33 @@
+# The onboarding manifest (ADR-0015 §1) for reference System B.
+system:
+  id: customer-analytics
+  name: 'System B: Customer Analytics Data Platform'
+  owners:
+  - team-data-platform@acme.example
+sources:
+  servicenow:
+    business_service: Customer Analytics
+    assignment_groups:
+    - DATA-PLATFORM
+    history: 12mo
+    include:
+    - incident
+    - problem
+    - change_request
+    - cmdb_ci
+  confluence:
+  - space: DATA
+  - space: DATAARCH
+  git:
+  - repo: github:acme/analytics-*
+    paths:
+    - '**/requirements.txt'
+    - '**/*.py'
+    - '**/*.sql'
+    - '**/connector.json'
+    - '**/helm/**'
+    - '**/deploy/**'
+access: []
+budget:
+  llm_tokens: 20000000
+  wall_clock: 6h

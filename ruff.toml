@@ -4,7 +4,9 @@ target-version = "py312"
 
 # The spec docs are frozen: ruff must not touch their code blocks (ruff ≥0.9
 # formats markdown code fences). Lint/format targets are src/ + tests/ + docker/.
-extend-exclude = ["docs", ".uv-cache", ".uv-python", "migrations"]
+# The onboarding lab's reference systems carry their own code (PySpark jobs,
+# Airflow DAGs, a Streamlit app) as fixture data for discovery, not project code.
+extend-exclude = ["docs", ".uv-cache", ".uv-python", "migrations", "evals/onboarding/*/sources"]
 
 [lint]
 select = [
@@ -49,6 +51,9 @@ banned-api = {
 "tests/contract/test_mcp_grafana_live.py" = ["TID251"]
 # BL-051: the opt-in live Confluence contract reads its site and token from the environment.
 "tests/contract/test_confluence_live.py" = ["TID251"]
+# WP-O7: the onboarding lab's history generator is fixture data (long ticket
+# text) seeded for reproducibility, not crypto.
+"evals/onboarding/generate_history.py" = ["E501", "S311", "SIM113"]
 # The installer's probes exist to tell a person what to fix: each message is the point.
 "src/supportagent/adapters/install/probes.py" = ["TRY003"]
 

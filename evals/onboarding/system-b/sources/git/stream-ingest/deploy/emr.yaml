@@ -1,0 +1,2 @@
+cluster: emr-streaming
+step: spark-submit job.py

@@ -1,0 +1,28 @@
+# Onboarding lab gates (ADR-0015 outcomes O1-O4, WP-O7).
+# A floor per metric; `forbidden` is a ceiling and stays 0: no fact from a
+# superseded page, no plugin for another stack, no request beyond read-only.
+graph:
+  node_precision: 0.90
+  node_recall: 0.80
+  edge_precision: 0.90
+  edge_recall: 0.80
+  forbidden: 0
+incidents:
+  # 0.85: merging two classes with different causes (lock contention with pool
+  # exhaustion in System A) scores 0.82 and must fail.
+  pair_f1: 0.85
+  label_accuracy: 0.80
+  cause_accuracy: 0.75
+plugins:
+  precision: 0.90
+  recall: 1.0
+  forbidden: 0
+requests:
+  precision: 0.80
+  recall: 0.90
+  forbidden: 0
+# Stages whose gates bind the real onboarding pipeline. Each joins this list
+# in the PR that builds it (graph: WP-O3, incidents: WP-O4, plugins and
+# requests: WP-O1/O5). Until then the lab runs the oracle and null results,
+# which prove the scorer and that every gate bites.
+enforced_stages: []
