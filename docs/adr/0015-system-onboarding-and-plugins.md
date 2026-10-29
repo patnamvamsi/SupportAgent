@@ -1,6 +1,6 @@
 # 0015. System onboarding: an instance learns the system it supports, asks for what it lacks, and proves readiness; everything pluggable is a plugin
 
-- **Status:** proposed (needs the maintainer's review of the outcomes, the plugin model and the open questions before code)
+- **Status:** accepted (2026-10-29, with the maintainer's answers below)
 - **Date:** 2026-10-29
 - **Code PR:** this ADR first; delivery as WP-O1 to WP-O8 (below), each in its own PR
 - **Spec sections changed (when accepted):**
@@ -226,13 +226,21 @@ A real system is the final test. The partner's ServiceNow and Confluence (BL-037
   - *Prompt injection* through docs, tickets or tool output during onboarding. Mitigations: everything stays untrusted data (ADR-0011), and the lab carries canaries.
 - **Unchanged:** the trust core, the INV-01 gate, redaction, shadow-first, and human promotion to assisted mode, now per incident class.
 
-## Open questions for the maintainer
+## Decisions on the open questions (maintainer, 2026-10-29)
 
-1. **One instance per system, or one instance with several systems?** This ADR assumes one per system, as described. The data model keeps a `system_id`, so one instance could later host several.
-2. **Plugin distribution.**
-   - Where do plugins live: this repo, a separate catalog repo, or pip packages?
-   - Do we accept third-party plugins? The proposal: only data plugins and MCP servers from third parties; in-process Python only from us, signed.
-3. **The onboarding budget.** What token and time budget is acceptable for reading a system's documentation? Is a local model acceptable for extraction, with the hosted model kept for triage?
-4. **Who reviews,** and how much: the graph's proposed facts, and the scenarios built from history. Can we count on an SME, roughly 2–4 hours per system?
-5. **Live discovery with read-only production access.** May onboarding list topics, schemas, warehouses and deployments to confirm graph facts, or should it read prod only for triage?
-6. **The readiness bar.** What share of incident weight must ready classes cover before the instance counts as supporting the system? The proposal is 70% of the last 12 months.
+1. **One instance per system.** The data model keeps a `system_id`, so a later instance can host several.
+2. **Plugin distribution, as proposed.**
+   - Third parties may ship data plugins (packs, extractor rules, detectors) and MCP servers. In-process Python comes only from us, signed.
+   - First-party plugins live in this repo under `plugins/`. The registry is a git index that can also point at external catalogs.
+3. **The onboarding model is whichever model the user chose.**
+   - If the user configured both a local model and a frontier model, onboarding (ingest extraction, cluster labelling, gap reasoning) uses the **frontier** model.
+   - Triage keeps its own slots.
+   - This needs a second provider in the config. `llm.providers` names each provider, and the onboarding slots resolve to the frontier one when there is one. The installer offers to set up both.
+4. **SMEs review, and the review must be easy to do visually.**
+   - `/ui/onboarding` shows the graph as a picture: components, datastores and topics, with proposed edges dashed and confirmed edges solid.
+   - Next to the graph, each proposed fact is a card showing its source quote and a link to the source.
+   - Facts can be confirmed or rejected in bulk by confidence or by source. Keyboard shortcuts move through the queue, and progress is shown as a share of facts reviewed.
+   - The same pattern applies to scenarios built from history: the ticket, the inferred cause and the evidence side by side, approved with one click.
+   - The UI serves its scripts itself, keeping the CSP `script-src 'self'`.
+5. **Production access is used for both live discovery and triage.** Discovery stays read-only, uses only the declared capabilities, and is logged in the onboarding trace like any tool call.
+6. **The readiness bar is 70%** of the last 12 months' incident weight, covered by classes that pass their gates. It is configurable per system.

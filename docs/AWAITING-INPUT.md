@@ -4,12 +4,6 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
-### ADR-0015 system onboarding and plugins: review before code (2026-10-29)
-
-- **What:** [ADR-0015](adr/0015-system-onboarding-and-plugins.md) is proposed. An instance pointed at a system reads its docs, ServiceNow history and manifests, and builds a system graph. It then works out which plugins and read-only access it needs and asks for them, sets itself up once they're granted, and proves readiness per incident class. Skills, MCP servers, connectors and knowledge sources become one plugin model.
-- **Needs your answers on:** one instance per system; where plugins live and whether third-party plugins are accepted; the token and time budget for reading the docs; SME review time; live discovery with read-only prod access; the readiness bar (proposed: 70% of incident weight).
-- **Unblocks:** WP-O7 (the onboarding lab with reference systems A and B) and WP-O1 (the plugin model), which come first.
-
 ### GitHub Actions minutes: merging on local CI until they reset (2026-10-29)
 
 - **What happened:** the repo is private on the free plan, so Actions get the free plan's monthly minutes. Each push runs about 13 jobs, billed per job and rounded up to the minute, and the nightly job runs every day; together they used up the month's minutes. GitHub then refuses jobs with the "payments … spending limit" message. No payment is needed.
@@ -27,6 +21,7 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Resolved (2026-10-29)
 
+- **ADR-0015 (system onboarding, plugins):** accepted. One instance per system; plugins as proposed (third parties ship data plugins and MCP servers; in-process code is ours, signed); onboarding uses the frontier model when both a local and a frontier model are configured; SME review made easy visually; read-only prod access for discovery and triage; readiness bar 70%.
 - **ADR-0014 part 2 (SOP auto mode):** reviewed ("go ahead") and delivered as BL-054. Auto mode is a grant an admin approves on one SOP step, with conditions that must hold every time it is used: named checks positive, the cause's claim passing `entail`, a daily cap, optional services. If any condition fails or can't be read, the step goes to a person. Every decision is recorded on the case, and each auto note can be retracted from the case page. The two open questions went as proposed: only `work_note` and `enrich_page` declare a revert, and there is no confidence condition until the ADR-0003 thresholds are calibrated.
 - **Confluence account email:** received; the live contract passes.
 - **#71 fix found while merging:** RCA's gate had no outbox writer, so a page note covered by the `enrich_page` grant was approved but never sent. Fixed and tested in #71 before it merged.
