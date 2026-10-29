@@ -37,3 +37,6 @@ evals/artifacts/*/
 
 # Local configs (BL-042)
 supportagent.local.yaml
+
+# The local install (./install.sh): config, secrets, Keycloak realm, calibration
+/local/

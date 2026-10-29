@@ -34,8 +34,11 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/venv/bin:$PATH" \
     VIRTUAL_ENV=/venv
 # Non-root (05 §1): fixed uid/gid so host volume mounts are predictable.
+# /app is world-traversable: the local install (docker/local) runs the
+# container as the host user, so files it writes under local/ stay theirs.
 RUN groupadd --gid 10001 supportagent \
-    && useradd --uid 10001 --gid supportagent --create-home --home-dir /app supportagent
+    && useradd --uid 10001 --gid supportagent --create-home --home-dir /app supportagent \
+    && chmod 755 /app
 WORKDIR /app
 # The non-editable install puts supportagent in /venv/site-packages; the
 # runtime image carries no source tree and no project metadata.

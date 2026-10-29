@@ -47,8 +47,11 @@ class OIDCClient:
         redirect_url: str,
         http: httpx.Client,
         clock: Clock,
+        backchannel_url: str | None = None,
     ) -> None:
         self._issuer = issuer
+        self._public = _origin(issuer)
+        self._backchannel = _origin(backchannel_url) if backchannel_url else None
         self._client_id = client_id
         self._client_secret = client_secret
         self._redirect_url = redirect_url
@@ -170,7 +173,17 @@ class OIDCClient:
         return self._keys
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:  # noqa: ANN401
+        if self._backchannel is not None and url.startswith(self._public + "/"):
+            # Server-to-IdP traffic goes over the backchannel; the browser never sees it.
+            url = self._backchannel + url[len(self._public) :]
         try:
             return self._http.request(method, url, **kwargs)
         except httpx.HTTPError as exc:
             raise ExternalServiceError(f"OIDC provider unreachable: {exc}", retryable=True) from exc  # noqa: TRY003
+
+
+def _origin(url: str) -> str:
+    """``scheme://host[:port]`` of ``url``."""
+    parsed = httpx.URL(url)
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{parsed.host}{port}"

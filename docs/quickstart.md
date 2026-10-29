@@ -1,5 +1,7 @@
 # Quickstart
 
+> **On a laptop?** `./install.sh` does all of this for you: it asks the questions, writes the config and secrets, and runs SupportAgent, Postgres and a Keycloak sign-in in Docker. See the [README](../README.md#install-on-your-laptop). This page covers a hand-built deployment with your own identity provider and database.
+
 From a clean checkout to a running shadow deployment against your ServiceNow instance. Shadow mode **never writes to ServiceNow**: the agent reads tickets, triages them, and records what it *would* have done.
 
 ## 1. Install

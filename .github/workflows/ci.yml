@@ -264,6 +264,8 @@ jobs:
           uv run pip-audit -r reqs.txt --no-deps --disable-pip
       - name: bandit
         run: uv run bandit -r src
+      - name: shellcheck (install.sh, the local CI runner)
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:

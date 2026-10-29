@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# The job functions run through `job`, which shellcheck can't follow.
+# shellcheck disable=SC2317
 # Run every job of .github/workflows/ci.yml on this machine, in the same order
 # and with the same commands, and print a pass/fail table.
 #
@@ -13,8 +15,9 @@
 # gate a local run silently skips.
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 BASE=${BASE:-origin/main}
+# shellcheck disable=SC2054 # the comma is inside one flag's value
 NET=(--allow-unix-socket --allow-hosts=127.0.0.1,localhost)
 LOG_DIR=${LOG_DIR:-$(mktemp -d)}
 mkdir -p "$LOG_DIR"
@@ -58,7 +61,8 @@ security() {
     --no-emit-project -o "$reqs" &&
     uv run pip-audit -r "$reqs" --no-deps --disable-pip &&
     uv run bandit -q -r src &&
-    gitleaks detect --redact --log-opts="$BASE..HEAD"
+    gitleaks detect --redact --log-opts="$BASE..HEAD" &&
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh
 }
 image() {
   docker build -f docker/Dockerfile -t supportagent:ci . &&
