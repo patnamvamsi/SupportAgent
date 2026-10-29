@@ -4,6 +4,12 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
+### ADR-0015 system onboarding and plugins: review before code (2026-10-29)
+
+- **What:** [ADR-0015](adr/0015-system-onboarding-and-plugins.md) is proposed. An instance pointed at a system reads its docs, ServiceNow history and manifests, and builds a system graph. It then works out which plugins and read-only access it needs and asks for them, sets itself up once they're granted, and proves readiness per incident class. Skills, MCP servers, connectors and knowledge sources become one plugin model.
+- **Needs your answers on:** one instance per system; where plugins live and whether third-party plugins are accepted; the token and time budget for reading the docs; SME review time; live discovery with read-only prod access; the readiness bar (proposed: 70% of incident weight).
+- **Unblocks:** WP-O7 (the onboarding lab with reference systems A and B) and WP-O1 (the plugin model), which come first.
+
 ### GitHub Actions minutes: merging on local CI until they reset (2026-10-29)
 
 - **What happened:** the repo is private on the free plan, so Actions get the free plan's monthly minutes. Each push runs about 13 jobs, billed per job and rounded up to the minute, and the nightly job runs every day; together they used up the month's minutes. GitHub then refuses jobs with the "payments … spending limit" message. No payment is needed.
