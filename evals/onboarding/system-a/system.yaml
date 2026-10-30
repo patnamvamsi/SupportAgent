@@ -19,7 +19,7 @@ sources:
   - space: PAY
   - space: PAYARCH
   git:
-  - repo: github:acme/payments-*
+  - repo: github:acme-payments/*
     paths:
     - '**/pom.xml'
     - '**/application*.yml'

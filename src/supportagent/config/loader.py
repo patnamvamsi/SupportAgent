@@ -20,6 +20,7 @@ import yaml
 from pydantic import ValidationError
 
 from supportagent.config.schema import AppConfig
+from supportagent.config.system_manifest import SystemManifest
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.faults import Fault, parse_faults
 
@@ -34,6 +35,7 @@ _SECRET_SOURCES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (("identity",), "client_secret_env", "client_secret"),
     (("identity",), "session_secret_env", "session_secret"),
     (("llm",), "api_key_env", "api_key"),
+    (("llm", "onboarding"), "api_key_env", "api_key"),
     # 11-wp WP-107: tool credentials (each section optional).
     (("tools", "airflow"), "token_env", "token"),
     (("tools", "github"), "token_env", "token"),
@@ -205,6 +207,40 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
             server["token"] = _resolve_variable(server.pop("token_env"), "token_env", env)
     _resolve_knowledge_secrets(resolved, env)
     return resolved
+
+
+def load_system_manifest(
+    path: Path, env: Mapping[str, str], *, need_secrets: bool = True
+) -> SystemManifest:
+    """``system.yaml`` (ADR-0015 §1), resolving each source's ``*_env`` credentials.
+
+    ``need_secrets=False`` (the onboarding lab, ``onboard detect``) leaves an
+    unset variable unresolved instead of failing: nothing is read remotely.
+    """
+    raw = _load_yaml_file(path)
+    sources = raw.get("sources")
+    found = sources if isinstance(sources, dict) else {}
+    remote = [*(found.get("confluence") or []), *(found.get("git") or [])]
+    for source in remote:
+        if not isinstance(source, dict):
+            continue
+        for key, target in (("user_env", "user"), ("token_env", "token")):
+            if key not in source:
+                continue
+            variable = source.pop(key)
+            if need_secrets:
+                source[target] = _resolve_variable(variable, key, env)
+            elif isinstance(variable, str) and env.get(variable):
+                source[target] = env[variable]
+    try:
+        return SystemManifest.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"system manifest {path}: {exc}") from exc  # noqa: TRY003
+
+
+def load_system_manifest_default(path: Path, *, need_secrets: bool = True) -> SystemManifest:
+    """Entry-point convenience: ``path`` with the process environment (05 §6)."""
+    return load_system_manifest(path, os.environ, need_secrets=need_secrets)
 
 
 def _resolve_knowledge_secrets(resolved: dict[str, Any], env: Mapping[str, str]) -> None:

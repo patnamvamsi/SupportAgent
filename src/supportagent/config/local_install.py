@@ -42,12 +42,22 @@ GENERATED = (
 
 
 @dataclass(frozen=True, slots=True)
+class FrontierAnswers:
+    """ADR-0015 decision 3: the frontier model onboarding uses when triage's is local."""
+
+    kind: Literal["anthropic", "openai"]
+    model_id: str
+    api_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class LlmAnswers:
     kind: LlmKind
     model_id: str
     #: The server as the containers reach it (``localhost`` already rewritten).
     base_url: str | None = None
     api_key: str | None = None
+    onboarding: FrontierAnswers | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +167,8 @@ def render_env(answers: Answers, generated: Mapping[str, str]) -> str:
     }
     if answers.llm.kind in ("anthropic", "openai", "local"):
         values["LLM_API_KEY"] = answers.llm.api_key or "local"
+    if answers.llm.onboarding is not None:
+        values["ONBOARDING_LLM_API_KEY"] = answers.llm.onboarding.api_key
     sn = answers.servicenow
     if sn.kind == "oauth":
         values["SN_CLIENT_ID"] = sn.client_id or ""
@@ -256,6 +268,7 @@ def render_config(answers: Answers) -> str:
         f"    entail: {slot}",
         "  daily_budget_tokens: 2000000",
         "  deprecation_feed: null",
+        *_onboarding_block(llm.onboarding),
         "redaction:",
         "  custom_patterns: []",
         "  tenant_constants: []",
@@ -377,6 +390,19 @@ def render_realm(answers: Answers, generated: Mapping[str, str]) -> str:
     return json.dumps(realm, indent=2) + "\n"
 
 
+def _onboarding_block(frontier: FrontierAnswers | None) -> list[str]:
+    if frontier is None:
+        return []
+    return [
+        "  onboarding:                        # ADR-0015: reads docs, drafts the system graph",
+        f"    provider: {frontier.kind}",
+        "    api_key_env: ONBOARDING_LLM_API_KEY",
+        f"    model_id: {json.dumps(frontier.model_id)}",
+        "    timeout_s: 60",
+        "    max_output_tokens: 4000",
+    ]
+
+
 def _flow(items: Sequence[str]) -> str:
     return "[" + ", ".join(json.dumps(i) for i in items) + "]"
 
@@ -398,6 +424,7 @@ __all__ = [
     "REALM",
     "Answers",
     "ConfluenceAnswers",
+    "FrontierAnswers",
     "LlmAnswers",
     "PagerDutyAnswers",
     "ServiceAnswer",
