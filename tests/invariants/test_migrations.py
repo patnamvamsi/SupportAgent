@@ -41,6 +41,7 @@ EXPECTED_TABLES = frozenset(
         "doctor_reports",
         "graph_facts",
         "graph_questions",
+        "onboarding_requests",
         "cases",
         "alerts",
         "blobs",

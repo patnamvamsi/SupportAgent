@@ -12,6 +12,7 @@ from supportagent.app.graph_review import GraphReview
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayView
+from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SetupService
 from supportagent.app.stats import StatsService
 from supportagent.app.webhooks import WebhookService
@@ -44,3 +45,4 @@ class ApiContext:
     idp_label: str = "your identity provider"
     #: ADR-0015 (WP-O3b): the system graph under review; ``None`` in tests that don't need it.
     graph_review: Callable[[], GraphReview] | None = None
+    request_review: Callable[[], RequestReview] | None = None

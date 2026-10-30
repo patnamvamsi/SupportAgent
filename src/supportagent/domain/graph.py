@@ -31,6 +31,8 @@ prose (documentation, with a verbatim quote). :func:`build` merges them:
   retired component or invent one from a generic phrase;
 - **the most trusted layer names a relation**: a prose edge between two
   nodes a structured or live edge already joins, under another kind, yields;
+- a node's **id prefix names its kind** (a CMDB application CI reconciled to
+  ``runtime:airflow/<env>`` is a Runtime);
 - **config beats the CMDB** on what a component connects to: a CMDB
   ``uses database:X`` for a component whose configuration connects it to a
   different database is dropped and becomes a **question** for review;
@@ -63,6 +65,18 @@ EDGE_KINDS = frozenset(
     }
 )
 _CONTAINERS = frozenset({"Database", "Runtime"})
+#: An id's prefix names its kind (the vocabulary above); it beats any source's kind.
+_PREFIX_KIND: dict[str, NodeKind] = {
+    "service": "Service",
+    "job": "Job",
+    "ui": "UI",
+    "database": "Database",
+    "schema": "Datastore",
+    "table": "Datastore",
+    "topic": "Topic",
+    "runtime": "Runtime",
+    "external": "External",
+}
 #: Edge kinds that say what a component touches; a finer one subsumes a coarse one.
 _TOUCHES = frozenset({"uses", "reads", "writes", "consumes", "publishes", "depends_on"})
 Layer = Literal[1, 2, 3]
@@ -174,6 +188,8 @@ def build(facts: Iterable[Fact]) -> SystemGraph:
                 graph.nodes[node_id] = node = merged
             node.tech |= set(fact.tech)
             node.sources.add(fact.source)
+    for node in graph.nodes.values():
+        node.kind = _PREFIX_KIND.get(node.id.split(":", 1)[0], node.kind)
     for node_id in [n.id for n in graph.nodes.values() if n.layer >= _PROSE]:
         del graph.nodes[node_id]
         graph.dropped.append(f"{node_id}: only the documentation names it")

@@ -169,6 +169,7 @@ from supportagent.app.rca import (
     lite_route_ids,
 )
 from supportagent.app.replay import ReplayService, ReplayView
+from supportagent.app.request_review import RequestReview
 from supportagent.app.retention import RetentionService
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
@@ -206,7 +207,10 @@ from supportagent.domain.errors import (
     LLMUnavailable,
 )
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
-from supportagent.domain.incident_map import Catalogue, IncidentMap, catalogue
+from supportagent.domain.gap_plan import GapPlan
+from supportagent.domain.gap_plan import plan as gap_plan
+from supportagent.domain.graph import SystemGraph
+from supportagent.domain.incident_map import Catalogue, IncidentMap, PastIncident, catalogue
 from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
@@ -290,6 +294,7 @@ from supportagent.evals.onboarding import (
     ResultClass,
     ResultEdge,
     ResultNode,
+    ResultRequest,
     Truth,
 )
 from supportagent.evals.quality import RecallReport
@@ -2647,6 +2652,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def graph_review() -> GraphReview:
         return GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
 
+    def request_review() -> RequestReview:
+        return RequestReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -2657,6 +2665,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         comms_plans=comms_plans,
         webhooks=webhooks,
         graph_review=graph_review,
+        request_review=request_review,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3259,6 +3268,29 @@ def incident_catalogue(
     )
 
 
+def _past_incidents(path: Path) -> list[PastIncident]:
+    servicenow = path / "sources" / "servicenow"
+    problems_path = servicenow / "problems.yaml"
+    return past_incidents(
+        load_yaml_records(servicenow / "incidents.yaml"),
+        load_yaml_records(problems_path) if problems_path.is_file() else [],
+    )
+
+
+def build_gap_plan(
+    path: Path,
+    detections: Sequence[Detection],
+    plugins: Sequence[LoadedPlugin],
+    graph: SystemGraph,
+    incidents: IncidentMap,
+) -> GapPlan:
+    """WP-O5: the requests the detected plugins' contracts make, ranked by what they unlock."""
+    needed = set(detected_ids(detections))
+    chosen = [p.manifest for p in plugins if p.manifest.id in needed]
+    cis = {i.number: i.ci for i in _past_incidents(path)}
+    return gap_plan(chosen, graph, snapshot_from_sources(path), incidents, cis)
+
+
 def build_incident_map(
     path: Path,
     detections: Sequence[Detection],
@@ -3266,12 +3298,7 @@ def build_incident_map(
     pipeline: OnboardingPipeline | None,
 ) -> IncidentMap:
     """The incident map of a workspace (or a reference system), WP-O4."""
-    servicenow = path / "sources" / "servicenow"
-    problems_path = servicenow / "problems.yaml"
-    history = past_incidents(
-        load_yaml_records(servicenow / "incidents.yaml"),
-        load_yaml_records(problems_path) if problems_path.is_file() else [],
-    )
+    history = _past_incidents(path)
     cat = incident_catalogue(detections, plugins)
     return map_incidents(history, cat, pipeline.read_incidents if pipeline is not None else None)
 
@@ -3282,6 +3309,7 @@ class OnboardingRun:
     detections: list[Detection]
     graph: GraphBuild
     incidents: IncidentMap
+    plan: GapPlan
 
 
 def run_onboarding_pipeline(
@@ -3292,12 +3320,14 @@ def run_onboarding_pipeline(
     """What the onboarding stages built so far produce for the system at ``path``.
 
     WP-O1: plugin detection. WP-O3: the system graph. WP-O4: the incident map.
+    WP-O5: the gap plan's requests.
     Without a ``pipeline`` the model-backed parts (prose, readings) are left out.
     """
     registry = plugins if plugins is not None else load_plugins()
     detections = detect_plugins(path, registry)
     built = build_system_graph(path, pipeline)
     incidents = build_incident_map(path, detections, registry, pipeline)
+    gaps = build_gap_plan(path, detections, registry, built.graph, incidents)
     result = OnboardingResult(
         plugins=detected_ids(detections),
         nodes=[ResultNode(id=n.id, kind=n.kind) for n in built.graph.nodes.values()],
@@ -3308,8 +3338,12 @@ def run_onboarding_pipeline(
             )
             for c in incidents.classes
         ],
+        requests=[
+            ResultRequest(plugin=r.plugin, access=r.access, target=r.target, scope=r.scope)
+            for r in gaps.requests
+        ],
     )
-    return OnboardingRun(result, detections, built, incidents)
+    return OnboardingRun(result, detections, built, incidents, gaps)
 
 
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
@@ -3462,6 +3496,62 @@ def onboard_incidents(
     mapped = build_incident_map(workspace, detect_plugins(workspace, plugins), plugins, pipeline)
     path = Workspace(workspace).write_artifact("incident_map.json", incident_map_document(mapped))
     return mapped, path
+
+
+def onboard_requests(
+    config: AppConfig,
+    workspace: Path,
+    *,
+    provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+) -> tuple[GapPlan, dict[str, int], Path]:
+    """``onboard requests``: the gap plan for a workspace, saved for review and as JSON.
+
+    It builds the graph and the incident map first (the model's answers come
+    from ``<workspace>/recordings`` when ``onboard graph`` and ``onboard
+    incidents`` already ran).
+    """
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
+    run = run_onboarding_pipeline(workspace, load_plugins(), pipeline)
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        review = RequestReview(
+            uow=SqlUnitOfWork(db), clock=clock or SystemClock(), tenant_id=config.tenant.id
+        )
+        saved = review.save(run.plan)
+    finally:
+        if own:
+            db.dispose()
+    document = {
+        "unlocked": run.plan.unlocked,
+        "requests": [
+            {
+                "plugin": r.plugin,
+                "access": r.access,
+                "target": r.target,
+                "scope": r.scope,
+                "why": r.why,
+                "unlocks": list(r.unlocks),
+                "share": r.share,
+                "found_in": r.found_in,
+                "verify_can": list(r.verify_can),
+                "verify_cannot": list(r.verify_cannot),
+            }
+            for r in run.plan.requests
+        ],
+        "gaps": [
+            {"class": g.class_id, "cause": g.cause, "share": g.share, "why": g.why}
+            for g in run.plan.gaps
+        ],
+    }
+    path = Workspace(workspace).write_artifact("requests.json", document)
+    return run.plan, saved, path
 
 
 def incident_map_document(mapped: IncidentMap) -> dict[str, object]:

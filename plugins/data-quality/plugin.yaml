@@ -11,7 +11,7 @@ provides:
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: data/late_upstream, description: "An upstream source or load didn't deliver on time (a failed connector or feed), so downstream builds run on missing data."}
     - {id: data/schema_drift, description: "A producer changed a message or record schema incompatibly; ingestion (connectors, the schema registry) rejects the records."}
-  needs: [snowflake.query_history, snowflake.task_history, kafka.consumer_lag]
+  needs: [snowflake.query_history, snowflake.task_history, kafka.consumer_lag, airflow.dag_runs]
 detectors:
   min_score: 1.5
   signals:

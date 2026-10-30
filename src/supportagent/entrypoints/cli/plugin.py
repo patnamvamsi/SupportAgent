@@ -22,6 +22,7 @@ from supportagent.bootstrap import (
     load_plugins,
     onboard_graph,
     onboard_incidents,
+    onboard_requests,
     pin_plugins,
 )
 from supportagent.config.loader import load_config_default
@@ -204,3 +205,28 @@ def onboard_incidents_command(
     if mapped.unread:
         typer.echo(f"no answer for {len(mapped.unread)} incident(s): re-run to retry them")
     typer.echo(f"wrote {path}")
+
+
+@onboard_app.command("requests")
+def onboard_requests_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, model)."
+    ),
+) -> None:
+    """Plan the access this system needs; save the requests for review (requests.json)."""
+    try:
+        plan, saved, path = onboard_requests(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"{len(plan.requests)} request(s), together unlocking {plan.unlocked:.0%} of the "
+        f"incident weight; saved {saved['new']} new, {saved['kept']} kept, "
+        f"{saved['gone']} no longer needed"
+    )
+    for r in plan.requests:
+        typer.echo(f"  {r.share:>4.0%}  {r.plugin}/{r.access} on {r.target}: {r.why}")
+    for g in plan.gaps:
+        typer.echo(f"  gap: {g.class_id} ({g.share:.0%}): {g.why}")
+    typer.echo(f"wrote {path}; decide at /ui/onboarding/requests")

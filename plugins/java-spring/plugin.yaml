@@ -11,7 +11,7 @@ provides:
     - {id: jvm/connection_pool_exhaustion, description: "The service's database connection pool (HikariCP) has no free connections; requests wait and time out."}
     - {id: jvm/thread_pool_exhaustion, description: "Request worker threads are all busy or blocked; the service stops accepting requests."}
     - {id: jvm/gc_pauses, description: "Long garbage-collection pauses stall the service without running out of heap."}
-  needs: [logs.search, metrics.query]
+  needs: [logs.search, metrics.query, k8s.pod_status]
   extractors:
     - {match: "**/pom.xml", extract: service_tech}
     - {match: "**/application*.yml", extract: service_calls_and_datasources}

@@ -4,10 +4,10 @@
 plugins:
   - {id: airflow, version: 0.1.0, sha256: ad35629833492f7baa5bc578b008f74e2bcb682151e9373eb6d847d7eb7e4774}
   - {id: angular, version: 0.1.0, sha256: e598fb0ab8b21cc376e586cb8c0482c912316c0031853d63c7200d1d0ba28b1b}
-  - {id: data-quality, version: 0.1.0, sha256: 89cb3c3ccce6ac7b06e2022dc88e8bdaab706e4eabed65ca15ab61ca948732e1}
+  - {id: data-quality, version: 0.1.0, sha256: a8fcbd04eaed0aa22d63266ed7030f4341c22005c82ed38e0ada55958c9eaaa2}
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
-  - {id: java-spring, version: 0.1.0, sha256: ccd13d2d968eb83f4484d6ff999c404973a85225b5fb20cc7a9583192b7b14c2}
+  - {id: java-spring, version: 0.1.0, sha256: 32cc5dfa995458656e0233a10c2055506849c4cce27b6b285759d9bf8887e3e1}
   - {id: kafka, version: 0.1.0, sha256: b01ba0adeefaa672c124d439d0cd953e3683463012cc7de5ff2f28d9391162af}
   - {id: kubernetes, version: 0.1.0, sha256: 99f5fc6156131b1106a301b75084d3dd060a77702c3a19dbdf82ca8635633e4d}
   - {id: oracle, version: 0.1.0, sha256: ec3177f6ec7275d204f8d03971cbf8ec7f974125dd023b0ed047d41df661b43b}

@@ -63,7 +63,7 @@ Then `domain/graph.py` merges everything:
 - a finer edge subsumes a coarse one;
 - a stale CMDB edge that a component's configuration contradicts is dropped and **becomes a question**.
 
-The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. Recorded with `qwen/qwen3.8-27b` on LM Studio (about 40 minutes for both systems): System A scores edge precision 0.913, everything else 1. The graph gate then fails, so the change can't slip through.
+The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. Recorded with `qwen/qwen3.8-27b` on LM Studio (about 40 minutes for both systems): System A scores edge precision 0.913, System B edge recall 0.963 (the re-recording missed one docs-only edge), everything else 1. Re-record when a prompt's inputs change: the known entities, with their kinds, are part of the prompt. The graph gate then fails, so the change can't slip through.
 
 ## The incident stage (WP-O4)
 
@@ -78,6 +78,14 @@ The model's answers are recorded in `recordings/` and replayed in CI. A changed 
 Each class is weighted by count × severity (P1 = 8 … P4 = 1) × (1 + days to resolve), and **coverage** is the share of incidents with a known cause. `supportagent onboard incidents --workspace <dir>` writes `incident_map.json` for a real system.
 
 Recorded with `qwen/qwen3.8-27b` (about 18 minutes for both systems): pair F1 1 and cause accuracy 1 on both. System A's label accuracy is 0.911: for the portal class, the model put the cause id in the label field, so the label was dropped.
+
+## The requests stage (WP-O5)
+
+`domain/gap_plan.py` turns each access contract of a needed plugin into one request per target its `find` names. A request's scope is the contract's grant, word for word, so it can't ask for more than the plugin declares. Targets the CMDB lists as retired are never found.
+
+A request **unlocks** an incident class when it serves a capability the class's cause needs: the capabilities of the plugin that declares the cause, plus that plugin's `needs` (the built-in causes have fixed needs in `BUILT_IN_NEEDS`). For a target in the graph, the class's CIs must also reach it. For example, lock contention on payment-service unlocks the PAYDB request, not the CRMDB one. Requests are ranked by the share of incident weight they unlock. A class nothing unlocks is a **gap**.
+
+`supportagent onboard requests --workspace <dir>` saves the plan for review at `/ui/onboarding/requests` and writes `requests.json`. Approving a request records that a person will provide the credential. Binding it and running the contract's `verify_can` and `verify_cannot` probes is the plugin backend's job when it lands.
 
 ## Changing the history
 

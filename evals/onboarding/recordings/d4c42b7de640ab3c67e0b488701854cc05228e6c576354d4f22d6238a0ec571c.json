@@ -1,1 +1,0 @@
-{"latency_ms": 24592, "raw_text": "{\n  \"entities\": [],\n  \"facts\": []\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 695, "tokens_out": 748}

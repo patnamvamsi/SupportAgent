@@ -131,6 +131,16 @@ def test_the_most_trusted_layer_names_a_relation() -> None:
     assert "job:settle calls external:bank: a more trusted source names it" in graph.dropped
 
 
+def test_an_ids_prefix_names_its_kind() -> None:
+    graph = build(
+        [
+            _n("runtime:airflow/analytics", "Service", "cmdb:ci-af"),  # an application CI
+            _n("runtime:airflow/analytics", "Runtime", "live:airflow.dags", layer=2),
+        ]
+    )
+    assert graph.nodes["runtime:airflow/analytics"].kind == "Runtime"
+
+
 # --- grounding prose -----------------------------------------------------------------------
 
 _PAGE = """# Overview
