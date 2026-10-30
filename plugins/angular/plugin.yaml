@@ -1,0 +1,14 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: angular
+version: 0.1.0
+description: Angular single-page apps (stale bundles, CORS, API errors seen from the UI).
+core_api: ">=1.0,<2"
+provides:
+  needs: [logs.search]
+  extractors:
+    - {match: "**/environment*.ts", extract: ui_api_base}
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/package.json", contains: "\"@angular/core\"", weight: 1.0}
+    - {files: "**/angular.json", weight: 1.0}

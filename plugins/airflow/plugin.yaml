@@ -1,0 +1,25 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: airflow
+version: 0.1.0
+description: Apache Airflow orchestration (DAG and task failures, late runs).
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    airflow.dag_runs: {description: "DAG runs and task instances"}
+    airflow.task_logs: {description: "A task instance's log"}
+  backends:
+    - {capability: "airflow.*", first_party: airflow, access: airflow_ro}
+  extractors:
+    - {match: "**/dags/*.py", extract: dag_schedules_and_targets}
+requires:
+  airflow_ro:
+    description: The Airflow Viewer role.
+    grant: "Airflow role Viewer (MWAA: a Viewer web login token)"
+    target: Runtime
+    verify_can: [list dags]
+    verify_cannot: [trigger dag, clear task]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/dags/*.py", contains: "from airflow", weight: 1.0}
+    - {incidents: "\\bDAG\\b|airflow", min_share: 0.05, weight: 0.5}

@@ -1,0 +1,26 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: kubernetes
+version: 0.1.0
+description: Workloads on Kubernetes (pod status, restarts, OOMKills, rollouts).
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    k8s.pod_status: {description: "Pods, restarts and their reasons"}
+    k8s.workloads: {description: "Deployments, CronJobs and rollout history in a namespace"}
+  backends:
+    - {capability: "k8s.*", first_party: kubernetes, access: k8s_ro}
+  extractors:
+    - {match: "**/helm/**", extract: workload_namespace}
+requires:
+  k8s_ro:
+    description: A service account limited to reading one namespace.
+    grant: "Role: get, list, watch on pods, pods/log, events, deployments, replicasets, cronjobs, jobs in the namespace"
+    target: Runtime
+    verify_can: [list pods]
+    verify_cannot: [delete pods, patch deployments, create pods/exec]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/helm/**", weight: 1.0}
+    - {cmdb_class: cmdb_ci_kubernetes_namespace, weight: 1.0}
+    - {incidents: "CrashLoopBackOff|OOMKilled|\\bpods?\\b", min_share: 0.05, weight: 0.5}

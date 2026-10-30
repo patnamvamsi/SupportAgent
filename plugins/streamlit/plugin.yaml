@@ -1,0 +1,14 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: streamlit
+version: 0.1.0
+description: Streamlit data apps (crashes, memory, slow queries behind pages).
+core_api: ">=1.0,<2"
+provides:
+  needs: [k8s.pod_status, snowflake.query_history]
+  extractors:
+    - {match: "**/app.py", extract: app_reads}
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/requirements.txt", contains: "streamlit", weight: 1.0}
+    - {files: "**/*.py", contains: "import streamlit", weight: 1.0}

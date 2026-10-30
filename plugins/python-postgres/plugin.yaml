@@ -1,0 +1,15 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: python-postgres
+version: 1.2.0
+description: Python web services and workers on PostgreSQL (the python-postgres pack).
+core_api: ">=1.0,<2"
+status: evaluated
+provides:
+  pack: python-postgres
+  needs: [logs.search, postgres.activity, postgres.locks, metrics.query, changes.recent]
+detectors:
+  min_score: 1.5
+  signals:
+    - {files: "**/*", contains: "psycopg|asyncpg|postgresql://|jdbc:postgresql", weight: 1.0}
+    - {files: "**/requirements.txt", weight: 0.5}
+    - {files: "**/pyproject.toml", weight: 0.5}

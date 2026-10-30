@@ -1,0 +1,16 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: java-spring
+version: 0.1.0
+description: Java services on Spring Boot (JVM heap and GC, thread and connection pools, Spring errors).
+core_api: ">=1.0,<2"
+provides:
+  needs: [logs.search, metrics.query]
+  extractors:
+    - {match: "**/pom.xml", extract: service_tech}
+    - {match: "**/application*.yml", extract: service_calls_and_datasources}
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/pom.xml", contains: "spring-boot", weight: 1.0}
+    - {files: "**/build.gradle*", contains: "spring-boot", weight: 1.0}
+    - {incidents: "java\\.lang\\.|OutOfMemoryError|HikariPool|NullPointerException", min_share: 0.05, weight: 0.5}

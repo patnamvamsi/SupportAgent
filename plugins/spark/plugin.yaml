@@ -1,0 +1,28 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: spark
+version: 0.1.0
+description: Apache Spark batch and streaming jobs (executor OOM, skew, stalled streaming queries).
+core_api: ">=1.0,<2"
+provides:
+  pack: spark
+  capabilities:
+    spark.applications: {description: "Applications, jobs and stages (Spark History Server REST)"}
+    spark.streaming_progress: {description: "Structured Streaming query progress"}
+  backends:
+    - {capability: "spark.*", first_party: spark_history, access: spark_history_ro}
+  extractors:
+    - {match: "**/*.py", extract: spark_reads_and_writes}
+    - {match: "**/deploy/emr.yaml", extract: emr_cluster}
+requires:
+  spark_history_ro:
+    description: Read access to the cluster's Spark History Server.
+    grant: "Read-only access to the Spark History Server UI and REST API"
+    target: Runtime
+    verify_can: [list applications]
+    verify_cannot: [kill application, submit step]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/requirements.txt", contains: "pyspark", weight: 1.0}
+    - {files: "**/*.py", contains: "SparkSession", weight: 1.0}
+    - {incidents: "spark|executor", min_share: 0.05, weight: 0.5}

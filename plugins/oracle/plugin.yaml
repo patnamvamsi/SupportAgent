@@ -1,0 +1,30 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: oracle
+version: 0.1.0
+description: Oracle Database (locks and deadlocks, tablespaces, ORA- errors, plan regressions).
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    oracle.sessions: {description: "Sessions and blocking chains (V$SESSION)"}
+    oracle.locks: {description: "Locks and waits (V$LOCK, ASH)"}
+    oracle.top_sql: {description: "Top SQL by elapsed time and plan changes (V$SQL, AWR)"}
+    oracle.tablespaces: {description: "Tablespace usage (DBA_TABLESPACE_USAGE_METRICS)"}
+  backends:
+    - {capability: "oracle.*", first_party: oracle_ro, access: oracle_ro}
+  extractors:
+    - {match: "**/application*.yml", extract: jdbc_oracle_datasources}
+    - {match: "cmdb:cmdb_ci_db_ora_instance", extract: databases}
+requires:
+  oracle_ro:
+    description: A read-only diagnostic account on each database.
+    grant: "CREATE SESSION; SELECT on V_$SESSION, V_$LOCK, V_$SQL, V_$ACTIVE_SESSION_HISTORY, DBA_HIST_SQLSTAT, DBA_TABLESPACE_USAGE_METRICS"
+    target: Database
+    verify_can: ["SELECT count(*) FROM V$SESSION"]
+    verify_cannot: [insert, update, delete, ddl]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/application*.yml", contains: "jdbc:oracle", weight: 1.0}
+    - {files: "**/pom.xml", contains: "ojdbc", weight: 0.5}
+    - {cmdb_class: cmdb_ci_db_ora_instance, weight: 1.0}
+    - {incidents: "ORA-\\d{5}", min_share: 0.05, weight: 1.0}

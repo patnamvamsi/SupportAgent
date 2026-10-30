@@ -1,0 +1,29 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: snowflake
+version: 0.1.0
+description: Snowflake warehouses, tasks and credits (queuing, task failures, resource monitors).
+core_api: ">=1.0,<2"
+provides:
+  pack: snowflake
+  capabilities:
+    snowflake.query_history: {description: "Queries, queued and failed (ACCOUNT_USAGE.QUERY_HISTORY)"}
+    snowflake.task_history: {description: "Task runs and errors (TASK_HISTORY)"}
+    snowflake.warehouse_load: {description: "Warehouse load and queuing (WAREHOUSE_LOAD_HISTORY)"}
+    snowflake.resource_monitors: {description: "Credit quotas and suspensions"}
+  backends:
+    - {capability: "snowflake.*", first_party: snowflake, access: snowflake_ro}
+  extractors:
+    - {match: "**/*.sql", extract: tasks_tables_warehouses}
+requires:
+  snowflake_ro:
+    description: A role for diagnosis only.
+    grant: "Role SUPPORT_RO: IMPORTED PRIVILEGES on database SNOWFLAKE (ACCOUNT_USAGE); USAGE and MONITOR on the warehouses; USAGE on the system's databases and schemas"
+    target: Account
+    verify_can: ["SELECT count(*) FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY"]
+    verify_cannot: [resume warehouse, alter task, insert]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/requirements.txt", contains: "snowflake", weight: 1.0}
+    - {files: "**/*.sql", contains: "(?i)create\\s+(or\\s+replace\\s+)?(task|warehouse)|resource monitor", weight: 1.0}
+    - {incidents: "snowflake|warehouse", min_share: 0.05, weight: 0.5}
