@@ -22,6 +22,7 @@ requires:
     target: Runtime
     verify_can: [list dags]
     verify_cannot: [trigger dag, clear task]
+    find: {graph: Runtime, tech: airflow}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

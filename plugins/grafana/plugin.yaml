@@ -17,6 +17,7 @@ requires:
     target: Observability
     verify_can: [list datasources]
     verify_cannot: [create dashboard, edit datasource]
+    find: {docs: '\b(grafana(?:\.[a-z0-9-]+)+\.[a-z]{2,})\b'}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

@@ -2,16 +2,16 @@
 # sha256 of its manifest. Written by `supportagent plugin index` after review;
 # a manifest that changes without re-pinning doesn't load.
 plugins:
-  - {id: airflow, version: 0.1.0, sha256: 83056a018423ea83d6abc93b6e38ab11d6a519234551cb59376e53db6d5b2d6a}
+  - {id: airflow, version: 0.1.0, sha256: ad35629833492f7baa5bc578b008f74e2bcb682151e9373eb6d847d7eb7e4774}
   - {id: angular, version: 0.1.0, sha256: e598fb0ab8b21cc376e586cb8c0482c912316c0031853d63c7200d1d0ba28b1b}
   - {id: data-quality, version: 0.1.0, sha256: 89cb3c3ccce6ac7b06e2022dc88e8bdaab706e4eabed65ca15ab61ca948732e1}
-  - {id: github, version: 0.1.0, sha256: a1540b847c6e09a548ed79e9f5f83174dc747ed6150003a99f2367eaa2df3edb}
-  - {id: grafana, version: 0.1.0, sha256: 75b7a7f79e39ab416cddca4a89afd7c04e5338f6bf4564c352eb33016a17a0d0}
+  - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
+  - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
   - {id: java-spring, version: 0.1.0, sha256: ccd13d2d968eb83f4484d6ff999c404973a85225b5fb20cc7a9583192b7b14c2}
-  - {id: kafka, version: 0.1.0, sha256: fb367a5186606138da26a8fd8587defbff6b29c46cc6397e161a50949ca8c97b}
-  - {id: kubernetes, version: 0.1.0, sha256: d140eab39bab1a8cd8c5e97f821d693d2c1523461c299460e626aa37fd121d8b}
-  - {id: oracle, version: 0.1.0, sha256: f35e8eee7d39340109d2e65db1b9280185a45d8fc0c6f1364a1aee94a6e116dd}
+  - {id: kafka, version: 0.1.0, sha256: b01ba0adeefaa672c124d439d0cd953e3683463012cc7de5ff2f28d9391162af}
+  - {id: kubernetes, version: 0.1.0, sha256: 99f5fc6156131b1106a301b75084d3dd060a77702c3a19dbdf82ca8635633e4d}
+  - {id: oracle, version: 0.1.0, sha256: ec3177f6ec7275d204f8d03971cbf8ec7f974125dd023b0ed047d41df661b43b}
   - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}
-  - {id: snowflake, version: 0.1.0, sha256: f9490fe922234650d29ac2906f5cc985267d58654e4551968eb9ec4aa09683cf}
-  - {id: spark, version: 0.1.0, sha256: e94bcb4488c47baaabc68a2d0183afc0c78f61dc7ca188b2561af9baf52ab4bf}
+  - {id: snowflake, version: 0.1.0, sha256: 7241c7cd1d0eb86e376bb51166aba0b2441d134f595a6c885e40c11f1ba9b3f7}
+  - {id: spark, version: 0.1.0, sha256: 86e48d615740096ceada0319f806347ce2156c541278f099c2060ff5ff45bfce}
   - {id: streamlit, version: 0.1.0, sha256: 7366d3a02fa8a779a9329cd267db4a0cff45e2f260d65d989448d0bdaa0eb80c}

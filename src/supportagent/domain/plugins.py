@@ -61,6 +61,10 @@ class SourceSnapshot:
     cmdb_classes: frozenset[str] = frozenset()
     #: Where the manifest's repositories live (``github``, ``gitlab``, ...).
     git_hosts: frozenset[str] = frozenset()
+    #: The manifest's repositories as ``<host>:<org>/<pattern>``.
+    repos: tuple[str, ...] = ()
+    #: Installed (not retired) CMDB items as (name, class).
+    cis: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,6 +25,7 @@ requires:
     target: Runtime
     verify_can: [list applications]
     verify_cannot: [kill application, submit step]
+    find: {graph: Runtime, tech: spark}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

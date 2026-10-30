@@ -29,6 +29,7 @@ requires:
     target: Account
     verify_can: ["SELECT count(*) FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY"]
     verify_cannot: [resume warehouse, alter task, insert]
+    find: {cmdb_class: cmdb_ci_cloud_database, name: '^(.+) \(Snowflake\)$'}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

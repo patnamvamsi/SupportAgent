@@ -26,6 +26,7 @@ requires:
     target: Database
     verify_can: ["SELECT count(*) FROM V$SESSION"]
     verify_cannot: [insert, update, delete, ddl]
+    find: {graph: Database, tech: oracle}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

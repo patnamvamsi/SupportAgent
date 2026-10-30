@@ -26,6 +26,7 @@ requires:
     target: Cluster
     verify_can: [describe consumer groups]
     verify_cannot: [produce, alter consumer group offsets, delete topic]
+    find: {graph: Runtime, tech: kafka}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

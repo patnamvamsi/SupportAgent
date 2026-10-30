@@ -3107,8 +3107,17 @@ def snapshot_from_sources(path: Path) -> SourceSnapshot:
     manifest = load_yaml_document(path / "system.yaml")
     repos = (manifest.get("sources") or {}).get("git") or []
     hosts = frozenset(str(r["repo"]).split(":", 1)[0] for r in repos if ":" in str(r.get("repo")))
+    installed = [
+        ci for ci in cmdb.get("cis", []) if str(ci.get("install_status", "")).lower() != "retired"
+    ]
     return SourceSnapshot(
-        files=files, docs=docs, incidents=incidents, cmdb_classes=classes, git_hosts=hosts
+        files=files,
+        docs=docs,
+        incidents=incidents,
+        cmdb_classes=classes,
+        git_hosts=hosts,
+        repos=tuple(str(r["repo"]) for r in repos if r.get("repo")),
+        cis=tuple((str(ci["name"]), str(ci["sys_class_name"])) for ci in installed),
     )
 
 
