@@ -157,8 +157,29 @@ class AccessContract(DomainModel):
         return value
 
 
+class LabelSpec(DomainModel):
+    """A taxonomy label this plugin's stack adds (``<domain>/<signal>``)."""
+
+    id: str = Field(pattern=r"^[a-z0-9_]+/[a-z0-9_]+$")
+    description: str = Field(min_length=1)
+
+
+class CauseSpec(DomainModel):
+    """A known cause in this stack (WP-O4): what onboarding maps past incidents to.
+
+    Ids are ``<area>/<cause>`` (``oracle/lock_contention``); the built-in
+    causes (``recent_change_push``, ``upstream_provider``) have no area.
+    """
+
+    id: str = Field(pattern=r"^[a-z0-9_]+(/[a-z0-9_]+)?$")
+    description: str = Field(min_length=1)
+
+
 class Provides(DomainModel):
     pack: str | None = Field(default=None, pattern=_ID)
+    #: WP-O4: the labels and causes the incident map can use when the plugin applies.
+    labels: list[LabelSpec] = Field(default_factory=list)
+    causes: list[CauseSpec] = Field(default_factory=list)
     capabilities: dict[str, CapabilitySpec] = Field(default_factory=dict)
     backends: list[Backend] = Field(default_factory=list)
     extractors: list[Extractor] = Field(default_factory=list)
@@ -230,8 +251,10 @@ __all__ = [
     "AccessContract",
     "Backend",
     "CapabilitySpec",
+    "CauseSpec",
     "Detectors",
     "Extractor",
+    "LabelSpec",
     "McpBackend",
     "PluginManifest",
     "Provides",

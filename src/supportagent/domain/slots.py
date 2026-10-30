@@ -19,6 +19,8 @@ class SlotName(StrEnum):
     ENTAIL = "entail"
     #: ADR-0015 (WP-O3): the facts a documentation page states about the system.
     EXTRACT_GRAPH = "extract_graph"
+    #: ADR-0015 (WP-O4): a batch of past incidents mapped to labels and causes.
+    MAP_INCIDENTS = "map_incidents"
 
 
 #: The variables each slot's caller supplies (BL-009). ``PromptRegistry.check``
@@ -41,4 +43,5 @@ SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
     ),
     SlotName.ENTAIL: frozenset({"claim", "evidence"}),
     SlotName.EXTRACT_GRAPH: frozenset({"vocabulary", "known_entities", "page_title", "page_text"}),
+    SlotName.MAP_INCIDENTS: frozenset({"labels", "causes", "incidents"}),
 }

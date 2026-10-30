@@ -4,6 +4,13 @@ version: 0.1.0
 description: Data freshness, volume and schema drift for analytics platforms (walks lineage upstream).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: data/freshness, description: "Data in a table or dashboard is stale: the expected load didn't arrive or didn't run."}
+    - {id: data/schema_drift, description: "Records no longer match the expected schema: fields renamed, removed or added."}
+    - {id: data/correctness, description: "Data arrived but is wrong: duplicates, missing rows, bad values."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: data/late_upstream, description: "An upstream source or load didn't deliver on time (a failed connector or feed), so downstream builds run on missing data."}
+    - {id: data/schema_drift, description: "A producer changed a message or record schema incompatibly; ingestion (connectors, the schema registry) rejects the records."}
   needs: [snowflake.query_history, snowflake.task_history, kafka.consumer_lag]
 detectors:
   min_score: 1.5

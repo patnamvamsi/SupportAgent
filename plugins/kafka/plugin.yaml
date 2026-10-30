@@ -4,6 +4,12 @@ version: 0.1.0
 description: Kafka topics, consumer groups and Kafka Connect (lag, rebalances, connector failures, schema compatibility).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: stream/lag, description: "A streaming consumer falls behind its topic: consumer lag grows and data arrives late."}
+    - {id: queue/backlog, description: "Messages or tasks back up in a queue faster than consumers drain them."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: kafka/consumer_lag, description: "A consumer group falls behind its topic (slow or lost consumers, rebalances, stalled checkpoints) and lag grows."}
+    - {id: kafka/broker_unavailable, description: "A Kafka broker or the cluster is down or unreachable; producers and consumers fail."}
   capabilities:
     kafka.consumer_lag: {description: "Lag per consumer group and partition"}
     kafka.topic_health: {description: "Partitions, ISR, broker status"}

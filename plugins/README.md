@@ -8,6 +8,7 @@ One model for everything pluggable. A plugin is `plugins/<id>/plugin.yaml` and c
 | `provides.capabilities` | Read-only evidence, such as `oracle.locks` or `kafka.consumer_lag`, each with one result schema |
 | `provides.backends` | How a capability is served: a `first_party` adapter (ours, signed, in process) or an `mcp` server (out of process) |
 | `provides.extractors` | What onboarding can read off a system with this plugin (WP-O3) |
+| `provides.labels`, `provides.causes` | The problem labels and known causes (`oracle/lock_contention`) the incident map can use when the plugin applies (WP-O4) |
 | `provides.needs` | Capabilities this plugin's knowledge uses that other plugins provide |
 | `detectors` | The signals that say a system needs it: files (with a regex), incident text, current docs, CMDB classes, where the code lives, change-caused incidents. Fired weights add up to `min_score` |
 | `requires` | One least-privilege access contract per backend. The grant text is quoted in an onboarding request, and the `verify_can` / `verify_cannot` probes run when the access is provisioned (WP-O5) |

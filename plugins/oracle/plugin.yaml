@@ -4,6 +4,11 @@ version: 0.1.0
 description: Oracle Database (locks and deadlocks, tablespaces, ORA- errors, plan regressions).
 core_api: ">=1.0,<2"
 provides:
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: oracle/lock_contention, description: "Sessions block each other on row locks or deadlock (ORA-00060, enq: TX - row lock contention); a DBA kills the blocking session."}
+    - {id: oracle/tablespace_full, description: "A tablespace or datafile is full, so writes fail (ORA-01653, ORA-01654); adding a datafile fixes it."}
+    - {id: oracle/plan_regression, description: "A SQL statement's execution plan changed (after statistics or an upgrade) and it became slow; pinning the old plan fixes it."}
+    - {id: oracle/listener_down, description: "The database instance or its listener is down or unreachable (ORA-12541, ORA-12514)."}
   capabilities:
     oracle.sessions: {description: "Sessions and blocking chains (V$SESSION)"}
     oracle.locks: {description: "Locks and waits (V$LOCK, ASH)"}

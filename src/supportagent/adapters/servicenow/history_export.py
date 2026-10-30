@@ -17,11 +17,13 @@ onboarding redacts it before storing.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from datetime import datetime, timedelta
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 
 from supportagent.adapters.servicenow.http import ServiceNowHTTP
+from supportagent.adapters.servicenow.semantics import severity_from_priority
 from supportagent.adapters.servicenow.table_export import export_table
+from supportagent.domain.incident_map import PastIncident
 from supportagent.domain.onboarding import TicketHistory
 
 INCIDENT_FIELDS = (
@@ -173,3 +175,42 @@ def _cmdb(
 
 
 __all__ = ["INCIDENT_FIELDS", "INSTALL_STATUS", "export_history"]
+
+
+def past_incidents(
+    incidents: Sequence[Mapping[str, object]], problems: Sequence[Mapping[str, object]]
+) -> list[PastIncident]:
+    """Stored history records (``export_history``'s, or the lab's) as onboarding's incidents."""
+    titles = {str(p["number"]): str(p.get("short_description") or "") for p in problems}
+    out = []
+    for r in incidents:
+        opened = _when(r.get("opened_at"))
+        if opened is None:
+            continue
+        problem = str(r["problem_id"]) if r.get("problem_id") else None
+        severity = severity_from_priority(str(r.get("priority") or ""))
+        out.append(
+            PastIncident(
+                number=str(r["number"]),
+                opened=opened,
+                resolved=_when(r.get("resolved_at")),
+                severity=severity.value if severity is not None else "P4",
+                ci=str(r.get("cmdb_ci") or ""),
+                title=str(r.get("short_description") or ""),
+                description=str(r.get("description") or ""),
+                resolution=str(r.get("close_notes") or ""),
+                problem=problem,
+                problem_title=titles.get(problem) if problem else None,
+                caused_by_change=str(r["caused_by"]) if r.get("caused_by") else None,
+            )
+        )
+    return out
+
+
+def _when(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None

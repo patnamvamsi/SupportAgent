@@ -4,6 +4,13 @@ version: 0.1.0
 description: Java services on Spring Boot (JVM heap and GC, thread and connection pools, Spring errors).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: app/memory, description: "The service runs out of memory: OutOfMemoryError, OOMKilled pods, restarts as heap fills."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: jvm/heap_exhaustion, description: "The JVM heap fills up (java.lang.OutOfMemoryError, GC overhead limit exceeded) and the service restarts."}
+    - {id: jvm/connection_pool_exhaustion, description: "The service's database connection pool (HikariCP) has no free connections; requests wait and time out."}
+    - {id: jvm/thread_pool_exhaustion, description: "Request worker threads are all busy or blocked; the service stops accepting requests."}
+    - {id: jvm/gc_pauses, description: "Long garbage-collection pauses stall the service without running out of heap."}
   needs: [logs.search, metrics.query]
   extractors:
     - {match: "**/pom.xml", extract: service_tech}

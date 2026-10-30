@@ -25,4 +25,4 @@ requests:
 # in the PR that builds it (graph: WP-O3, incidents: WP-O4, plugins and
 # requests: WP-O1/O5). Until then the lab runs the oracle and null results,
 # which prove the scorer and that every gate bites.
-enforced_stages: [plugins, graph]   # WP-O1: plugin detection; WP-O3: the system graph
+enforced_stages: [plugins, graph, incidents]   # WP-O1 plugins; WP-O3 the graph; WP-O4 the incident map

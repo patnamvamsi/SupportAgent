@@ -65,6 +65,20 @@ Then `domain/graph.py` merges everything:
 
 The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. Recorded with `qwen/qwen3.8-27b` on LM Studio (about 40 minutes for both systems): System A scores edge precision 0.913, everything else 1. The graph gate then fails, so the change can't slip through.
 
+## The incident stage (WP-O4)
+
+`domain/incident_map.py` turns the ticket history into classes, one per cause, structure first:
+
+1. The `map_incidents` slot reads incidents eight at a time against a **catalogue**: the built-in labels and causes, plus those of the plugins the system needs (`provides.labels`, `provides.causes`). Each reading names a label, a cause or none, and quotes the ticket. A cause stays only if it is in the catalogue and its quote is in the ticket word for word.
+2. Two structural rules overrule the readings:
+   - incidents a person linked to one **problem record** form one class, named by the majority of their readings;
+   - an incident a **change** caused is `recent_change_push`.
+3. Incidents with a cause group by cause. Those without one group by label (routine requests, say) and count as not covered.
+
+Each class is weighted by count × severity (P1 = 8 … P4 = 1) × (1 + days to resolve), and **coverage** is the share of incidents with a known cause. `supportagent onboard incidents --workspace <dir>` writes `incident_map.json` for a real system.
+
+Recorded with `qwen/qwen3.8-27b` (about 18 minutes for both systems): pair F1 1 and cause accuracy 1 on both. System A's label accuracy is 0.911: for the portal class, the model put the cause id in the label field, so the label was dropped.
+
 ## Changing the history
 
 Edit an incident class in `generate_history.py` and run it again. Never edit the generated YAML by hand: a test regenerates it and compares the files byte for byte.
