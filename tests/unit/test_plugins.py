@@ -37,6 +37,7 @@ def _manifest(**over: Any) -> dict[str, Any]:
                 "target": "Database",
                 "verify_can": ["select"],
                 "verify_cannot": ["insert"],
+                "find": {"graph": "Database"},
             }
         },
         "detectors": {"signals": [{"files": "**/demo.cfg"}]},

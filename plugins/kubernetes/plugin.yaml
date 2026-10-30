@@ -21,6 +21,7 @@ requires:
     target: Runtime
     verify_can: [list pods]
     verify_cannot: [delete pods, patch deployments, create pods/exec]
+    find: {graph: Runtime, tech: kubernetes}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

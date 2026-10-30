@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block title %}Access requests{% endblock %}
+{% block content %}
+<h1>Access requests</h1>
+<p class="muted">What onboarding needs to test the causes in this system's incident history, most valuable first. Each scope is the plugin's read-only contract, word for word; nothing is asked for beyond it. Approving says you will provide the credential. It is checked against its probes before anything uses it.</p>
+{% for r in requests %}
+<article class="card {{ r.status }}">
+  <h2>{{ r.plugin }}: <code>{{ r.access }}</code> on <code>{{ r.target }}</code></h2>
+  <p><meter class="share" min="0" max="1" value="{{ r.share }}">{{ (r.share * 100) | round(0) }}%</meter> <strong>{{ r.why }}</strong>{% if r.unlocks %}: {% for c in r.unlocks %}<code>{{ c }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>
+  <p>{{ r.description }}</p>
+  <blockquote>{{ r.scope }}</blockquote>
+  <p class="muted">Found in {{ r.found_in }}. Verified by: can {{ r.verify_can | join(", ") }}; must be refused {{ r.verify_cannot | join(", ") }}.</p>
+  {% if r.status == "open" %}
+  <form method="post" action="/ui/onboarding/requests/{{ r.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" name="decision" value="approved" class="primary">Approve</button>
+    <button type="submit" name="decision" value="declined">Decline</button>
+  </form>
+  {% else %}
+  <form method="post" action="/ui/onboarding/requests/{{ r.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <span class="{{ 'ok' if r.status == 'approved' else 'muted' }}">{{ r.status | capitalize }} by {{ r.decided_by }}</span>
+    <button type="submit" name="decision" value="open">Undo</button>
+  </form>
+  {% endif %}
+</article>
+{% else %}<p class="muted">No requests yet: run <code>supportagent onboard requests --workspace &lt;dir&gt;</code>.</p>{% endfor %}
+{% endblock %}

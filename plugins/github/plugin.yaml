@@ -17,6 +17,7 @@ requires:
     target: Repository
     verify_can: [list workflow runs]
     verify_cannot: [push, create release]
+    find: {repos: github}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0
   signals:

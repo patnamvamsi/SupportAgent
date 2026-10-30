@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from supportagent.app.graph_review import LAYER_LABELS, GraphReview
 from supportagent.app.queries import auto_timeline
+from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SessionUser
 from supportagent.app.stats import Mode as StatsMode
 from supportagent.app.stats import parse_window
@@ -508,10 +509,17 @@ def _review(ctx: ApiContext) -> GraphReview:
     return ctx.graph_review()
 
 
+def _requests(ctx: ApiContext) -> RequestReview:
+    if ctx.request_review is None:
+        raise NotFound("the request review is not configured")  # noqa: TRY003
+    return ctx.request_review()
+
+
 @router.get("/ui/onboarding")
 def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
     def build(user: SessionUser) -> Response:
-        return _render(request, ctx, "onboarding.html", user, p=_review(ctx).progress())
+        asks = _requests(ctx).progress() if ctx.request_review is not None else None
+        return _render(request, ctx, "onboarding.html", user, p=_review(ctx).progress(), asks=asks)
 
     return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
 
@@ -600,5 +608,31 @@ async def onboarding_resolve(
             raise DomainValidationError("choose one of the options")  # noqa: TRY003
         _review(ctx).resolve(question_id, int(raw), actor=user.id)
         return RedirectResponse("/ui/onboarding/questions", status_code=303)
+
+    return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)
+
+
+# --- onboarding requests (ADR-0015 §4, WP-O5) -----------------------------------------
+
+
+@router.get("/ui/onboarding/requests")
+def onboarding_requests(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(
+            request, ctx, "onboarding_requests.html", user, requests=_requests(ctx).requests()
+        )
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.post("/ui/onboarding/requests/{request_id}")
+async def onboarding_request_decide(
+    request_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        _requests(ctx).decide(request_id, form.get("decision", ""), actor=user.id)  # type: ignore[arg-type]
+        return RedirectResponse("/ui/onboarding/requests", status_code=303)
 
     return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)

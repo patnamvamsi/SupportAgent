@@ -135,6 +135,40 @@ class Detectors(DomainModel):
     min_score: float = Field(default=1.0, gt=0)
 
 
+class TargetFinder(DomainModel):
+    """Where onboarding finds the entities a contract is requested for (WP-O5). One kind:
+
+    - ``graph`` (+ ``tech``): system-graph nodes of that kind (and technology);
+    - ``repos``: the manifest's repositories on that host (``github``);
+    - ``cmdb_class`` (+ ``name``): installed CIs of that class, named by the
+      regex's group (``^(.+) \\(Snowflake\\)$``);
+    - ``docs``: a regex whose group names the target in a current page.
+    """
+
+    graph: str | None = None
+    tech: str | None = None
+    repos: str | None = None
+    cmdb_class: str | None = None
+    name: str | None = None
+    docs: str | None = None
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> TargetFinder:
+        kinds = [k for k in (self.graph, self.repos, self.cmdb_class, self.docs) if k is not None]
+        if len(kinds) != 1:
+            raise ValueError("a target finder has exactly one of graph, repos, cmdb_class, docs")  # noqa: TRY003
+        for pattern in (self.name, self.docs):
+            if pattern is None:
+                continue
+            try:
+                groups = re.compile(pattern).groups
+            except re.error as exc:
+                raise ValueError(f"bad regex {pattern!r}: {exc}") from exc  # noqa: TRY003
+            if groups != 1:
+                raise ValueError(f"regex {pattern!r} needs exactly one group: the target")  # noqa: TRY003
+        return self
+
+
 class AccessContract(DomainModel):
     """The least-privilege grant a backend needs, quoted verbatim in a request."""
 
@@ -145,6 +179,8 @@ class AccessContract(DomainModel):
     #: Probes run at provision (WP-O5): what must work, and what must be refused.
     verify_can: list[str] = Field(min_length=1)
     verify_cannot: list[str] = Field(min_length=1)
+    #: Where the targets are found; one request per target.
+    find: TargetFinder
 
     @field_validator("grant")
     @classmethod
@@ -259,4 +295,5 @@ __all__ = [
     "PluginManifest",
     "Provides",
     "Signal",
+    "TargetFinder",
 ]

@@ -459,6 +459,28 @@ graph_questions = sa.Table(
     sa.CheckConstraint("status IN ('open', 'resolved')", name="ck_graph_questions_status"),
 )
 
+# 0017 (WP-O5): the access onboarding asks for, and each decision.
+onboarding_requests = sa.Table(
+    "onboarding_requests",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("plugin", sa.Text, nullable=False),
+    sa.Column("access", sa.Text, nullable=False),
+    sa.Column("target", sa.Text, nullable=False),
+    sa.Column("detail_json", sa.Text, nullable=False),
+    sa.Column("share", sa.Float, nullable=False),
+    sa.Column("rank", sa.Integer, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'open'")),
+    sa.Column("present", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("decided_by", sa.Text),
+    sa.Column("decided_ts", sa.BigInteger),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+    sa.CheckConstraint(
+        "status IN ('open', 'approved', 'declined')", name="ck_onboarding_requests_status"
+    ),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",
