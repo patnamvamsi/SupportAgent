@@ -21,6 +21,7 @@ from supportagent.bootstrap import (
     ingest_system,
     load_plugins,
     onboard_graph,
+    onboard_incidents,
     pin_plugins,
 )
 from supportagent.config.loader import load_config_default
@@ -175,3 +176,31 @@ def onboard_graph_command(
     if report.failed_pages:
         typer.echo(f"no answer for pages {list(report.failed_pages)}: re-run to retry them")
     typer.echo("review it at /ui/onboarding")
+
+
+@onboard_app.command("incidents")
+def onboard_incidents_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (the model)."
+    ),
+) -> None:
+    """Map the workspace's incident history to classes and causes (incident_map.json)."""
+    try:
+        mapped, path = onboard_incidents(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"incident map: {len(mapped.classes)} classes; {mapped.coverage:.0%} of incidents "
+        "have a cause the plugins know"
+    )
+    for c in mapped.classes:
+        hours = f"{c.mean_hours_to_resolve:g}h" if c.mean_hours_to_resolve is not None else "?"
+        typer.echo(
+            f"  {c.share:>4.0%}  {c.cause or '(no cause)':<34} {c.label or '?':<22} "
+            f"{len(c.incidents):>3} incidents, mean {hours} to resolve"
+        )
+    if mapped.unread:
+        typer.echo(f"no answer for {len(mapped.unread)} incident(s): re-run to retry them")
+    typer.echo(f"wrote {path}")

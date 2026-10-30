@@ -70,6 +70,12 @@ class Workspace:
         header = "# Written by `supportagent onboard ingest` (redacted at ingest).\n"
         (self.sources / "servicenow" / f"{name}.yaml").write_text(header + text, "utf-8")
 
+    def write_artifact(self, name: str, document: Mapping[str, Any]) -> Path:
+        """An onboarding phase's output (``incident_map.json``), beside the sources."""
+        path = self.root / _safe(name)
+        path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", "utf-8")
+        return path
+
     def replace_space(self, space: str, pages: Sequence[IngestedPage]) -> None:
         folder = self.sources / "confluence" / space
         if folder.exists():

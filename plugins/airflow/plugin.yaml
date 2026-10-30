@@ -4,6 +4,10 @@ version: 0.1.0
 description: Apache Airflow orchestration (DAG and task failures, late runs).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: batch/schedule, description: "A scheduled run didn't start, started late or was skipped."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: airflow/scheduler_down, description: "The Airflow scheduler is down or stuck, so DAG runs don't start."}
   capabilities:
     airflow.dag_runs: {description: "DAG runs and task instances"}
     airflow.task_logs: {description: "A task instance's log"}

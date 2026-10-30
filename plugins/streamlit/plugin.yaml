@@ -4,6 +4,10 @@ version: 0.1.0
 description: Streamlit data apps (crashes, memory, slow queries behind pages).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: app/memory, description: "The service runs out of memory: OutOfMemoryError, OOMKilled pods, restarts as heap fills."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: streamlit/app_crash, description: "The Streamlit app's process crashes or is OOMKilled, usually from loading too much data into memory in a page."}
   needs: [k8s.pod_status, snowflake.query_history]
   extractors:
     - {match: "**/app.py", extract: app_reads}

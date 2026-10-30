@@ -21,8 +21,8 @@ from supportagent.bootstrap import (
     EvalPipeline,
     QualityPipeline,
     build_entail_pipeline,
-    build_graph_pipeline,
     build_lab_pipeline,
+    build_onboarding_pipeline,
     create_snapshot,
     detector_recall,
     eval_config,
@@ -385,7 +385,7 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
     except ConfigError as exc:
         typer.echo(f"config error: {exc}", err=True)
         raise typer.Exit(2) from exc
-    graph = build_graph_pipeline(cfg, live=live)
+    graph = build_onboarding_pipeline(cfg, live=live)
     failed = False
     report: list[dict[str, object]] = []
     for path, system in zip(dirs, systems, strict=True):
@@ -393,8 +393,9 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
         oracle_gates = evaluate(score(system, oracle(system)), gates)
         null_gates = evaluate(score(system, null()), gates)
         null_bites = [stage for stage in STAGES if not stage_passes(null_gates, stage)]
-        result, detections, built = run_onboarding_pipeline(path, plugins, graph)
-        pipeline_scores = score(system, result)
+        run = run_onboarding_pipeline(path, plugins, graph)
+        detections, built, incident_map = run.detections, run.graph, run.incidents
+        pipeline_scores = score(system, run.result)
         pipeline_gates = [
             g for g in evaluate(pipeline_scores, gates) if g.stage in gates.enforced_stages
         ]
@@ -439,6 +440,21 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
                     "rejected": [f"{p}: {r.what}: {r.why}" for p, r in built.rejected],
                     "unrecorded_pages": built.failed,
                 },
+                "incident_map": {
+                    "coverage": incident_map.coverage,
+                    "classes": [
+                        {
+                            "id": c.id,
+                            "label": c.label,
+                            "cause": c.cause,
+                            "incidents": len(c.incidents),
+                            "share": c.share,
+                            "basis": list(c.basis),
+                        }
+                        for c in incident_map.classes
+                    ],
+                    "unread": incident_map.unread,
+                },
             }
         )
         if as_json:
@@ -475,6 +491,20 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
                 typer.echo(f"      question: {question.about}: {question.detail}")
             if built.failed:
                 typer.echo(f"      unrecorded pages {built.failed}: re-record with --live")
+        if "incidents" in gates.enforced_stages:
+            typer.echo(
+                f"      incident map: {len(incident_map.classes)} classes, "
+                f"coverage {incident_map.coverage:.0%}"
+            )
+            for c in incident_map.classes[:5]:
+                typer.echo(
+                    f"        {c.share:>5.0%}  {c.cause or '(no cause)'} as {c.label}: "
+                    f"{len(c.incidents)} incidents, from {', '.join(c.basis)}"
+                )
+            if incident_map.unread:
+                typer.echo(
+                    f"      unrecorded incidents {incident_map.unread[:5]}: re-record with --live"
+                )
         if "plugins" in gates.enforced_stages:
             chosen = [d.plugin for d in detections if d.detected]
             typer.echo(f"      detected plugins: {', '.join(chosen) or 'none'}")

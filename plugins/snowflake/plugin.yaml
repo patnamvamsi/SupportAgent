@@ -4,6 +4,14 @@ version: 0.1.0
 description: Snowflake warehouses, tasks and credits (queuing, task failures, resource monitors).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: warehouse/queuing, description: "Queries queue on a saturated Snowflake warehouse; dashboards and loads are slow."}
+    - {id: warehouse/credit_quota, description: "A resource monitor's credit quota is reached and the warehouse is suspended."}
+    - {id: job/failure, description: "A batch or scheduled job fails outright and its output is not produced."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: snowflake/warehouse_queuing, description: "A Snowflake warehouse is too small for concurrent load and queries queue (QUEUED in query history)."}
+    - {id: snowflake/task_failure, description: "A Snowflake task fails on its own SQL: a compilation error or column mismatch, for instance after a table it reads changed."}
+    - {id: snowflake/credit_quota, description: "A resource monitor suspends a warehouse because the credit quota is used up."}
   pack: snowflake
   capabilities:
     snowflake.query_history: {description: "Queries, queued and failed (ACCOUNT_USAGE.QUERY_HISTORY)"}

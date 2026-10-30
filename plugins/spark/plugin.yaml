@@ -4,6 +4,11 @@ version: 0.1.0
 description: Apache Spark batch and streaming jobs (executor OOM, skew, stalled streaming queries).
 core_api: ">=1.0,<2"
 provides:
+  labels:   # WP-O4: what the incident map can call a problem
+    - {id: job/failure, description: "A batch or scheduled job fails outright and its output is not produced."}
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: spark/executor_oom, description: "Spark executors run out of memory (ExecutorLostFailure, container killed for exceeding memory), often from data skew."}
+    - {id: spark/shuffle_failure, description: "A Spark job fails fetching shuffle blocks (FetchFailedException) after executor or disk loss."}
   pack: spark
   capabilities:
     spark.applications: {description: "Applications, jobs and stages (Spark History Server REST)"}

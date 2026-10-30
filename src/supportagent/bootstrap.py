@@ -73,6 +73,7 @@ from supportagent.adapters.files.knowledge_loader import load_markdown_source, s
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.plugin_loader import LoadedPlugin, load_registry, write_index
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
+from supportagent.adapters.files.taxonomy_loader import load_classification
 from supportagent.adapters.files.workspace import Workspace
 from supportagent.adapters.gitsource.reader import GitHubReader, read_local
 from supportagent.adapters.identity.oidc import OIDCClient
@@ -112,7 +113,7 @@ from supportagent.adapters.servicenow.auth import (
     ServiceNowAuth,
 )
 from supportagent.adapters.servicenow.export import read_export
-from supportagent.adapters.servicenow.history_export import export_history
+from supportagent.adapters.servicenow.history_export import export_history, past_incidents
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
@@ -149,6 +150,7 @@ from supportagent.app.graph import vocabulary as graph_vocabulary
 from supportagent.app.graph_review import GraphReview
 from supportagent.app.grouping import GroupingService
 from supportagent.app.handlers import build_handlers
+from supportagent.app.incident_map import IncidentsAnswer, map_incidents
 from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
@@ -204,6 +206,7 @@ from supportagent.domain.errors import (
     LLMUnavailable,
 )
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
+from supportagent.domain.incident_map import Catalogue, IncidentMap, catalogue
 from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.calibration import (
@@ -284,6 +287,7 @@ from supportagent.evals.onboarding import (
     OnboardingGates,
     OnboardingResult,
     ReferenceSystem,
+    ResultClass,
     ResultEdge,
     ResultNode,
     Truth,
@@ -3118,23 +3122,29 @@ def reference_system_dirs(root: Path = ONBOARDING_DIR) -> list[Path]:
     return sorted(d for d in root.iterdir() if (d / "truth.yaml").is_file())
 
 
+_ONBOARDING_SLOTS = (SlotName.EXTRACT_GRAPH, SlotName.MAP_INCIDENTS)
+
+
 def _onboarding_config(config: AppConfig) -> AppConfig:
     """The config onboarding's LLM calls run with (ADR-0015 decision 3).
 
-    With ``llm.onboarding`` set, the frontier model serves ``extract_graph``;
-    otherwise the slot falls back to the triage model (``classify``).
+    With ``llm.onboarding`` set, the frontier model serves the onboarding
+    slots (``extract_graph``, ``map_incidents``); otherwise each falls back to
+    the triage model (``classify``).
     """
     llm = config.llm
     slots = dict(llm.slots)
     frontier = llm.onboarding
     if frontier is None:
-        slots.setdefault(SlotName.EXTRACT_GRAPH.value, slots[SlotName.CLASSIFY.value])
+        for slot in _ONBOARDING_SLOTS:
+            slots.setdefault(slot.value, slots[SlotName.CLASSIFY.value])
         return config.model_copy(update={"llm": llm.model_copy(update={"slots": slots})})
-    slots[SlotName.EXTRACT_GRAPH.value] = LLMSlot(
-        model_id=frontier.model_id,
-        timeout_s=frontier.timeout_s,
-        max_output_tokens=frontier.max_output_tokens,
-    )
+    for slot in _ONBOARDING_SLOTS:
+        slots[slot.value] = LLMSlot(
+            model_id=frontier.model_id,
+            timeout_s=frontier.timeout_s,
+            max_output_tokens=frontier.max_output_tokens,
+        )
     swapped = llm.model_copy(
         update={
             "provider": frontier.provider,
@@ -3149,8 +3159,12 @@ def _onboarding_config(config: AppConfig) -> AppConfig:
 ONBOARDING_RECORDINGS = ONBOARDING_DIR / "recordings"
 
 
-class GraphPipeline:
-    """WP-O3: the ``extract_graph`` slot over one documentation page (redacted, INV-06)."""
+class OnboardingPipeline:
+    """Onboarding's model calls over redacted sources (INV-06).
+
+    WP-O3: ``extract_graph`` over one documentation page. WP-O4:
+    ``map_incidents`` over a batch of past incidents.
+    """
 
     def __init__(
         self,
@@ -3184,8 +3198,15 @@ class GraphPipeline:
         }
         return self._llm.structured(SlotName.EXTRACT_GRAPH, variables, ExtractionAnswer, trace)
 
+    def read_incidents(self, labels: str, causes: str, incidents: str) -> IncidentsAnswer | None:
+        trace = TraceContext(
+            self._config.tenant.id, f"incidents-{abs(hash(incidents)) % 10**8}", "incidents"
+        )
+        variables = {"labels": labels, "causes": causes, "incidents": incidents}
+        return self._llm.structured(SlotName.MAP_INCIDENTS, variables, IncidentsAnswer, trace)
 
-def build_graph_pipeline(config: AppConfig, *, live: bool) -> GraphPipeline:
+
+def build_onboarding_pipeline(config: AppConfig, *, live: bool) -> OnboardingPipeline:
     """``live`` calls the model and records; otherwise replay ``evals/onboarding/recordings``."""
     holder: list[CachingLLMProvider] = []
 
@@ -3194,14 +3215,14 @@ def build_graph_pipeline(config: AppConfig, *, live: bool) -> GraphPipeline:
         holder.append(caching)
         return caching
 
-    pipeline = GraphPipeline(
+    pipeline = OnboardingPipeline(
         config, provider=None if live else _UnrecordedProvider(), decorate=cache
     )
     pipeline.caching = holder[0] if holder else None
     return pipeline
 
 
-def build_system_graph(path: Path, pipeline: GraphPipeline | None) -> GraphBuild:
+def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> GraphBuild:
     """The system graph of a workspace (or a reference system): structured, then prose."""
     snapshot = snapshot_from_sources(path)
     sources = path / "sources"
@@ -3212,24 +3233,74 @@ def build_system_graph(path: Path, pipeline: GraphPipeline | None) -> GraphBuild
     return build_graph(facts, snapshot.docs, pipeline.extract if pipeline is not None else None)
 
 
+def incident_catalogue(
+    detections: Sequence[Detection],
+    plugins: Sequence[LoadedPlugin],
+    taxonomy: Path = _REPO_ROOT / "taxonomy" / "classification.yaml",
+) -> Catalogue:
+    """The built-in labels and causes, plus those of the plugins the system needs."""
+    needed = set(detected_ids(detections))
+    chosen = [p.manifest for p in plugins if p.manifest.id in needed]
+    return catalogue(
+        [
+            *((label.id, label.description) for label in load_classification(taxonomy).labels),
+            *((label.id, label.description) for m in chosen for label in m.provides.labels),
+        ],
+        [(c.id, c.description) for m in chosen for c in m.provides.causes],
+    )
+
+
+def build_incident_map(
+    path: Path,
+    detections: Sequence[Detection],
+    plugins: Sequence[LoadedPlugin],
+    pipeline: OnboardingPipeline | None,
+) -> IncidentMap:
+    """The incident map of a workspace (or a reference system), WP-O4."""
+    servicenow = path / "sources" / "servicenow"
+    problems_path = servicenow / "problems.yaml"
+    history = past_incidents(
+        load_yaml_records(servicenow / "incidents.yaml"),
+        load_yaml_records(problems_path) if problems_path.is_file() else [],
+    )
+    cat = incident_catalogue(detections, plugins)
+    return map_incidents(history, cat, pipeline.read_incidents if pipeline is not None else None)
+
+
+@dataclass(frozen=True, slots=True)
+class OnboardingRun:
+    result: OnboardingResult
+    detections: list[Detection]
+    graph: GraphBuild
+    incidents: IncidentMap
+
+
 def run_onboarding_pipeline(
     path: Path,
     plugins: Sequence[LoadedPlugin] | None = None,
-    graph: GraphPipeline | None = None,
-) -> tuple[OnboardingResult, list[Detection], GraphBuild]:
+    pipeline: OnboardingPipeline | None = None,
+) -> OnboardingRun:
     """What the onboarding stages built so far produce for the system at ``path``.
 
-    WP-O1: plugin detection. WP-O3: the system graph (prose only with a
-    ``graph`` pipeline). The incident map and requests join as their WPs land.
+    WP-O1: plugin detection. WP-O3: the system graph. WP-O4: the incident map.
+    Without a ``pipeline`` the model-backed parts (prose, readings) are left out.
     """
-    detections = detect_plugins(path, plugins)
-    built = build_system_graph(path, graph)
+    registry = plugins if plugins is not None else load_plugins()
+    detections = detect_plugins(path, registry)
+    built = build_system_graph(path, pipeline)
+    incidents = build_incident_map(path, detections, registry, pipeline)
     result = OnboardingResult(
         plugins=detected_ids(detections),
         nodes=[ResultNode(id=n.id, kind=n.kind) for n in built.graph.nodes.values()],
         edges=[ResultEdge(src=a, kind=b, dst=c) for a, b, c in built.graph.edges],
+        incident_classes=[
+            ResultClass(
+                id=c.id, label=c.label or "unknown", cause=c.cause, incidents=list(c.incidents)
+            )
+            for c in incidents.classes
+        ],
     )
-    return result, detections, built
+    return OnboardingRun(result, detections, built, incidents)
 
 
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
@@ -3365,6 +3436,50 @@ class OnboardGraphReport:
     failed_pages: Sequence[str]
 
 
+def onboard_incidents(
+    config: AppConfig, workspace: Path, *, provider: LLMProvider | None = None
+) -> tuple[IncidentMap, Path]:
+    """``onboard incidents``: map a workspace's ticket history; write ``incident_map.json``.
+
+    The readings call the onboarding model; its answers are cached in
+    ``<workspace>/recordings``, so a re-run is cheap and resumes.
+    """
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
+    plugins = load_plugins()
+    mapped = build_incident_map(workspace, detect_plugins(workspace, plugins), plugins, pipeline)
+    path = Workspace(workspace).write_artifact("incident_map.json", incident_map_document(mapped))
+    return mapped, path
+
+
+def incident_map_document(mapped: IncidentMap) -> dict[str, object]:
+    return {
+        "coverage": mapped.coverage,
+        "classes": [
+            {
+                "id": c.id,
+                "label": c.label,
+                "cause": c.cause,
+                "incidents": list(c.incidents),
+                "problems": list(c.problems),
+                "changes": list(c.changes),
+                "weight": c.weight,
+                "share": c.share,
+                "mean_hours_to_resolve": c.mean_hours_to_resolve,
+                "severities": dict(c.severities),
+                "quotes": list(c.quotes),
+                "basis": list(c.basis),
+            }
+            for c in mapped.classes
+        ],
+        "unread": mapped.unread,
+        "dropped": {n: r.dropped for n, r in sorted(mapped.readings.items()) if r.dropped},
+    }
+
+
 def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
     config: AppConfig,
     workspace: Path,
@@ -3381,7 +3496,7 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
     re-run is cheap and resumes. ``docs=False`` builds from code, config, the
     CMDB and live discovery only.
     """
-    pipeline: GraphPipeline | None = None
+    pipeline: OnboardingPipeline | None = None
     if docs:
 
         def cache(inner: LLMProvider) -> LLMProvider:
@@ -3389,7 +3504,7 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
                 inner, directory=workspace / "recordings", snapshot_id="graph"
             )
 
-        pipeline = GraphPipeline(config, provider=provider, decorate=cache)
+        pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
     built = build_system_graph(workspace, pipeline)
     links = {
         f"confluence:{page.page_id}": page.url

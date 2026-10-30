@@ -44,6 +44,7 @@ llm:
     entail:            {model_id: "<dated-snapshot-id>", timeout_s: 5,  max_output_tokens: 50}    # v0.1
     draft_comms:       {model_id: "<dated-snapshot-id>", timeout_s: 20, max_output_tokens: 600}   # v0.1
     extract_graph:     {model_id: "<dated-snapshot-id>", timeout_s: 300, max_output_tokens: 16000} # ADR-0015: a docs page in, its facts out;
+    map_incidents:     {model_id: "<dated-snapshot-id>", timeout_s: 300, max_output_tokens: 16000} # ADR-0015: 8 past incidents in
                                         # unset, it runs on llm.onboarding's model, else classify's
   daily_budget_tokens: 2000000          # spend breaker (v0.1); v0.0 logs only
   onboarding: null                     # ADR-0015: {provider: anthropic|openai, api_key_env, model_id, timeout_s,

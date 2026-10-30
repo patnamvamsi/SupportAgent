@@ -4,6 +4,9 @@ version: 0.1.0
 description: Workloads on Kubernetes (pod status, restarts, OOMKills, rollouts).
 core_api: ">=1.0,<2"
 provides:
+  causes:   # WP-O4: what the incident map can name as a cause
+    - {id: k8s/node_pressure, description: "A node ran out of memory or disk and evicted or killed pods regardless of their own limits."}
+    - {id: k8s/image_pull_failure, description: "Pods can't start because their image can't be pulled (ImagePullBackOff)."}
   capabilities:
     k8s.pod_status: {description: "Pods, restarts and their reasons"}
     k8s.workloads: {description: "Deployments, CronJobs and rollout history in a namespace"}
