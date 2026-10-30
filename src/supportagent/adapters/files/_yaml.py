@@ -49,3 +49,8 @@ def front_matter(path: Path) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ConfigError(f"invalid front matter in {path}: {exc}") from exc  # noqa: TRY003
     return data if isinstance(data, dict) else {}
+
+
+def dump_yaml(data: object) -> str:
+    """YAML text for ``data``, keys in insertion order (the onboarding workspace)."""
+    return yaml.safe_dump(data, sort_keys=False, width=100, allow_unicode=True)

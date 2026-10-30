@@ -138,6 +138,31 @@ class LLMSlot(DomainModel):
         return value
 
 
+class OnboardingModel(DomainModel):
+    """ADR-0015 decision 3: a frontier model for onboarding when triage runs on a local one.
+
+    Reading a system's documentation and drafting its graph is where a
+    frontier model earns its cost. When this block is absent, onboarding uses
+    the triage model (``slots.classify``), local or not.
+    """
+
+    provider: Literal["anthropic", "openai"]
+    api_key: SecretStr
+    base_url: str | None = None
+    model_id: str = Field(min_length=1)
+    timeout_s: int = Field(default=60, gt=0)
+    max_output_tokens: int = Field(default=4000, gt=0)
+
+    @field_validator("model_id")
+    @classmethod
+    def _pinned(cls, value: str) -> str:
+        if is_floating_alias(value):
+            raise ValueError(  # noqa: TRY003
+                f"model_id '{value}' looks like a floating alias; pin a dated snapshot (02 §1)"
+            )
+        return value
+
+
 class LLM(DomainModel):
     provider: Literal["anthropic", "openai", "ollama", "fixture"]
     api_key: SecretStr | None
@@ -146,6 +171,8 @@ class LLM(DomainModel):
     daily_budget_tokens: int = Field(gt=0)
     #: The provider's model deprecation feed (11-wp WP-106; ARCH §9 runbook).
     deprecation_feed: str | None = None
+    #: ADR-0015: the frontier model onboarding uses, if triage's is local.
+    onboarding: OnboardingModel | None = None
 
     @model_validator(mode="after")
     def _provider_api_key_consistency(self) -> LLM:

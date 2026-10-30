@@ -15,8 +15,15 @@ from pathlib import Path
 import typer
 
 from supportagent.adapters.files.plugin_loader import LoadedPlugin
-from supportagent.bootstrap import PLUGINS_DIR, detect_plugins, load_plugins, pin_plugins
-from supportagent.domain.errors import ConfigError
+from supportagent.bootstrap import (
+    PLUGINS_DIR,
+    detect_plugins,
+    ingest_system,
+    load_plugins,
+    pin_plugins,
+)
+from supportagent.config.loader import load_config_default
+from supportagent.domain.errors import ConfigError, ExternalServiceError
 
 plugin_app = typer.Typer(help="The plugin registry (ADR-0015).", no_args_is_help=True)
 onboard_app = typer.Typer(help="Onboarding a system (ADR-0015).", no_args_is_help=True)
@@ -108,3 +115,33 @@ def onboard_detect(
     for d in detections:
         if d.detected or show_all:
             typer.echo(("needs  " if d.detected else "       ") + d.explain())
+
+
+@onboard_app.command("ingest")
+def onboard_ingest(
+    system: Path = typer.Option(..., "--system", help="The system's system.yaml."),  # noqa: B008
+    out: Path = typer.Option(..., "--out", help="The workspace to write (lab layout)."),  # noqa: B008
+    config: Path | None = typer.Option(  # noqa: B008
+        None, "--config", help="supportagent.yaml, for the ServiceNow connection."
+    ),
+    refresh: bool = typer.Option(False, "--refresh", help="Re-read sources already done."),
+) -> None:
+    """Read a system's ServiceNow, Confluence and Git sources into a workspace (redacted).
+
+    Read-only. A finished source is skipped on the next run unless --refresh,
+    so an interrupted ingest resumes. Then: ``onboard detect <out>``.
+    """
+    try:
+        app_config = load_config_default(config) if config is not None else None
+        reports = ingest_system(app_config, system, out, refresh=refresh)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except ExternalServiceError as exc:
+        typer.echo(f"source unreachable: {exc} (re-run to resume)", err=True)
+        raise typer.Exit(1) from exc
+    for report in reports:
+        typer.echo(report.line())
+        for note in report.notes:
+            typer.echo(f"    {note}")
+    typer.echo(f"workspace: {out}  (next: supportagent onboard detect {out})")

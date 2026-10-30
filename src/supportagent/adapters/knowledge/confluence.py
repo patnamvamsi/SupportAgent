@@ -34,6 +34,7 @@ from supportagent.adapters.knowledge.storage_html import storage_to_markdown
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.knowledge import DocChunk, chunk_document
 from supportagent.domain.model.knowledge import DocFrontMatter
+from supportagent.domain.onboarding import IngestedPage
 
 _API = "/wiki/api/v2"
 _PAGE_SIZE = 50
@@ -102,6 +103,53 @@ def load_confluence_space(  # noqa: PLR0913
         # The next cursor is a site-relative link carrying its own query.
         path, params = _next_link(batch), None
     return ConfluenceLoad(chunks, pages, skipped, truncated)
+
+
+def export_confluence_space(
+    client: httpx.Client, *, space_key: str, max_pages: int, timeout_s: float = 15.0
+) -> tuple[list[IngestedPage], bool]:
+    """Every current page of ``space_key`` (up to ``max_pages``); and whether more were left.
+
+    Read-only, like ``load_confluence_space``. The caller redacts the text
+    before it is stored (INV-06).
+    """
+    found = _results(_get(client, f"{_API}/spaces", {"keys": space_key}, timeout_s))
+    if not found:
+        raise ConfigError(f"Confluence space {space_key!r} not found")  # noqa: TRY003
+    path: str | None = f"{_API}/spaces/{found[0].get('id')}/pages"
+    params: dict[str, str | int] | None = {
+        "body-format": "storage",
+        "status": "current",
+        "limit": _PAGE_SIZE,
+    }
+    pages: list[IngestedPage] = []
+    while path is not None:
+        batch = _get(client, path, params, timeout_s)
+        for page in _results(batch):
+            if len(pages) >= max_pages:
+                return pages, True
+            page_id = str(page.get("id"))
+            labels = tuple(
+                str(item.get("name"))
+                for item in _results(
+                    _get(client, f"{_API}/pages/{page_id}/labels", None, timeout_s)
+                )
+            )
+            version = _mapping(page.get("version"))
+            body = _mapping(_mapping(page.get("body")).get("storage")).get("value")
+            pages.append(
+                IngestedPage(
+                    page_id=page_id,
+                    title=str(page.get("title") or page_id),
+                    version=str(version["number"]) if version.get("number") is not None else None,
+                    last_updated=_date(version.get("createdAt")),
+                    labels=labels,
+                    url=_page_url(client, _mapping(page.get("_links")).get("webui")),
+                    markdown=storage_to_markdown(body if isinstance(body, str) else ""),
+                )
+            )
+        path, params = _next_link(batch), None
+    return pages, False
 
 
 class _SkipPageError(Exception):
@@ -212,4 +260,9 @@ def _date(value: object) -> date | None:
         return None
 
 
-__all__ = ["ConfluenceLoad", "load_confluence_space", "site_root"]
+__all__ = [
+    "ConfluenceLoad",
+    "export_confluence_space",
+    "load_confluence_space",
+    "site_root",
+]

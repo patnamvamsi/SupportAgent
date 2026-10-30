@@ -106,6 +106,7 @@ modules =
     supportagent.adapters.webhook
     supportagent.adapters.fakes
     supportagent.adapters.install
+    supportagent.adapters.gitsource
 
 [importlinter:contract:adapters-no-app]
 name = adapters-no-app

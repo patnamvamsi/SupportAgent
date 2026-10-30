@@ -72,10 +72,13 @@ from supportagent.adapters.files.knowledge_loader import load_markdown_source, s
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.plugin_loader import LoadedPlugin, load_registry, write_index
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
+from supportagent.adapters.files.workspace import Workspace
+from supportagent.adapters.gitsource.reader import GitHubReader, read_local
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.install import probes as _probes
 from supportagent.adapters.knowledge.confluence import (
     ConfluenceLoad,
+    export_confluence_space,
     load_confluence_space,
     site_root,
 )
@@ -108,6 +111,7 @@ from supportagent.adapters.servicenow.auth import (
     ServiceNowAuth,
 )
 from supportagent.adapters.servicenow.export import read_export
+from supportagent.adapters.servicenow.history_export import export_history
 from supportagent.adapters.servicenow.http import ServiceNowHTTP, build_client
 from supportagent.adapters.servicenow.mapping import record_to_alert
 from supportagent.adapters.servicenow.probe import ServiceNowTableProbe
@@ -141,6 +145,7 @@ from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.grouping import GroupingService
 from supportagent.app.handlers import build_handlers
+from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
 from supportagent.app.outbox import OutboxExecutor, OutboxWriter
@@ -172,6 +177,8 @@ from supportagent.config.loader import (
     load_config_offline,
     load_fault_injection_default,
     load_master_key_default,
+    load_system_manifest,
+    load_system_manifest_default,
 )
 from supportagent.config.schema import (
     AppConfig,
@@ -181,6 +188,7 @@ from supportagent.config.schema import (
     Tools,
 )
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
+from supportagent.config.system_manifest import ConfluenceSpace, GitSource
 from supportagent.domain.auto import AutoConditions
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
@@ -207,6 +215,7 @@ from supportagent.domain.model.runbook import RcaBudget
 from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
+from supportagent.domain.onboarding import IngestedFiles, IngestedPage, TicketHistory
 from supportagent.domain.packs import Pack, PackScope, PackSet, labels_text
 from supportagent.domain.plugins import (
     Detection,
@@ -3112,3 +3121,119 @@ def run_onboarding_pipeline(
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
     """``supportagent plugin index``: re-pin every plugin as it is now (after review)."""
     return write_index(root)
+
+
+# --- onboarding ingest (ADR-0015 P1, WP-O2) -------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class IngestTransports:
+    """Test seams: fake ServiceNow, Confluence and GitHub servers."""
+
+    servicenow: httpx.BaseTransport | None = None
+    confluence: httpx.BaseTransport | None = None
+    github: httpx.BaseTransport | None = None
+
+
+def ingest_system(  # noqa: PLR0913 — the config, the manifest, the workspace and the seams
+    config: AppConfig | None,
+    manifest_path: Path,
+    out_dir: Path,
+    *,
+    refresh: bool = False,
+    transports: IngestTransports = IngestTransports(),  # noqa: B008 — frozen, immutable
+    env: Mapping[str, str] | None = None,
+) -> list[SourceReport]:
+    """``onboard ingest``: read the manifest's sources into a workspace at ``out_dir``.
+
+    ServiceNow is read with ``config``'s connection; without a config, the
+    ServiceNow source is reported unavailable and the others still run.
+    """
+    manifest = (
+        load_system_manifest(manifest_path, env)
+        if env is not None
+        else load_system_manifest_default(manifest_path)
+    )
+    redactor = Redactor(detectors=built_in_detectors())
+
+    def redact(text: str) -> str:
+        return redactor.redact(text).text
+
+    scope = manifest.sources.servicenow
+    history: HistoryExport | None = None
+    if config is not None and scope is not None:
+        http = _servicenow_http(
+            config, clock=SystemClock(), transport=transports.servicenow, max_tries=3
+        )
+
+        def history(*, max_incidents: int, now: datetime) -> TicketHistory:
+            return export_history(
+                http,
+                assignment_groups=scope.assignment_groups,
+                history_months=scope.history_months,
+                max_incidents=max_incidents,
+                now=now,
+            )
+
+    def confluence(space: ConfluenceSpace, *, max_pages: int) -> tuple[list[IngestedPage], bool]:
+        if not space.base_url or space.user is None or space.token is None:
+            raise ConfigError(  # noqa: TRY003
+                f"Confluence space {space.space}: base_url, user_env and token_env are required"
+            )
+        with httpx.Client(
+            base_url=site_root(space.base_url),
+            auth=httpx.BasicAuth(space.user.get_secret_value(), space.token.get_secret_value()),
+            headers={"Accept": "application/json"},
+            transport=transports.confluence,
+            timeout=20.0,
+        ) as client:
+            return export_confluence_space(client, space_key=space.space, max_pages=max_pages)
+
+    def git(source: GitSource, *, max_files: int, max_file_bytes: int) -> IngestedFiles:
+        found = IngestedFiles()
+        spec = source.repo.split(":", 1)[1]
+        if source.host == "file":
+            read_local(
+                spec, source.paths, max_files=max_files, max_file_bytes=max_file_bytes, into=found
+            )
+            return found
+        token = source.token.get_secret_value() if source.token is not None else None
+        reader = GitHubReader(token=token, transport=transports.github)
+        try:
+            reader.read(
+                spec, source.paths, max_files=max_files, max_file_bytes=max_file_bytes, into=found
+            )
+        finally:
+            reader.close()
+        return found
+
+    service = IngestService(
+        workspace=Workspace(out_dir),
+        redact=redact,
+        now=SystemClock().now,
+        history=history,
+        history_label="servicenow" if scope is not None else None,
+        confluence=confluence,
+        git=git,
+    )
+    return service.run(manifest, manifest_path.read_text(encoding="utf-8"), refresh=refresh)
+
+
+@dataclass(frozen=True, slots=True)
+class OnboardingLLM:
+    """Which model onboarding uses (ADR-0015 decision 3) and why."""
+
+    provider: str
+    model_id: str
+    base_url: str | None
+    #: ``onboarding``: the configured frontier model; ``triage``: the classify slot's.
+    source: Literal["onboarding", "triage"]
+
+
+def onboarding_llm(config: AppConfig) -> OnboardingLLM:
+    """The frontier model when ``llm.onboarding`` is set, else the triage model."""
+    chosen = config.llm.onboarding
+    if chosen is not None:
+        return OnboardingLLM(chosen.provider, chosen.model_id, chosen.base_url, "onboarding")
+    classify = config.llm.slots["classify"]
+    return OnboardingLLM(config.llm.provider, classify.model_id, config.llm.base_url, "triage")

@@ -21,7 +21,7 @@ import secrets
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 import typer
@@ -33,7 +33,9 @@ from supportagent.config.local_install import (
     INTEGRATION_USER,
     Answers,
     ConfluenceAnswers,
+    FrontierAnswers,
     LlmAnswers,
+    LlmKind,
     PagerDutyAnswers,
     ServiceAnswer,
     ServiceNowAnswers,
@@ -169,7 +171,40 @@ class _Wizard:
         found: list[str] = self.check("Listing the models it offers", models, default=[])
         model = self.pick_model(kind, found, prev.get("model_id"))
         self.prev["llm"] = {"kind": kind, "typed_url": typed_url, "model_id": model}
-        return LlmAnswers(kind=kind, model_id=model, base_url=container_url, api_key=key)  # type: ignore[arg-type]
+        frontier = self.frontier(prev.get("onboarding")) if kind in ("local", "ollama") else None
+        return LlmAnswers(
+            kind=cast("LlmKind", kind),
+            model_id=model,
+            base_url=container_url,
+            api_key=key,
+            onboarding=frontier,
+        )
+
+    def frontier(self, prev: dict[str, Any] | None) -> FrontierAnswers | None:
+        """ADR-0015 decision 3: onboarding reads a system's docs with a frontier model."""
+        typer.echo(
+            "\n  Onboarding a new system reads all of its docs and drafts a map of it. A\n"
+            "  frontier model (Anthropic or OpenAI) does that much better than most local\n"
+            "  ones; triage stays on your local model."
+        )
+        if not typer.confirm("  Add a frontier model for onboarding?", default=bool(prev)):
+            return None
+        kind = _choose(
+            "Which one?",
+            [("anthropic", "Anthropic Claude"), ("openai", "OpenAI")],
+            (prev or {}).get("kind", "anthropic"),
+        )
+        vendor = "Anthropic" if kind == "anthropic" else "OpenAI"
+        key = self.secret(f"{vendor} API key (for onboarding)", "ONBOARDING_LLM_API_KEY")
+
+        def models() -> list[str]:
+            return probe_llm_models(kind, base_url=None, api_key=key)
+
+        found: list[str] = self.check("Listing the models it offers", models, default=[])
+        model = self.pick_model(kind, found, (prev or {}).get("model_id"))
+        self.prev["llm"]["onboarding"] = {"kind": kind, "model_id": model}
+        frontier_kind = cast('Literal["anthropic", "openai"]', kind)
+        return FrontierAnswers(kind=frontier_kind, model_id=model, api_key=key)
 
     def pick_model(self, kind: str, found: Sequence[str], previous: str | None) -> str:
         fallback = {
@@ -439,6 +474,7 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
             )
         )
         llm = raw["llm"]
+        frontier = llm.get("onboarding")
         return Answers(
             team_name=raw.get("team_name", "My Team"),
             llm=LlmAnswers(
@@ -446,6 +482,7 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
                 model_id=llm["model_id"],
                 base_url=_for_container(llm["base_url"]) if llm.get("base_url") else None,
                 api_key=llm.get("api_key"),
+                onboarding=FrontierAnswers(**frontier) if frontier else None,
             ),
             servicenow=ServiceNowAnswers(**sn),
             services=services,
@@ -500,6 +537,8 @@ def _public(answers: Answers) -> dict[str, Any]:
     """What a re-run offers as defaults: no secrets."""
     llm = asdict(answers.llm)
     llm.pop("api_key")
+    if llm.get("onboarding"):
+        llm["onboarding"].pop("api_key")
     sn = asdict(answers.servicenow)
     for key in ("password", "client_id", "client_secret"):
         sn.pop(key)

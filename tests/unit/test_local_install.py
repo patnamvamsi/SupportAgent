@@ -344,3 +344,77 @@ def test_the_demo_feed_adds_incidents_updated_now(clock: Any) -> None:
     run = f"{int(clock.now().timestamp()) // 60 % 10_000:04d}"
     assert {r["number"] for r in rows[:2]} == {f"INC{run}001", f"INC{run}002"}
     assert all(r["sys_updated_by"] == "alice" for r in rows)
+
+
+# --- ADR-0015 decision 3: a frontier model for onboarding --------------------------------
+
+
+def test_a_local_model_with_a_frontier_one_for_onboarding(tmp_path: Path) -> None:
+    from supportagent.bootstrap import onboarding_llm  # noqa: PLC0415
+    from supportagent.config.local_install import FrontierAnswers  # noqa: PLC0415
+
+    llm = LlmAnswers(
+        kind="local",
+        model_id="qwen/qwen3.8-27b",
+        base_url="http://h:1234/v1",
+        onboarding=FrontierAnswers("anthropic", "claude-sonnet-4-5-20250929", "sk-onb"),
+    )
+    answers = _answers(llm=llm)
+    env = _write(tmp_path, answers)
+    assert env["ONBOARDING_LLM_API_KEY"] == "sk-onb"
+    config = load_config(tmp_path / "supportagent.yaml", env)
+    chosen = onboarding_llm(config)
+    assert (chosen.provider, chosen.model_id, chosen.source) == (
+        "anthropic",
+        "claude-sonnet-4-5-20250929",
+        "onboarding",
+    )
+    assert config.llm.slots["classify"].model_id == "qwen/qwen3.8-27b"  # triage stays local
+
+    plain = load_config(tmp_path / "supportagent.yaml", env).model_copy(
+        update={"llm": config.llm.model_copy(update={"onboarding": None})}
+    )
+    fallback = onboarding_llm(plain)
+    assert (fallback.model_id, fallback.source) == ("qwen/qwen3.8-27b", "triage")
+
+
+def test_the_onboarding_model_must_be_pinned() -> None:
+    from pydantic import ValidationError  # noqa: PLC0415
+
+    from supportagent.config.schema import OnboardingModel  # noqa: PLC0415
+
+    with pytest.raises(ValidationError, match="floating alias"):
+        OnboardingModel.model_validate(
+            {"provider": "openai", "api_key": "k", "model_id": "gpt-4o-latest"}
+        )
+
+
+def test_the_wizard_offers_a_frontier_model_after_a_local_one(tmp_path: Path) -> None:
+    keys = "\n".join(
+        [
+            "Acme",
+            "3",  # a local OpenAI-compatible server
+            "http://localhost:1234/v1",
+            "qwen/qwen3.8-27b",
+            "y",  # add a frontier model for onboarding
+            "1",  # Anthropic
+            "sk-onboarding",
+            "claude-sonnet-4-5-20250929",
+            "2",  # demo ServiceNow
+            "n",
+            "n",
+            "ada",
+            "",
+            "",
+        ]
+    )
+    out = tmp_path / "local"
+    result = CliRunner().invoke(app, ["init", "--dir", str(out), "--no-probe"], input=keys + "\n")
+    assert result.exit_code == 0, result.output
+    env = parse_env((out / ".env").read_text())
+    assert env["ONBOARDING_LLM_API_KEY"] == "sk-onboarding"
+    config = yaml.safe_load((out / "supportagent.yaml").read_text())
+    assert config["llm"]["onboarding"]["model_id"] == "claude-sonnet-4-5-20250929"
+    assert config["llm"]["base_url"] == "http://host.docker.internal:1234/v1"
+    public = (out / "answers.json").read_text()
+    assert "sk-onboarding" not in public and "claude-sonnet-4-5-20250929" in public

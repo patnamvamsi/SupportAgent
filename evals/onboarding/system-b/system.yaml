@@ -19,7 +19,7 @@ sources:
   - space: DATA
   - space: DATAARCH
   git:
-  - repo: github:acme/analytics-*
+  - repo: github:acme-analytics/*
     paths:
     - '**/requirements.txt'
     - '**/*.py'

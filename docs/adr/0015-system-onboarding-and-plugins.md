@@ -199,7 +199,7 @@ B's lineage edges carry the most value: "the dashboard is stale" is solved by wa
 |---|---|---|
 | **WP-O7** (first, red-first; *delivered*: `evals/onboarding/`, `supportagent eval onboarding`) | **The onboarding lab.** Reference systems A and B as fixtures: a fake Confluence space, ServiceNow history with CMDB, problems and changes, repo manifests, a read-only tool world, and the ground-truth graph, incident map, plugin set and requests. | O1–O6 metrics computed on both; CI gates. |
 | WP-O1 (*delivered*: `plugins/`, `supportagent plugin`, `onboard detect`; the lab enforces the plugins stage) | **The plugin model.** Manifest v2 (`provides`, `detectors`, `extractors`, `requires`, `trust`). Registry and install with pinning and signatures. Today's packs migrate. Skeleton plugins `java-spring`, `oracle`, `frontend-angular`, `kafka`, `snowflake`, `spark`, `streamlit`, `data-quality`, each with detectors, contracts and a few scenarios. | Both reference systems detect the right plugin sets. |
-| WP-O2 | **Ingestion.** `llm.providers` (a local and a frontier provider; onboarding slots resolve to the frontier one, decision 3); `system.yaml`; ServiceNow CMDB, problems, changes and KB; every page in a Confluence space; Git manifest paths. Budgeted and resumable. | P1 is complete on both fixtures within budget. |
+| WP-O2 (*delivered*: `supportagent onboard ingest`, `llm.onboarding`) | **Ingestion.** `llm.onboarding`, a frontier model that onboarding uses when triage runs on a local one (decision 3); `system.yaml`; ServiceNow CMDB, problems, changes and KB; every page in a Confluence space; Git manifest paths. Budgeted and resumable. | P1 is complete on both fixtures within budget. |
 | WP-O3 | **The system graph.** Schema, provenance and review state; deterministic and plugin extractors; LLM extraction with source checks; the review UI. | Graph precision ≥ 0.9 and recall ≥ 0.8 on the fixtures. |
 | WP-O4 | **The incident map.** Clustering, taxonomy mapping, cause mining, weighting. | Clusters match the labelled classes. |
 | WP-O5 | **The gap plan and requests.** Scoring, requests with contracts, the UI, CLI and API; verification at provision. | The right requests at least privilege; zero manual edits from grant to bound. |
@@ -235,7 +235,7 @@ A real system is the final test. The partner's ServiceNow and Confluence (BL-037
 3. **The onboarding model is whichever model the user chose.**
    - If the user configured both a local model and a frontier model, onboarding (ingest extraction, cluster labelling, gap reasoning) uses the **frontier** model.
    - Triage keeps its own slots.
-   - This needs a second provider in the config. `llm.providers` names each provider, and the onboarding slots resolve to the frontier one when there is one. The installer offers to set up both.
+   - Built as an optional `llm.onboarding` block (provider, key, model). When it is set, onboarding uses it; otherwise onboarding uses the triage model. The installer offers it whenever the triage model is local.
 4. **SMEs review, and the review must be easy to do visually.**
    - `/ui/onboarding` shows the graph as a picture: components, datastores and topics, with proposed edges dashed and confirmed edges solid.
    - Next to the graph, each proposed fact is a card showing its source quote and a link to the source.
