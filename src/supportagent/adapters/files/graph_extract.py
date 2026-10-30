@@ -1,0 +1,573 @@
+"""Structured graph facts (ADR-0015 §3 layers 1 and 2, WP-O3): config, CMDB, live discovery.
+
+Pass 1 finds the **components** each repository builds:
+
+- a Maven ``pom.xml``: ``service:<artifactId>``, or ``job:`` for Spring Batch;
+- an Angular ``package.json``: ``ui:<name>``;
+- a PySpark script: ``job:<repo>``; a Streamlit app: ``ui:<repo>``;
+- a Kafka Connect ``connector.json``: ``job:<connector name>``;
+- a Snowflake ``CREATE TASK``: ``job:<task>``.
+
+Pass 2 reads what they connect to: JDBC URLs, gateway routes and client
+base URLs, third-party hosts, Helm namespaces, Kafka subscriptions and
+bootstrap servers, Snowflake ``dbtable`` and ``sfWarehouse``, SQL ``INTO`` and
+``FROM``, Airflow operators, EMR clusters. Then the CMDB (installed CIs,
+typed relationships) and live discovery add theirs.
+
+Names are reconciled by general rules, not per system: a CMDB CI whose words
+are all in exactly one code component's name is that component (a CMDB
+``daily-sales-task`` is the code's ``task_build_daily_sales``); a Kafka
+Connect consumer group ``connect-<name>`` is connector ``<name>``; a runtime
+named without its cluster (a Helm ``namespace`` alone) is the one known
+runtime with that name; a CMDB CI named like a known runtime is that runtime.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
+from typing import Any
+
+import yaml
+
+from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, NodeKind
+
+_POM_ARTIFACT = re.compile(r"</parent>\s*.*?<artifactId>([^<]+)</artifactId>", re.S)
+_JDBC = re.compile(r"jdbc:(oracle|postgresql|mysql|sqlserver)[^\s\"']*?[/:@]([A-Za-z0-9_]+)\s*$")
+_URL_HOST = re.compile(r"^[a-z]+://([^/:]+)")
+_SVC_HOST = re.compile(r"^([a-z0-9-]+)\.[a-z0-9-]+\.svc(\.|$)")
+_SNOW_TABLE = re.compile(r"\b([A-Z][A-Z0-9_]*)\.([A-Z][A-Z0-9_]*)\b")
+_TASK = re.compile(r"CREATE\s+(?:OR\s+REPLACE\s+)?TASK\s+(?:[A-Z0-9_]+\.)?([A-Z0-9_]+)", re.I)
+_TASK_REF = re.compile(r"EXECUTE\s+TASK\s+(?:[A-Z0-9_]+\.)?([A-Z0-9_]+)", re.I)
+_WAREHOUSE = re.compile(r"WAREHOUSE\s*=\s*([A-Z0-9_]+)", re.I)
+_OPTION = re.compile(r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)')
+_CI_RUNTIME = {"cmdb_ci_kubernetes_namespace": "k8s"}
+_CI_KIND: Mapping[str, NodeKind] = {
+    "cmdb_ci_service_auto": "Service",
+    "cmdb_ci_appl": "Service",
+    "cmdb_ci_db_ora_instance": "Database",
+}
+
+
+@dataclass(slots=True)
+class _Collect:
+    facts: list[Fact] = field(default_factory=list)
+    #: repo -> its component id
+    components: dict[str, str] = field(default_factory=dict)
+
+    def node(
+        self,
+        node_id: str,
+        kind: NodeKind,
+        source: str,
+        *,
+        layer: int = 1,
+        tech: Iterable[str] = (),
+        by: str,
+    ) -> None:
+        self.facts.append(NodeFact(node_id, kind, source, layer, by, tuple(tech)))  # type: ignore[arg-type]
+
+    def edge(self, src: str, kind: str, dst: str, source: str, *, layer: int = 1, by: str) -> None:
+        self.facts.append(EdgeFact(src, kind, dst, source, layer, by))  # type: ignore[arg-type]
+
+    def alias(self, alias: str, canonical: str, source: str, *, layer: int = 1, by: str) -> None:
+        self.facts.append(AliasFact(alias, canonical, source, layer, by))  # type: ignore[arg-type]
+
+
+def structured_facts(
+    files: Mapping[str, str], cmdb: Mapping[str, Any], live: Mapping[str, Any]
+) -> list[Fact]:
+    """Every layer-1 (config, CMDB) and layer-2 (live) fact about the system."""
+    out = _Collect()
+    by_repo: dict[str, dict[str, str]] = {}
+    for key, text in files.items():
+        repo, _, path = key.partition("/")
+        by_repo.setdefault(repo, {})[path] = text
+    for repo, repo_files in sorted(by_repo.items()):
+        _components(out, repo, repo_files)
+    for repo, repo_files in sorted(by_repo.items()):
+        for path, text in sorted(repo_files.items()):
+            for matches, extractor in _RELATIONS:
+                if matches(path):
+                    extractor(out, repo, path, text)
+    _cmdb(out, cmdb)
+    _live(out, live)
+    _reconcile(out)
+    return out.facts
+
+
+# --- pass 1: components -------------------------------------------------------------
+
+
+def _components(out: _Collect, repo: str, files: Mapping[str, str]) -> None:
+    for path, text in sorted(files.items()):
+        source = f"git:{repo}/{path}"
+        name = path.rsplit("/", 1)[-1]
+        if name == "pom.xml" and (m := _POM_ARTIFACT.search(text)):
+            batch = "spring-boot-starter-batch" in text
+            kind: NodeKind = "Job" if batch else "Service"
+            tech = ["java", "spring-boot"] + (["spring-batch"] if batch else [])
+            if "spring-cloud-starter-gateway" in text:
+                tech.append("spring-cloud-gateway")
+            node_id = f"{'job' if batch else 'service'}:{m.group(1)}"
+            out.node(node_id, kind, source, tech=tech, by="pom")
+            out.components[repo] = node_id
+        elif name == "package.json" and '"@angular/core"' in text:
+            node_id = f"ui:{json.loads(text).get('name', repo)}"
+            out.node(node_id, "UI", source, tech=["angular"], by="package_json")
+            out.components[repo] = node_id
+        elif name == "connector.json":
+            config = json.loads(text)
+            node_id = f"job:{config.get('name', repo)}"
+            out.node(node_id, "Job", source, tech=["kafka-connect"], by="kafka_connect")
+            out.components[repo] = node_id
+        elif name.endswith(".py") and "import streamlit" in text:
+            out.node(f"ui:{repo}", "UI", source, tech=["streamlit"], by="streamlit")
+            out.components[repo] = f"ui:{repo}"
+        elif name.endswith(".py") and "SparkSession" in text:
+            tech = ["pyspark"] + (["spark-streaming"] if "readStream" in text else [])
+            out.node(f"job:{repo}", "Job", source, tech=tech, by="pyspark")
+            out.components[repo] = f"job:{repo}"
+        elif name.endswith(".sql"):
+            for task in _TASK.findall(text):
+                out.node(
+                    f"job:{task.lower()}",
+                    "Job",
+                    source,
+                    tech=["snowflake-task"],
+                    by="snowflake_sql",
+                )
+
+
+# --- pass 2: relations --------------------------------------------------------------
+
+
+def _owner(out: _Collect, repo: str) -> str | None:
+    return out.components.get(repo)
+
+
+def _spring_config(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    if owner is None:
+        return
+    source = f"git:{repo}/{path}"
+    data = yaml.safe_load(text) or {}
+    for key, value in _leaves(data):
+        if not isinstance(value, str):
+            continue
+        if m := _JDBC.search(value):
+            db = f"database:{m.group(2).lower()}"
+            out.node(db, "Database", source, tech=[m.group(1)], by="jdbc")
+            out.edge(owner, "uses", db, source, by="jdbc")
+            continue
+        host = _host(value)
+        if host is None or "origin" in key.lower():
+            continue
+        if svc := _SVC_HOST.match(host):
+            out.edge(owner, "calls", f"service:{svc.group(1)}", source, by="service_url")
+        elif key.endswith(("base-url", "url", "host")) and not _internal(host):
+            org = host.split(".")[-2]
+            out.node(f"external:{org}", "External", source, by="third_party_host")
+            out.edge(owner, "depends_on", f"external:{org}", source, by="third_party_host")
+    for key, value in _leaves(data):
+        h = _host(value) if key.endswith("uri") and isinstance(value, str) else None
+        if h and (svc := _SVC_HOST.match(h)):
+            out.edge(owner, "calls", f"service:{svc.group(1)}", source, by="gateway_route")
+
+
+def _helm(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    data = yaml.safe_load(text) or {}
+    namespace = data.get("namespace") if isinstance(data, dict) else None
+    if owner is None or not namespace:
+        return
+    source = f"git:{repo}/{path}"
+    cluster = data.get("cluster") or "*"
+    runtime = f"runtime:{cluster}/{namespace}"
+    if cluster != "*":
+        out.node(runtime, "Runtime", source, tech=["kubernetes"], by="helm")
+    out.edge(owner, "runs_on", runtime, source, by="helm")
+    if data.get("kind") == "CronJob":
+        out.node(owner, "Job", source, by="helm")
+
+
+def _ui_api(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    for url in re.findall(r"https?://[^'\"\s]+", text):
+        host = _host(url)
+        if owner and host:
+            out.edge(
+                owner,
+                "calls",
+                f"service:{host.split('.')[0]}",
+                f"git:{repo}/{path}",
+                by="ui_api_base",
+            )
+
+
+def _pyspark(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    if owner is None or "SparkSession" not in text:
+        return
+    source = f"git:{repo}/{path}"
+    options = _OPTION.findall(text)
+    database = next((v for k, v in options if k == "sfDatabase"), None)
+    for k, v in options:
+        if k == "subscribe":
+            for topic in v.split(","):
+                out.node(f"topic:{topic}", "Topic", source, tech=["kafka"], by="pyspark")
+                out.edge(owner, "consumes", f"topic:{topic}", source, by="pyspark")
+        elif k == "kafka.bootstrap.servers" and (m := re.search(r"b-\d+\.([a-z0-9-]+)\.kafka", v)):
+            cluster = f"runtime:kafka/{m.group(1)}"
+            out.node(cluster, "Runtime", source, tech=["kafka"], by="pyspark")
+            for kk, vv in options:
+                if kk == "subscribe":
+                    for topic in vv.split(","):
+                        out.edge(f"topic:{topic}", "part_of", cluster, source, by="pyspark")
+        elif k == "sfWarehouse":
+            wh = f"runtime:snowflake/{v.lower()}"
+            out.node(wh, "Runtime", source, tech=["snowflake"], by="pyspark")
+            out.edge(owner, "uses", wh, source, by="pyspark")
+    for match in re.finditer(r'"dbtable"\s*,\s*"([A-Za-z0-9_.]+)"', text):
+        table = match.group(1)
+        if "." not in table and database:
+            table = f"{database}.{table}"
+        before = text[: match.start()]
+        writing = max(before.rfind(".write"), before.rfind("writeStream")) > max(
+            before.rfind(".read"), before.rfind("readStream")
+        )
+        node = f"table:{table.lower()}"
+        out.node(node, "Datastore", source, tech=["snowflake"], by="pyspark")
+        out.edge(owner, "writes" if writing else "reads", node, source, by="pyspark")
+
+
+def _emr(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    data = yaml.safe_load(text) or {}
+    if owner and isinstance(data, dict) and data.get("cluster"):
+        runtime = f"runtime:emr/{data['cluster']}"
+        out.node(runtime, "Runtime", f"git:{repo}/{path}", tech=["emr", "spark"], by="emr")
+        out.edge(owner, "runs_on", runtime, f"git:{repo}/{path}", by="emr")
+
+
+def _connector(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    config = json.loads(text).get("config", {})
+    if owner is None:
+        return
+    source = f"git:{repo}/{path}"
+    database = str(config.get("snowflake.database.name", "")).lower()
+    for topic in str(config.get("topics", "")).split(","):
+        if topic:
+            out.node(f"topic:{topic}", "Topic", source, tech=["kafka"], by="kafka_connect")
+            out.edge(owner, "consumes", f"topic:{topic}", source, by="kafka_connect")
+    for pair in str(config.get("snowflake.topic2table.map", "")).split(","):
+        if ":" in pair and database:
+            table = f"table:{database}.{pair.split(':', 1)[1].lower()}"
+            out.node(table, "Datastore", source, tech=["snowflake"], by="kafka_connect")
+            out.edge(owner, "writes", table, source, by="kafka_connect")
+    if dlq := config.get("errors.deadletterqueue.topic.name"):
+        out.node(f"topic:{dlq}", "Topic", source, tech=["kafka"], by="kafka_connect")
+        out.edge(owner, "publishes", f"topic:{dlq}", source, by="kafka_connect")
+
+
+def _snowflake_sql(out: _Collect, repo: str, path: str, text: str) -> None:
+    source = f"git:{repo}/{path}"
+    for warehouse in re.findall(r"WAREHOUSE\s+([A-Z0-9_]+)\s+SET", text, re.I):
+        out.node(
+            f"runtime:snowflake/{warehouse.lower()}",
+            "Runtime",
+            source,
+            tech=["snowflake"],
+            by="snowflake_sql",
+        )
+    for statement in re.split(r";\s*\n", text):
+        task = _TASK.search(statement)
+        if task is None:
+            continue
+        owner = f"job:{task.group(1).lower()}"
+        if wh := _WAREHOUSE.search(statement):
+            runtime = f"runtime:snowflake/{wh.group(1).lower()}"
+            out.node(runtime, "Runtime", source, tech=["snowflake"], by="snowflake_sql")
+            out.edge(owner, "runs_on", runtime, source, by="snowflake_sql")
+        body = statement[task.end() :]
+        for m in re.finditer(r"\b(INTO|FROM|JOIN)\s+([A-Z0-9_]+\.[A-Z0-9_]+)", body, re.I):
+            if m.group(2).upper().startswith(task.group(1).upper()):
+                continue
+            table = f"table:{m.group(2).lower()}"
+            out.node(table, "Datastore", source, tech=["snowflake"], by="snowflake_sql")
+            out.edge(
+                owner,
+                "writes" if m.group(1).upper() == "INTO" else "reads",
+                table,
+                source,
+                by="snowflake_sql",
+            )
+
+
+def _airflow(out: _Collect, repo: str, path: str, text: str) -> None:
+    if "from airflow" not in text:
+        return
+    source = f"git:{repo}/{path}"
+    targets = [f"job:{t.lower()}" for t in _TASK_REF.findall(text)]
+    targets += [f"job:{n}" for n in re.findall(r'"Name"\s*:\s*"([a-z0-9-]+)"', text)]
+    for target in targets:
+        out.edge(target, "scheduled_by", "runtime:airflow/*", source, by="airflow_dag")
+
+
+def _streamlit(out: _Collect, repo: str, path: str, text: str) -> None:
+    owner = _owner(out, repo)
+    if owner is None or "import streamlit" not in text:
+        return
+    source = f"git:{repo}/{path}"
+    if wh := re.search(r'warehouse\s*=\s*"([A-Za-z0-9_]+)"', text):
+        runtime = f"runtime:snowflake/{wh.group(1).lower()}"
+        out.node(runtime, "Runtime", source, tech=["snowflake"], by="streamlit")
+        out.edge(owner, "uses", runtime, source, by="streamlit")
+    for db, table in re.findall(r"FROM\s+([A-Z0-9_]+)\.([A-Z0-9_]+)", text):
+        node = f"table:{db.lower()}.{table.lower()}"
+        out.node(node, "Datastore", source, tech=["snowflake"], by="streamlit")
+        out.edge(owner, "reads", node, source, by="streamlit")
+
+
+_RELATIONS: list[tuple[Callable[[str], bool], Callable[[_Collect, str, str, str], None]]] = [
+    (lambda p: re.search(r"(^|/)application[^/]*\.ya?ml$", p) is not None, _spring_config),
+    (lambda p: "/helm/" in f"/{p}" and p.endswith((".yaml", ".yml")), _helm),
+    (lambda p: re.search(r"environment[^/]*\.ts$", p) is not None, _ui_api),
+    (lambda p: p.endswith(".py") and "/dags/" not in f"/{p}", _pyspark),
+    (lambda p: p.endswith(".py") and "/dags/" not in f"/{p}", _streamlit),
+    (lambda p: p.endswith("emr.yaml"), _emr),
+    (lambda p: p.endswith("connector.json"), _connector),
+    (lambda p: p.endswith(".sql"), _snowflake_sql),
+    (lambda p: "/dags/" in f"/{p}" and p.endswith(".py"), _airflow),
+]
+
+
+# --- the CMDB and live discovery ---------------------------------------------------------
+
+
+def _cmdb(out: _Collect, cmdb: Mapping[str, Any]) -> None:
+    installed: dict[str, str] = {}
+    for ci in cmdb.get("cis") or []:
+        if str(ci.get("install_status", "")).lower() == "retired":
+            continue
+        name, cls, sys_id = str(ci["name"]), str(ci.get("sys_class_name")), str(ci["sys_id"])
+        source = f"cmdb:{sys_id}"
+        if cls in _CI_RUNTIME:
+            node = f"runtime:{name}"
+            out.node(node, "Runtime", source, tech=["kubernetes"], by="cmdb")
+        elif cls in _CI_KIND:
+            kind = _CI_KIND[cls]
+            node = f"database:{name.lower()}" if kind == "Database" else f"cmdb:{name}"
+            if kind == "Database":
+                out.node(node, "Database", source, tech=["oracle"], by="cmdb")
+            else:
+                out.node(node, kind, source, by="cmdb")
+        else:
+            node = f"cmdb:{name}"  # resolved to a known runtime by name, or dropped
+        installed[name] = node
+    for rel in cmdb.get("relationships") or []:
+        parent, child = installed.get(str(rel.get("parent"))), installed.get(str(rel.get("child")))
+        if parent is None or child is None:
+            continue  # a retired or unknown CI
+        relation = str(rel.get("type", ""))
+        edge_kind = "runs_on" if relation.startswith("Runs on") else "depends_on"
+        out.edge(parent, edge_kind, child, f"cmdb:{rel['sys_id']}", by="cmdb")
+
+
+def _live(out: _Collect, live: Mapping[str, Any]) -> None:
+    for key, result in live.items():
+        capability, _, target = str(key).partition("@")
+        source = f"live:{key}"
+        if not isinstance(result, dict):
+            continue
+        if capability == "k8s.workloads":
+            runtime = f"runtime:{result['cluster']}/{result['namespace']}"
+            out.node(runtime, "Runtime", source, layer=2, tech=["kubernetes"], by="live_k8s")
+            for name in result.get("deployments", []):
+                out.edge(f"*:{name}", "runs_on", runtime, source, layer=2, by="live_k8s")
+            for job in result.get("cronjobs", []):
+                out.edge(f"*:{job['name']}", "runs_on", runtime, source, layer=2, by="live_k8s")
+        elif capability == "oracle.schemas":
+            db = f"database:{str(result['database']).lower()}"
+            out.node(db, "Database", source, layer=2, tech=["oracle"], by="live_oracle")
+            for schema in result.get("schemas", []):
+                node = f"schema:{db.split(':', 1)[1]}.{schema.lower()}"
+                out.node(node, "Datastore", source, layer=2, tech=["oracle"], by="live_oracle")
+                out.edge(node, "part_of", db, source, layer=2, by="live_oracle")
+        elif capability == "kafka.topics":
+            cluster = f"runtime:kafka/{target}"
+            out.node(cluster, "Runtime", source, layer=2, tech=["kafka"], by="live_kafka")
+            for topic in result.get("topics", []):
+                out.node(
+                    f"topic:{topic}", "Topic", source, layer=2, tech=["kafka"], by="live_kafka"
+                )
+                out.edge(f"topic:{topic}", "part_of", cluster, source, layer=2, by="live_kafka")
+        elif capability == "kafka.consumer_groups":
+            for group in result.get("groups", []):
+                member = f"*:{str(group['group']).removeprefix('connect-')}"
+                for topic in group.get("topics", []):
+                    out.edge(member, "consumes", f"topic:{topic}", source, layer=2, by="live_kafka")
+        elif capability == "snowflake.objects":
+            for db, tables in (result.get("databases") or {}).items():
+                for table in tables:
+                    node = f"table:{db.lower()}.{table.lower()}"
+                    out.node(
+                        node, "Datastore", source, layer=2, tech=["snowflake"], by="live_snowflake"
+                    )
+            for wh in result.get("warehouses", []):
+                out.node(
+                    f"runtime:snowflake/{wh.lower()}",
+                    "Runtime",
+                    source,
+                    layer=2,
+                    tech=["snowflake"],
+                    by="live_snowflake",
+                )
+            for task in result.get("tasks", []):
+                out.node(
+                    f"job:{task.split('.')[-1].lower()}",
+                    "Job",
+                    source,
+                    layer=2,
+                    tech=["snowflake-task"],
+                    by="live_snowflake",
+                )
+        elif capability == "airflow.dags":
+            out.node(
+                f"runtime:airflow/{target}",
+                "Runtime",
+                source,
+                layer=2,
+                tech=["airflow"],
+                by="live_airflow",
+            )
+
+
+# --- reconciling names ---------------------------------------------------------------------
+
+
+def _reconcile(out: _Collect) -> None:
+    """Resolve placeholder and CMDB names to the ids code and discovery use.
+
+    A placeholder that resolves becomes an alias; one that doesn't (a CMDB CI
+    with no counterpart, such as a cloud account) is dropped with its edges.
+    """
+    nodes = {f.id for f in out.facts if isinstance(f, NodeFact)}
+    known = sorted(i for i in nodes if not _placeholder(i))
+    by_name: dict[str, list[str]] = {}
+    for node_id in known:
+        by_name.setdefault(node_id.split(":", 1)[1], []).append(node_id)
+        by_name.setdefault(node_id.rsplit("/", 1)[-1].split(":", 1)[-1], []).append(node_id)
+    refs = {r for f in out.facts for r in _refs(f) if _placeholder(r)}
+    resolved = {r: t for r in sorted(refs) if (t := _resolve(r, known, by_name)) is not None}
+    out.facts = [
+        f for f in out.facts if all(r in resolved or not _placeholder(r) for r in _refs(f))
+    ]
+    kinds = {f.id: f.kind for f in out.facts if isinstance(f, NodeFact) and not _placeholder(f.id)}
+    for ref, target in resolved.items():
+        source = next(f.source for f in out.facts if ref in _refs(f))
+        name = ref.split(":", 1)[1]
+        prefix = target.split(":", 1)[0]
+        if (
+            ref.startswith("cmdb:")
+            and prefix in ("service", "job", "ui")
+            and target != f"{prefix}:{name}"
+        ):
+            # The CMDB's name is the one incidents carry: it becomes the canonical id.
+            out.alias(target, f"{prefix}:{name}", source, by="reconcile")
+            out.alias(ref, f"{prefix}:{name}", source, by="reconcile")
+            kinds[f"{prefix}:{name}"] = kinds.get(target, "Service")
+            out.node(f"{prefix}:{name}", kinds[target], source, by="reconcile")
+        else:
+            out.alias(ref, target, source, by="reconcile")
+    _type_cmdb_edges(out, resolved, kinds)
+
+
+def _type_cmdb_edges(out: _Collect, resolved: Mapping[str, str], kinds: Mapping[str, str]) -> None:
+    """A CMDB "Depends on" means calls (a service), uses (a database) or scheduled_by (Airflow)."""
+    typed: list[Fact] = []
+    for fact in out.facts:
+        kept: Fact = fact
+        if isinstance(fact, EdgeFact) and fact.extractor == "cmdb" and fact.kind == "depends_on":
+            target = resolved.get(fact.dst, fact.dst)
+            kind = kinds.get(target, "")
+            meaning = (
+                "calls"
+                if kind in ("Service", "UI")
+                else "uses"
+                if kind == "Database"
+                else "scheduled_by"
+                if target.startswith("runtime:airflow/")
+                else None
+            )
+            if meaning is not None:
+                kept = EdgeFact(
+                    fact.src, meaning, fact.dst, fact.source, fact.layer, fact.extractor
+                )
+        typed.append(kept)
+    out.facts = typed
+
+
+def _placeholder(ref: str) -> bool:
+    return ref.startswith(("cmdb:", "*:")) or "/*" in ref
+
+
+def _resolve(ref: str, known: list[str], by_name: Mapping[str, list[str]]) -> str | None:
+    if ref.startswith("runtime:*/"):
+        ns = ref.split("/", 1)[1]
+        hits = [k for k in known if k.startswith("runtime:") and k.endswith(f"/{ns}")]
+        return hits[0] if len(hits) == 1 else None
+    if ref == "runtime:airflow/*":
+        hits = [k for k in known if k.startswith("runtime:airflow/")]
+        return hits[0] if len(hits) == 1 else None
+    name = ref.split(":", 1)[1]
+    exact = [k for k in by_name.get(name, []) if not k.startswith("cmdb:")]
+    if len(set(exact)) == 1:
+        return exact[0]
+    words = set(re.split(r"[-_ ]+", name.lower())) - {""}
+    loose = {
+        k
+        for k in known
+        if k.split(":", 1)[0] in ("service", "job", "ui")
+        and words <= set(re.split(r"[-_ ]+", k.split(":", 1)[1]))
+    }
+    return next(iter(loose)) if len(loose) == 1 else None
+
+
+def _refs(fact: Fact) -> tuple[str, ...]:
+    if isinstance(fact, NodeFact):
+        return (fact.id,)
+    if isinstance(fact, EdgeFact):
+        return (fact.src, fact.dst)
+    return ()
+
+
+def _host(value: str) -> str | None:
+    """The host of a URL, or a bare ``host.domain.tld`` value."""
+    text = value.strip()
+    if m := _URL_HOST.match(text):
+        return m.group(1).lower()
+    if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+){2,}", text.lower()):
+        return text.lower()
+    return None
+
+
+def _internal(host: str) -> bool:
+    return host.endswith((".internal", ".local", ".svc", ".cluster.local")) or "." not in host
+
+
+def _leaves(data: object, prefix: str = "") -> Iterable[tuple[str, object]]:
+    if isinstance(data, dict):
+        for k, v in data.items():
+            yield from _leaves(v, f"{prefix}.{k}" if prefix else str(k))
+    elif isinstance(data, list):
+        for item in data:
+            yield from _leaves(item, prefix)
+    else:
+        yield prefix, data
+
+
+__all__ = ["structured_facts"]

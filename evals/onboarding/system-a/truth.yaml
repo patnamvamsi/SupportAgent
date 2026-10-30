@@ -21,7 +21,7 @@ graph:
     - {id: schema:paydb.settlement, kind: Datastore, tech: [oracle], sources: [confluence:10001, confluence:20003, live:oracle.schemas@paydb]}
     - {id: schema:crmdb.customers, kind: Datastore, tech: [oracle], sources: [confluence:10001, confluence:10004, live:oracle.schemas@crmdb]}
     - {id: external:cardco, kind: External, sources: [git:payment-service/src/main/resources/application.yml, confluence:10001]}
-    - {id: external:bank-sftp, kind: External, sources: [git:settlement-batch/src/main/resources/application.yml, confluence:20003]}
+    - {id: external:bank, kind: External, sources: [git:settlement-batch/src/main/resources/application.yml, confluence:20003]}
     - {id: runtime:prod-eu1/payments, kind: Runtime, tech: [kubernetes], sources: [confluence:10001, cmdb:ci-a-ns, live:k8s.workloads]}
   edges:
     - {src: ui:payments-portal, kind: calls, dst: service:payments-gateway, sources: [git:payments-portal/src/environments/environment.prod.ts, confluence:10001, cmdb:rel-a-08]}
@@ -35,7 +35,7 @@ graph:
     - {src: service:customer-service, kind: uses, dst: schema:crmdb.customers, sources: [git:customer-service/src/main/resources/application.yml, confluence:10004]}
     - {src: job:settlement-batch, kind: reads, dst: schema:paydb.payments, sources: [confluence:10001, confluence:20003]}
     - {src: job:settlement-batch, kind: writes, dst: schema:paydb.settlement, sources: [confluence:10001, confluence:20003]}
-    - {src: job:settlement-batch, kind: depends_on, dst: external:bank-sftp, sources: [git:settlement-batch/src/main/resources/application.yml, confluence:20003]}
+    - {src: job:settlement-batch, kind: depends_on, dst: external:bank, sources: [git:settlement-batch/src/main/resources/application.yml, confluence:20003]}
     - {src: schema:paydb.orders, kind: part_of, dst: database:paydb, sources: [confluence:10001, live:oracle.schemas@paydb]}
     - {src: schema:paydb.payments, kind: part_of, dst: database:paydb, sources: [confluence:10001, live:oracle.schemas@paydb]}
     - {src: schema:paydb.settlement, kind: part_of, dst: database:paydb, sources: [confluence:10001, live:oracle.schemas@paydb]}

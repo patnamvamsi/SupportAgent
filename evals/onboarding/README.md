@@ -44,6 +44,25 @@ Until the pipeline stages exist (WP-O1..O6), the lab proves itself. For each sys
 
 As each stage lands, its PR adds it to `enforced_stages`, and from then on its gates bind the real pipeline.
 
+## The graph stage (WP-O3)
+
+The graph is built in three layers, in order of trust:
+1. **Structured** (`adapters/files/graph_extract.py`): repository manifests and configuration, plus the CMDB's installed CIs and typed relationships.
+2. **Live** read-only discovery (`sources/live/discovery.yaml`).
+3. **Prose**: the `extract_graph` slot reads each current page.
+
+A prose fact joins only if it is **grounded** (`domain/graph_prose.py`):
+- its quote appears in the page word for word;
+- the quote names both ends of the fact;
+- both ends are known entities, or ones declared in the same answer with their own grounded quotes.
+
+Then `domain/graph.py` merges everything:
+- aliases are resolved;
+- a finer edge subsumes a coarse one;
+- a stale CMDB edge that a component's configuration contradicts is dropped and **becomes a question**.
+
+The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. The graph gate then fails, so the change can't slip through.
+
 ## Changing the history
 
 Edit an incident class in `generate_history.py` and run it again. Never edit the generated YAML by hand: a test regenerates it and compares the files byte for byte.

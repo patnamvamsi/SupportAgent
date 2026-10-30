@@ -68,6 +68,7 @@ from supportagent.adapters.files.eval_loader import (
     load_yaml_records,
 )
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
+from supportagent.adapters.files.graph_extract import structured_facts
 from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.plugin_loader import LoadedPlugin, load_registry, write_index
@@ -143,6 +144,8 @@ from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport,
 from supportagent.app.extend import Scaffold, runbook_from_doc, scenario_from_incident
 from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
+from supportagent.app.graph import ExtractionAnswer, GraphBuild, build_graph
+from supportagent.app.graph import vocabulary as graph_vocabulary
 from supportagent.app.grouping import GroupingService
 from supportagent.app.handlers import build_handlers
 from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
@@ -184,6 +187,7 @@ from supportagent.config.schema import (
     AppConfig,
     ConfluenceSource,
     GitMarkdownSource,
+    LLMSlot,
     RoutingRow,
     Tools,
 )
@@ -279,6 +283,8 @@ from supportagent.evals.onboarding import (
     OnboardingGates,
     OnboardingResult,
     ReferenceSystem,
+    ResultEdge,
+    ResultNode,
     Truth,
 )
 from supportagent.evals.quality import RecallReport
@@ -3106,16 +3112,118 @@ def reference_system_dirs(root: Path = ONBOARDING_DIR) -> list[Path]:
     return sorted(d for d in root.iterdir() if (d / "truth.yaml").is_file())
 
 
+def _onboarding_config(config: AppConfig) -> AppConfig:
+    """The config onboarding's LLM calls run with (ADR-0015 decision 3).
+
+    With ``llm.onboarding`` set, the frontier model serves ``extract_graph``;
+    otherwise the slot falls back to the triage model (``classify``).
+    """
+    llm = config.llm
+    slots = dict(llm.slots)
+    frontier = llm.onboarding
+    if frontier is None:
+        slots.setdefault(SlotName.EXTRACT_GRAPH.value, slots[SlotName.CLASSIFY.value])
+        return config.model_copy(update={"llm": llm.model_copy(update={"slots": slots})})
+    slots[SlotName.EXTRACT_GRAPH.value] = LLMSlot(
+        model_id=frontier.model_id,
+        timeout_s=frontier.timeout_s,
+        max_output_tokens=frontier.max_output_tokens,
+    )
+    swapped = llm.model_copy(
+        update={
+            "provider": frontier.provider,
+            "api_key": frontier.api_key,
+            "base_url": frontier.base_url,
+            "slots": slots,
+        }
+    )
+    return config.model_copy(update={"llm": swapped})
+
+
+ONBOARDING_RECORDINGS = ONBOARDING_DIR / "recordings"
+
+
+class GraphPipeline:
+    """WP-O3: the ``extract_graph`` slot over one documentation page (redacted, INV-06)."""
+
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        provider: LLMProvider | None = None,
+        decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+    ) -> None:
+        self._config = _onboarding_config(config)
+        self.model_id = self._config.llm.slots[SlotName.EXTRACT_GRAPH.value].model_id
+        clock = ReplayClock()
+        clock.set(datetime(2026, 1, 1, tzinfo=UTC))
+        self._llm = _build_llm(
+            self._config,
+            _NullEvents(),
+            UlidIdGenerator(),
+            clock,
+            provider,
+            decorate=decorate,
+            resilient=False,
+        )
+        self.caching: CachingLLMProvider | None = None
+
+    def extract(self, title: str, text: str, known: str) -> ExtractionAnswer | None:
+        trace = TraceContext(self._config.tenant.id, f"graph-{abs(hash(title)) % 10**8}", "graph")
+        variables = {
+            "vocabulary": graph_vocabulary(),
+            "known_entities": known,
+            "page_title": title,
+            "page_text": text,
+        }
+        return self._llm.structured(SlotName.EXTRACT_GRAPH, variables, ExtractionAnswer, trace)
+
+
+def build_graph_pipeline(config: AppConfig, *, live: bool) -> GraphPipeline:
+    """``live`` calls the model and records; otherwise replay ``evals/onboarding/recordings``."""
+    holder: list[CachingLLMProvider] = []
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        caching = CachingLLMProvider(inner, directory=ONBOARDING_RECORDINGS, snapshot_id="graph")
+        holder.append(caching)
+        return caching
+
+    pipeline = GraphPipeline(
+        config, provider=None if live else _UnrecordedProvider(), decorate=cache
+    )
+    pipeline.caching = holder[0] if holder else None
+    return pipeline
+
+
+def build_system_graph(path: Path, pipeline: GraphPipeline | None) -> GraphBuild:
+    """The system graph of a workspace (or a reference system): structured, then prose."""
+    snapshot = snapshot_from_sources(path)
+    sources = path / "sources"
+    cmdb = load_yaml_document(sources / "servicenow" / "cmdb.yaml")
+    live_path = sources / "live" / "discovery.yaml"
+    live = load_yaml_document(live_path) if live_path.is_file() else {}
+    facts = structured_facts(snapshot.files, cmdb, live)
+    return build_graph(facts, snapshot.docs, pipeline.extract if pipeline is not None else None)
+
+
 def run_onboarding_pipeline(
-    path: Path, plugins: Sequence[LoadedPlugin] | None = None
-) -> tuple[OnboardingResult, list[Detection]]:
+    path: Path,
+    plugins: Sequence[LoadedPlugin] | None = None,
+    graph: GraphPipeline | None = None,
+) -> tuple[OnboardingResult, list[Detection], GraphBuild]:
     """What the onboarding stages built so far produce for the system at ``path``.
 
-    WP-O1: plugin detection. The other stages (graph, incident map, requests)
-    join as their WPs land; until then their parts of the result are empty.
+    WP-O1: plugin detection. WP-O3: the system graph (prose only with a
+    ``graph`` pipeline). The incident map and requests join as their WPs land.
     """
     detections = detect_plugins(path, plugins)
-    return OnboardingResult(plugins=detected_ids(detections)), detections
+    built = build_system_graph(path, graph)
+    result = OnboardingResult(
+        plugins=detected_ids(detections),
+        nodes=[ResultNode(id=n.id, kind=n.kind) for n in built.graph.nodes.values()],
+        edges=[ResultEdge(src=a, kind=b, dst=c) for a, b, c in built.graph.edges],
+    )
+    return result, detections, built
 
 
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
