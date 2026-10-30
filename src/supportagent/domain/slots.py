@@ -17,6 +17,8 @@ class SlotName(StrEnum):
     #: v0.1 (WP-110): RCA hypothesis proposal and claim entailment (ARCH §5, §5.4).
     PROPOSE_HYPOTHESES = "propose_hypotheses"
     ENTAIL = "entail"
+    #: ADR-0015 (WP-O3): the facts a documentation page states about the system.
+    EXTRACT_GRAPH = "extract_graph"
 
 
 #: The variables each slot's caller supplies (BL-009). ``PromptRegistry.check``
@@ -38,4 +40,5 @@ SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
         }
     ),
     SlotName.ENTAIL: frozenset({"claim", "evidence"}),
+    SlotName.EXTRACT_GRAPH: frozenset({"vocabulary", "known_entities", "page_title", "page_text"}),
 }

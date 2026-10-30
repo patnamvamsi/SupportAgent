@@ -42,6 +42,10 @@ llm:
       model_id: qwen/qwen3.8-27b     # the lab's pinned model: recordings are keyed on it
       timeout_s: 90
       max_output_tokens: 4000
+    extract_graph:                   # ADR-0015 (WP-O3): a whole docs page in, its facts out
+      model_id: qwen/qwen3.8-27b     # the model reasons at length before answering
+      timeout_s: 300
+      max_output_tokens: 16000
     # v0.1 RCA-lite slots (WP-110). Unconfigured, they fail closed: no proposed
     # plan (INCONCLUSIVE) and every claim tagged speculation.
     # propose_hypotheses: {model_id: claude-sonnet-4-5-20250929, timeout_s: 15, max_output_tokens: 200}

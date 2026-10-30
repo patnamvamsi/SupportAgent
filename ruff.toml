@@ -54,6 +54,9 @@ banned-api = {
 # WP-O7: the onboarding lab's history generator is fixture data (long ticket
 # text) seeded for reproducibility, not crypto.
 "evals/onboarding/generate_history.py" = ["E501", "S311", "SIM113"]
+# WP-O3: the structured graph extractors dispatch over many file kinds and
+# record facts with all their fields.
+"src/supportagent/adapters/files/graph_extract.py" = ["PLR0912", "PLR0913"]
 # The installer's probes exist to tell a person what to fix: each message is the point.
 "src/supportagent/adapters/install/probes.py" = ["TRY003"]
 

@@ -21,6 +21,7 @@ from supportagent.bootstrap import (
     EvalPipeline,
     QualityPipeline,
     build_entail_pipeline,
+    build_graph_pipeline,
     build_lab_pipeline,
     create_snapshot,
     detector_recall,
@@ -350,11 +351,17 @@ def entail(
 
 
 @app.command("onboarding")
-def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
+def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pipeline
     root: Path = typer.Option(  # noqa: B008
         ONBOARDING_DIR, "--root", help="Directory of reference systems (ADR-0015)."
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the scores as JSON."),
+    live: bool = typer.Option(
+        False, "--live", help="Call the model for the prose layer and record (needs secrets)."
+    ),
+    config: Path = typer.Option(  # noqa: B008
+        Path("evals/lab/lab.yaml"), "--config", help="Config whose model reads the docs."
+    ),
 ) -> None:
     """The onboarding lab (ADR-0015): the fixtures, the scorer, and the pipeline built so far.
 
@@ -374,9 +381,11 @@ def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
         systems = [load_reference_system(d) for d in dirs]
         gates = load_onboarding_gates(root)
         plugins = load_plugins()
+        cfg = load_config_default(config) if live else load_config_offline(config)
     except ConfigError as exc:
         typer.echo(f"config error: {exc}", err=True)
         raise typer.Exit(2) from exc
+    graph = build_graph_pipeline(cfg, live=live)
     failed = False
     report: list[dict[str, object]] = []
     for path, system in zip(dirs, systems, strict=True):
@@ -384,7 +393,7 @@ def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
         oracle_gates = evaluate(score(system, oracle(system)), gates)
         null_gates = evaluate(score(system, null()), gates)
         null_bites = [stage for stage in STAGES if not stage_passes(null_gates, stage)]
-        result, detections = run_onboarding_pipeline(path, plugins)
+        result, detections, built = run_onboarding_pipeline(path, plugins, graph)
         pipeline_scores = score(system, result)
         pipeline_gates = [
             g for g in evaluate(pipeline_scores, gates) if g.stage in gates.enforced_stages
@@ -421,6 +430,15 @@ def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
                     for d in detections
                 ],
                 "incident_classes": weights,
+                "graph": {
+                    "nodes": len(built.graph.nodes),
+                    "edges": len(built.graph.edges),
+                    "questions": [q.detail for q in built.graph.questions],
+                    "pages_read": built.pages_read,
+                    "pages_skipped": built.pages_skipped,
+                    "rejected": [f"{p}: {r.what}: {r.why}" for p, r in built.rejected],
+                    "unrecorded_pages": built.failed,
+                },
             }
         )
         if as_json:
@@ -447,6 +465,16 @@ def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
                     typer.echo(f"        fails {gate.detail}")
             for note in pipeline_scores[stage].notes:
                 typer.echo(f"        {note}")
+        if "graph" in gates.enforced_stages:
+            typer.echo(
+                f"      graph: {len(built.graph.nodes)} nodes, {len(built.graph.edges)} edges; "
+                f"{len(built.pages_read)} current pages read, {len(built.pages_skipped)} left out; "
+                f"{len(built.rejected)} prose facts rejected"
+            )
+            for question in built.graph.questions:
+                typer.echo(f"      question: {question.about}: {question.detail}")
+            if built.failed:
+                typer.echo(f"      unrecorded pages {built.failed}: re-record with --live")
         if "plugins" in gates.enforced_stages:
             chosen = [d.plugin for d in detections if d.detected]
             typer.echo(f"      detected plugins: {', '.join(chosen) or 'none'}")

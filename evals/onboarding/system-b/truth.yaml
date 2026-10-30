@@ -23,8 +23,17 @@ graph:
     - {id: "runtime:emr/emr-streaming", kind: Runtime, tech: [emr, spark], sources: ["git:stream-ingest/deploy/emr.yaml", "confluence:30001"]}
     - {id: "runtime:emr/emr-batch", kind: Runtime, tech: [emr, spark], sources: ["git:batch-features/deploy/emr.yaml", "confluence:40004"]}
     - {id: "runtime:airflow/analytics-airflow", kind: Runtime, tech: [airflow], sources: ["confluence:30001", "cmdb:ci-b-af", "live:airflow.dags@analytics-airflow"]}
+    - {id: "topic:dlq.orders-cdc-ingest", kind: Topic, tech: [kafka], sources: ["git:orders-cdc-ingest/connector.json", "live:kafka.topics@analytics-msk"]}
+    - {id: "runtime:kafka/analytics-msk", kind: Runtime, tech: [kafka], sources: ["confluence:30001", "git:stream-ingest/job.py", "cmdb:ci-b-msk"]}
     - {id: "runtime:prod-us1/analytics-apps", kind: Runtime, tech: [kubernetes], sources: ["git:customer-insights/helm/values.yaml", "confluence:30001", "live:k8s.workloads"]}
   edges:
+    - {src: "topic:events.clickstream", kind: part_of, dst: "runtime:kafka/analytics-msk", sources: ["confluence:30001", "live:kafka.topics@analytics-msk"]}
+    - {src: "topic:events.orders", kind: part_of, dst: "runtime:kafka/analytics-msk", sources: ["confluence:30001", "live:kafka.topics@analytics-msk"]}
+    - {src: "topic:cdc.customers", kind: part_of, dst: "runtime:kafka/analytics-msk", sources: ["confluence:30001", "live:kafka.topics@analytics-msk"]}
+    - {src: "job:orders-cdc-ingest", kind: publishes, dst: "topic:dlq.orders-cdc-ingest", sources: ["git:orders-cdc-ingest/connector.json"]}
+    - {src: "topic:dlq.orders-cdc-ingest", kind: part_of, dst: "runtime:kafka/analytics-msk", sources: ["live:kafka.topics@analytics-msk"]}
+    - {src: "job:stream-ingest", kind: uses, dst: "runtime:snowflake/wh_load", sources: ["git:stream-ingest/job.py"]}
+    - {src: "job:orders-cdc-ingest", kind: uses, dst: "runtime:snowflake/wh_load", sources: ["confluence:30001"]}
     - {src: "job:stream-ingest", kind: consumes, dst: "topic:events.clickstream", sources: ["git:stream-ingest/job.py", "confluence:30001", "live:kafka.consumer_groups@analytics-msk"]}
     - {src: "job:stream-ingest", kind: writes, dst: "table:raw.clickstream", sources: ["git:stream-ingest/job.py", "confluence:30001"]}
     - {src: "job:stream-ingest", kind: runs_on, dst: "runtime:emr/emr-streaming", sources: ["git:stream-ingest/deploy/emr.yaml", "confluence:30001"]}
