@@ -98,6 +98,39 @@ def test_the_most_trusted_layer_names_a_nodes_kind() -> None:
     assert graph.nodes["job:settlement"].kind == "Job"
 
 
+def test_documentation_alone_never_adds_an_entity() -> None:
+    graph = build(
+        [
+            _n("service:payments", "Service"),
+            _n("service:refunds", "Service", "confluence:1", layer=3),
+            _e("service:refunds", "part_of", "service:payments", "confluence:1", layer=3),
+            _n("job:settle", "Job", "confluence:2", layer=3),
+            _n("job:settle", "Job", "git:settle/pom.xml"),
+        ]
+    )
+    assert set(graph.nodes) == {"service:payments", "job:settle"}
+    assert "service:refunds: only the documentation names it" in graph.dropped
+    assert graph.edges == {}
+
+
+def test_the_most_trusted_layer_names_a_relation() -> None:
+    graph = build(
+        [
+            _n("job:settle", "Job"),
+            _n("external:bank", "External"),
+            _n("schema:paydb.settlement", "Datastore"),
+            _e("job:settle", "calls", "external:bank", "confluence:1", layer=3),
+            _e("job:settle", "depends_on", "external:bank"),
+            _e("job:settle", "writes", "schema:paydb.settlement", "confluence:1", layer=3),
+        ]
+    )
+    assert set(graph.edges) == {
+        ("job:settle", "depends_on", "external:bank"),
+        ("job:settle", "writes", "schema:paydb.settlement"),  # nothing more trusted joins them
+    }
+    assert "job:settle calls external:bank: a more trusted source names it" in graph.dropped
+
+
 # --- grounding prose -----------------------------------------------------------------------
 
 _PAGE = """# Overview

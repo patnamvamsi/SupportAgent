@@ -58,10 +58,12 @@ A prose fact joins only if it is **grounded** (`domain/graph_prose.py`):
 
 Then `domain/graph.py` merges everything:
 - aliases are resolved;
+- documentation relates what the other layers found but can't add an entity: a node only prose names is dropped (live, Qwen proposed a retired service, a CDN and "every service");
+- where a structured or live edge already joins two nodes, a prose edge of another kind yields (`calls external:bank` loses to the configuration's `depends_on`);
 - a finer edge subsumes a coarse one;
 - a stale CMDB edge that a component's configuration contradicts is dropped and **becomes a question**.
 
-The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. The graph gate then fails, so the change can't slip through.
+The model's answers are recorded in `recordings/` and replayed in CI. A changed prompt or page misses its recording, and those pages add nothing until someone re-records them with `--live`. Recorded with `qwen/qwen3.8-27b` on LM Studio (about 40 minutes for both systems): System A scores edge precision 0.913, everything else 1. The graph gate then fails, so the change can't slip through.
 
 ## Changing the history
 

@@ -26,6 +26,11 @@ prose (documentation, with a verbatim quote). :func:`build` merges them:
 
 - **aliases** (two names for one entity) are resolved first;
 - a node or edge keeps every source that asserted it;
+- **documentation relates, it doesn't discover**: a node only prose names
+  is dropped (a person can still add it in review), so a page can't revive a
+  retired component or invent one from a generic phrase;
+- **the most trusted layer names a relation**: a prose edge between two
+  nodes a structured or live edge already joins, under another kind, yields;
 - **config beats the CMDB** on what a component connects to: a CMDB
   ``uses database:X`` for a component whose configuration connects it to a
   different database is dropped and becomes a **question** for review;
@@ -61,6 +66,7 @@ _CONTAINERS = frozenset({"Database", "Runtime"})
 #: Edge kinds that say what a component touches; a finer one subsumes a coarse one.
 _TOUCHES = frozenset({"uses", "reads", "writes", "consumes", "publishes", "depends_on"})
 Layer = Literal[1, 2, 3]
+_PROSE = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,16 +165,27 @@ def build(facts: Iterable[Fact]) -> SystemGraph:
                 graph.nodes[node_id] = node = merged
             node.tech |= set(fact.tech)
             node.sources.add(fact.source)
-    for fact in facts:
-        if not isinstance(fact, EdgeFact) or fact.kind not in EDGE_KINDS:
-            continue
+    for node_id in [n.id for n in graph.nodes.values() if n.layer >= _PROSE]:
+        del graph.nodes[node_id]
+        graph.dropped.append(f"{node_id}: only the documentation names it")
+    edges = [f for f in facts if isinstance(f, EdgeFact) and f.kind in EDGE_KINDS]
+    trusted = {
+        frozenset((alias.get(f.src, f.src), alias.get(f.dst, f.dst)))
+        for f in edges
+        if f.layer < _PROSE
+    }
+    for fact in sorted(edges, key=lambda f: f.layer):
         src, dst = alias.get(fact.src, fact.src), alias.get(fact.dst, fact.dst)
         if src == dst:
             continue
         if src not in graph.nodes or dst not in graph.nodes:
             graph.dropped.append(f"{src} {fact.kind} {dst}: no fact describes an endpoint")
             continue
-        edge = graph.edges.setdefault((src, fact.kind, dst), Edge(src, fact.kind, dst))
+        key = (src, fact.kind, dst)
+        if fact.layer >= _PROSE and key not in graph.edges and frozenset((src, dst)) in trusted:
+            graph.dropped.append(f"{src} {fact.kind} {dst}: a more trusted source names it")
+            continue
+        edge = graph.edges.setdefault(key, Edge(src, fact.kind, dst))
         edge.sources.add(fact.source)
         edge.layer = min(edge.layer, fact.layer)
     _overrule_cmdb(graph)
