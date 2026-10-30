@@ -31,6 +31,11 @@ job() {
   local start=$SECONDS
   if "$@" >"$log" 2>&1; then
     results+=("ok    $name ($((SECONDS - start))s)")
+  elif grep -q "Port mapping for container .* is not available" "$log" &&
+    "$@" >"$log.retry" 2>&1; then
+    # testcontainers' reaper (Ryuk) sometimes isn't reachable for a container
+    # started right after another stage's; that one flake gets one retry.
+    results+=("ok    $name ($((SECONDS - start))s, retried after a testcontainers port flake)")
   else
     results+=("FAIL  $name ($((SECONDS - start))s) — $log")
     failed=1
