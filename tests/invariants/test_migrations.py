@@ -39,6 +39,8 @@ EXPECTED_TABLES = frozenset(
         "rca_artifacts",
         "sync_journal_seen",
         "doctor_reports",
+        "graph_facts",
+        "graph_questions",
         "cases",
         "alerts",
         "blobs",

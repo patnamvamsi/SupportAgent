@@ -146,6 +146,7 @@ from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
 from supportagent.app.graph import ExtractionAnswer, GraphBuild, build_graph
 from supportagent.app.graph import vocabulary as graph_vocabulary
+from supportagent.app.graph_review import GraphReview
 from supportagent.app.grouping import GroupingService
 from supportagent.app.handlers import build_handlers
 from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
@@ -2639,6 +2640,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
             semantics=semantics or ServiceNowSemantics(),
         )
 
+    def graph_review() -> GraphReview:
+        return GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -2648,6 +2652,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         lifecycle=lifecycle,
         comms_plans=comms_plans,
         webhooks=webhooks,
+        graph_review=graph_review,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3076,6 +3081,7 @@ def snapshot_from_sources(path: Path) -> SourceSnapshot:
                 title=str(meta.get("title", page.stem)),
                 labels=frozenset(str(label) for label in labels),
                 text=body,
+                url=str(meta["url"]) if meta.get("url") else None,
             )
         )
     incidents = [
@@ -3345,3 +3351,68 @@ def onboarding_llm(config: AppConfig) -> OnboardingLLM:
         return OnboardingLLM(chosen.provider, chosen.model_id, chosen.base_url, "onboarding")
     classify = config.llm.slots["classify"]
     return OnboardingLLM(config.llm.provider, classify.model_id, config.llm.base_url, "triage")
+
+
+@dataclass(frozen=True, slots=True)
+class OnboardGraphReport:
+    nodes: int
+    edges: int
+    questions: int
+    saved: Mapping[str, int]
+    pages_read: int
+    pages_skipped: int
+    rejected: int
+    failed_pages: Sequence[str]
+
+
+def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
+    config: AppConfig,
+    workspace: Path,
+    *,
+    docs: bool = True,
+    provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+) -> OnboardGraphReport:
+    """``onboard graph``: build a workspace's system graph and save it for review.
+
+    The prose layer calls the onboarding model (``llm.onboarding``, else the
+    triage model); its answers are cached in ``<workspace>/recordings`` so a
+    re-run is cheap and resumes. ``docs=False`` builds from code, config, the
+    CMDB and live discovery only.
+    """
+    pipeline: GraphPipeline | None = None
+    if docs:
+
+        def cache(inner: LLMProvider) -> LLMProvider:
+            return CachingLLMProvider(
+                inner, directory=workspace / "recordings", snapshot_id="graph"
+            )
+
+        pipeline = GraphPipeline(config, provider=provider, decorate=cache)
+    built = build_system_graph(workspace, pipeline)
+    links = {
+        f"confluence:{page.page_id}": page.url
+        for page in snapshot_from_sources(workspace).docs
+        if page.url
+    }
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        review = GraphReview(
+            uow=SqlUnitOfWork(db), clock=clock or SystemClock(), tenant_id=config.tenant.id
+        )
+        saved = review.save(built, links)
+    finally:
+        if own:
+            db.dispose()
+    return OnboardGraphReport(
+        nodes=len(built.graph.nodes),
+        edges=len(built.graph.edges),
+        questions=len(built.graph.questions),
+        saved=saved,
+        pages_read=len(built.pages_read),
+        pages_skipped=len(built.pages_skipped),
+        rejected=len(built.rejected),
+        failed_pages=built.failed,
+    )

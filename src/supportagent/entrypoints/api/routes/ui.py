@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
+from supportagent.app.graph_review import LAYER_LABELS, GraphReview
 from supportagent.app.queries import auto_timeline
 from supportagent.app.setup import SessionUser
 from supportagent.app.stats import Mode as StatsMode
@@ -31,7 +32,7 @@ from supportagent.domain.errors import (
 )
 from supportagent.domain.rbac import Permission, service_role_scope
 from supportagent.domain.roles import Role
-from supportagent.entrypoints.api import csrf, session
+from supportagent.entrypoints.api import csrf, graph_svg, session
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.api.deps import context
 
@@ -39,6 +40,7 @@ router = APIRouter()
 
 _HERE = Path(__file__).resolve().parent.parent
 _CSS = (_HERE / "static" / "app.css").read_text(encoding="utf-8")
+_REVIEW_JS = (_HERE / "static" / "review.js").read_text(encoding="utf-8")
 
 
 def _age(ts: int | None, now_ts: int) -> str:
@@ -92,6 +94,7 @@ def _render(  # noqa: PLR0913 — the shared template context
     body = _ENV.get_template(name).render(
         user=user,
         is_admin=user is not None and user.can(Permission.ADMINISTER, anywhere=True),
+        can_review=user is not None and user.can(Permission.REVIEW_KNOWLEDGE, anywhere=True),
         csrf_token=request.cookies.get(csrf.COOKIE, ""),
         now_ts=int(ctx.clock.now().timestamp()),
         idp_label=ctx.idp_label,
@@ -168,6 +171,11 @@ async def _post(
 @router.get("/static/app.css")
 def stylesheet() -> Response:
     return Response(_CSS, media_type="text/css")
+
+
+@router.get("/static/review.js")
+def review_script() -> Response:
+    return Response(_REVIEW_JS, media_type="text/javascript")
 
 
 @router.get("/")
@@ -489,3 +497,108 @@ async def automation_form(
         return RedirectResponse("/ui/setup", status_code=303)
 
     return await _post(request, ctx, Permission.ADMINISTER, act)
+
+
+# --- onboarding review (ADR-0015 §3, WP-O3b) -----------------------------------------
+
+
+def _review(ctx: ApiContext) -> GraphReview:
+    if ctx.graph_review is None:
+        raise NotFound("the graph review is not configured")  # noqa: TRY003
+    return ctx.graph_review()
+
+
+@router.get("/ui/onboarding")
+def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(request, ctx, "onboarding.html", user, p=_review(ctx).progress())
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.get("/ui/onboarding/graph")
+def onboarding_graph(
+    request: Request,
+    status: str = "",
+    layer: str = "",
+    focus: str = "",
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def build(user: SessionUser) -> Response:
+        review = _review(ctx)
+        chosen = int(layer) if layer.isdigit() else None
+        cards = review.facts(status=status or None, layer=chosen, focus=focus or None)
+        drawing = graph_svg.render(review.facts(), focus=focus or None)
+        back = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        return _render(
+            request,
+            ctx,
+            "onboarding_graph.html",
+            user,
+            facts=cards,
+            svg=drawing,
+            status_filter=status,
+            layer=chosen,
+            focus=focus,
+            layers=LAYER_LABELS,
+            back=back,
+        )
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.get("/ui/onboarding/questions")
+def onboarding_questions(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        return _render(
+            request, ctx, "onboarding_questions.html", user, questions=_review(ctx).questions()
+        )
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.post("/ui/onboarding/facts")
+async def onboarding_decide(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """One card's button (``one=<id>|<decision>``) or the checked cards and a bulk decision."""
+
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        if form.get("one"):
+            fid, _, decision = form["one"].partition("|")
+            ids = [fid]
+        else:
+            decision = form.get("decision", "")
+            ids = [k.removeprefix("id_") for k in form if k.startswith("id_")]
+        _review(ctx).decide(ids, decision, actor=user.id)  # type: ignore[arg-type]
+        back = form.get("back", "")
+        target = back if back.startswith("/ui/onboarding") else "/ui/onboarding/graph"
+        return RedirectResponse(target, status_code=303)
+
+    return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)
+
+
+@router.post("/ui/onboarding/layer")
+async def onboarding_decide_layer(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        raw = form.get("layer", "")
+        if not raw.isdigit():
+            raise DomainValidationError("layer must be a number")  # noqa: TRY003
+        _review(ctx).decide_layer(int(raw), form.get("decision", ""), actor=user.id)  # type: ignore[arg-type]
+        return RedirectResponse("/ui/onboarding", status_code=303)
+
+    return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)
+
+
+@router.post("/ui/onboarding/questions/{question_id}")
+async def onboarding_resolve(
+    question_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        raw = form.get("choice", "")
+        if not raw.isdigit():
+            raise DomainValidationError("choose one of the options")  # noqa: TRY003
+        _review(ctx).resolve(question_id, int(raw), actor=user.id)
+        return RedirectResponse("/ui/onboarding/questions", status_code=303)
+
+    return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)

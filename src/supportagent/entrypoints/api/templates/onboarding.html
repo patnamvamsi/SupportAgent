@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+{% block title %}Onboarding{% endblock %}
+{% block content %}
+<h1>What SupportAgent understands about this system</h1>
+{% if not p.total %}
+<p class="muted">No graph yet. Build one from a workspace: <code>supportagent onboard graph --workspace &lt;dir&gt;</code>.</p>
+{% else %}
+<p>You've reviewed <strong>{{ p.reviewed }} of {{ p.total }}</strong> facts ({{ (p.share * 100) | round | int }}%):
+  <span class="ok">{{ p.confirmed }} confirmed</span>, <span class="bad">{{ p.rejected }} rejected</span>.</p>
+<progress class="review" max="{{ p.total }}" value="{{ p.reviewed }}">{{ p.reviewed }} of {{ p.total }}</progress>
+
+<p class="actions">
+  <a class="button primary" href="/ui/onboarding/graph?status=proposed#cards">Review the graph →</a>
+  {% if p.open_questions %}<a class="button" href="/ui/onboarding/questions">{{ p.open_questions }} question{{ "s" if p.open_questions != 1 }} to settle</a>{% endif %}
+</p>
+
+<h2>Where the facts come from</h2>
+<p class="muted">Facts from code, configuration and the CMDB are the most trustworthy, and documentation the least. You can confirm a whole trusted layer at once, then read the documentation facts one by one.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>From</th><th>To review</th><th>Confirmed</th><th>Rejected</th><th></th></tr></thead>
+  <tbody>{% for layer, row in p.by_layer.items() %}
+  <tr><td>{{ row.label }}</td><td>{{ row.get("proposed", 0) }}</td><td class="ok">{{ row.get("confirmed", 0) }}</td><td class="bad">{{ row.get("rejected", 0) }}</td>
+    <td>
+      <a href="/ui/onboarding/graph?layer={{ layer }}#cards">See them</a>
+      {% if row.get("proposed", 0) and layer in (1, 2) %}
+      <form class="inline" method="post" action="/ui/onboarding/layer">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="layer" value="{{ layer }}">
+        <button type="submit" name="decision" value="confirmed">Confirm all {{ row.get("proposed", 0) }}</button>
+      </form>
+      {% endif %}
+    </td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

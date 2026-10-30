@@ -45,6 +45,7 @@ _EXPECTED = {
     Permission.HAND_BACK: {_AN, _AP, _AD},
     Permission.DECIDE_PROPOSAL: {_AP, _AD},
     Permission.ADMINISTER: {_AD},
+    Permission.REVIEW_KNOWLEDGE: {_AN, _AP, _AD},
 }
 
 

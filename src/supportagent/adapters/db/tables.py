@@ -418,6 +418,47 @@ kb_docs = sa.Table(
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
 )
 
+# 0016 (ADR-0015, WP-O3b): the system graph under review.
+graph_facts = sa.Table(
+    "graph_facts",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("fact", sa.Text, nullable=False),
+    sa.Column("src", sa.Text, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("dst", sa.Text),
+    sa.Column("tech_json", sa.Text, nullable=False, server_default=sa.text("'[]'")),
+    sa.Column("sources_json", sa.Text, nullable=False),
+    sa.Column("layer", sa.Integer, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'proposed'")),
+    sa.Column("present", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("reviewed_by", sa.Text),
+    sa.Column("reviewed_ts", sa.BigInteger),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+    sa.CheckConstraint("fact IN ('node', 'edge')", name="ck_graph_facts_fact"),
+    sa.CheckConstraint(
+        "status IN ('proposed', 'confirmed', 'rejected')", name="ck_graph_facts_status"
+    ),
+    sa.Index("ix_graph_facts_review", "tenant_id", "status", "layer"),
+)
+graph_questions = sa.Table(
+    "graph_questions",
+    metadata,
+    sa.Column("id", sa.Text, primary_key=True),
+    sa.Column("tenant_id", sa.Text, nullable=False),
+    sa.Column("about", sa.Text, nullable=False),
+    sa.Column("detail", sa.Text, nullable=False),
+    sa.Column("sources_json", sa.Text, nullable=False),
+    sa.Column("options_json", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'open'")),
+    sa.Column("choice", sa.Integer),
+    sa.Column("resolved_by", sa.Text),
+    sa.Column("resolved_ts", sa.BigInteger),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+    sa.CheckConstraint("status IN ('open', 'resolved')", name="ck_graph_questions_status"),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

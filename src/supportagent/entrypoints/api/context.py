@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.comms import CommsPlans
+from supportagent.app.graph_review import GraphReview
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.queries import AdminQueries
 from supportagent.app.replay import ReplayView
@@ -41,3 +42,5 @@ class ApiContext:
     session_ttl: timedelta = timedelta(hours=12)
     login_ttl: timedelta = timedelta(minutes=10)
     idp_label: str = "your identity provider"
+    #: ADR-0015 (WP-O3b): the system graph under review; ``None`` in tests that don't need it.
+    graph_review: Callable[[], GraphReview] | None = None

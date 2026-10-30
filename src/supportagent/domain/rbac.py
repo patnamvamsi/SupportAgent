@@ -5,6 +5,7 @@
 | ``VIEW`` cases, proposals, stats | ✓ | ✓ | ✓ | ✓ |
 | ``HAND_BACK`` a case | | ✓ | ✓ | ✓ |
 | ``DECIDE_PROPOSAL`` approve / reject (scope-limited) | | | ✓ | ✓ |
+| ``REVIEW_KNOWLEDGE`` confirm or reject the system graph (ADR-0015) | | ✓ | ✓ | ✓ |
 | ``ADMINISTER`` grants, automation actors, roles | | | | ✓ |
 
 A role assignment carries a scope: ``*`` (everything) or
@@ -34,6 +35,7 @@ class Permission(StrEnum):
     HAND_BACK = "hand_back"
     DECIDE_PROPOSAL = "decide_proposal"
     ADMINISTER = "administer"
+    REVIEW_KNOWLEDGE = "review_knowledge"
 
 
 MATRIX: Mapping[Permission, frozenset[Role]] = {
@@ -41,6 +43,7 @@ MATRIX: Mapping[Permission, frozenset[Role]] = {
     Permission.HAND_BACK: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
     Permission.DECIDE_PROPOSAL: frozenset({Role.APPROVER, Role.ADMIN}),
     Permission.ADMINISTER: frozenset({Role.ADMIN}),
+    Permission.REVIEW_KNOWLEDGE: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
 }
 
 
