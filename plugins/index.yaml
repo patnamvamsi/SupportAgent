@@ -1,0 +1,17 @@
+# The plugin registry (ADR-0015 §2): each plugin pinned by version and the
+# sha256 of its manifest. Written by `supportagent plugin index` after review;
+# a manifest that changes without re-pinning doesn't load.
+plugins:
+  - {id: airflow, version: 0.1.0, sha256: e9dbf1863df3c2dc114ad56797e6711feb036e5aa69083e4a1d826fa493e2053}
+  - {id: angular, version: 0.1.0, sha256: 03ac5d977d60077ab571d8d76d94c0d1f14569291e2a6e7f94ec624e5fd146de}
+  - {id: data-quality, version: 0.1.0, sha256: 7d507d51d7038b62e3abf622e9bdb42f9c68a2c410bd8153b6a7b2102c46cd48}
+  - {id: github, version: 0.1.0, sha256: a1540b847c6e09a548ed79e9f5f83174dc747ed6150003a99f2367eaa2df3edb}
+  - {id: grafana, version: 0.1.0, sha256: 75b7a7f79e39ab416cddca4a89afd7c04e5338f6bf4564c352eb33016a17a0d0}
+  - {id: java-spring, version: 0.1.0, sha256: da8c9eaaf14e5f7909582db0030c98e2a58a9c3aa4c6af01f90224f1e5600a80}
+  - {id: kafka, version: 0.1.0, sha256: 109e97a00d84baf511ff14ea43e35d0a87006398fd4c11290c53c284c6396d28}
+  - {id: kubernetes, version: 0.1.0, sha256: 3ffd99e857c65a027878cf0825dbdb023cc72f2ed5a71f7ff1e3c5d9a11b6f70}
+  - {id: oracle, version: 0.1.0, sha256: ff83b6278741e1d5cf8f617ad2f1f8d8531c6b0838c78826a2151c8280af2f95}
+  - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}
+  - {id: snowflake, version: 0.1.0, sha256: 4d04f795fcf41fd54f6489433ad5198b1f8985ed5be0b954d8d0e9db70251385}
+  - {id: spark, version: 0.1.0, sha256: 218492a1120d428e4cdadf260578f5758d6d967973ea82a919bb5ac6d21b8125}
+  - {id: streamlit, version: 0.1.0, sha256: 3c2d085abe7d21371c95f1885037f4d9dcc6ba964a7b3a01f55b2c63e7363805}

@@ -63,6 +63,7 @@ services:
       - ../../catalog:/app/catalog:ro
       - ../../taxonomy:/app/taxonomy:ro
       - ../../packs:/app/packs:ro
+      - ../../plugins:/app/plugins:ro
       - ../../prompts:/app/prompts:ro
       - ../../runbooks:/app/runbooks:ro
       - ../../evals:/app/evals:ro

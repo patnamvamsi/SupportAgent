@@ -1,0 +1,24 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: github
+version: 0.1.0
+description: Deploys and changes from GitHub (Actions runs, recent merges) as evidence for change-caused incidents.
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    changes.recent: {description: "Deploys and merges near an incident"}
+    gha.recent_runs: {description: "GitHub Actions workflow runs"}
+  backends:
+    - {capability: changes.recent, first_party: github, access: github_ro}
+    - {capability: gha.recent_runs, first_party: github, access: github_ro}
+requires:
+  github_ro:
+    description: A fine-grained token, read-only, on the system's repositories.
+    grant: "Fine-grained token: Actions read, Deployments read, Contents read, Metadata read"
+    target: Repository
+    verify_can: [list workflow runs]
+    verify_cannot: [push, create release]
+detectors:
+  min_score: 1.0
+  signals:
+    - {git_host: github, weight: 0.5}
+    - {changes_caused: 0.05, weight: 0.5}

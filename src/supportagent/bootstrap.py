@@ -70,6 +70,7 @@ from supportagent.adapters.files.eval_loader import (
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
 from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
+from supportagent.adapters.files.plugin_loader import LoadedPlugin, load_registry, write_index
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.identity.oidc import OIDCClient
 from supportagent.adapters.install import probes as _probes
@@ -207,6 +208,14 @@ from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
 from supportagent.domain.packs import Pack, PackScope, PackSet, labels_text
+from supportagent.domain.plugins import (
+    Detection,
+    DocPage,
+    IncidentText,
+    SourceSnapshot,
+    detect,
+    detected_ids,
+)
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
@@ -259,6 +268,7 @@ from supportagent.evals.lab import (
 from supportagent.evals.onboarding import (
     Inventory,
     OnboardingGates,
+    OnboardingResult,
     ReferenceSystem,
     Truth,
 )
@@ -2994,9 +3004,7 @@ def load_reference_system(path: Path) -> ReferenceSystem:
 
 def load_reference_systems(root: Path = ONBOARDING_DIR) -> list[ReferenceSystem]:
     """Every reference system under ``evals/onboarding`` (a directory with a ``truth.yaml``)."""
-    return [
-        load_reference_system(d) for d in sorted(root.iterdir()) if (d / "truth.yaml").is_file()
-    ]
+    return [load_reference_system(d) for d in reference_system_dirs(root)]
 
 
 def load_onboarding_gates(root: Path = ONBOARDING_DIR) -> OnboardingGates:
@@ -3004,3 +3012,103 @@ def load_onboarding_gates(root: Path = ONBOARDING_DIR) -> OnboardingGates:
         return OnboardingGates.model_validate(load_yaml_document(root / "gates.yaml"))
     except ValidationError as exc:
         raise ConfigError(f"onboarding gates: {exc}") from exc  # noqa: TRY003
+
+
+# --- plugins (ADR-0015 §2, WP-O1) -----------------------------------------------------
+
+# A source checkout keeps plugins/ at the repo root; the image mounts it under
+# its working directory (docker/local, docker/staging), as with migrations.
+PLUGINS_DIR = next(
+    (root / "plugins" for root in (_REPO_ROOT, Path.cwd()) if (root / "plugins").is_dir()),
+    _REPO_ROOT / "plugins",
+)
+
+
+def load_plugins(root: Path = PLUGINS_DIR, *, packs_dir: Path | None = None) -> list[LoadedPlugin]:
+    """The pinned plugin registry; each plugin's pack, if any, must exist."""
+    plugins = load_registry(root)
+    packs = packs_dir if packs_dir is not None else _REPO_ROOT / "packs"
+    for plugin in plugins:
+        pack = plugin.manifest.provides.pack
+        if pack is not None and not (packs / pack / "pack.yaml").is_file():
+            raise ConfigError(  # noqa: TRY003
+                f"plugin {plugin.manifest.id}: pack {pack!r} is not under {packs}"
+            )
+    return plugins
+
+
+def snapshot_from_sources(path: Path) -> SourceSnapshot:
+    """A system's sources, in the onboarding lab's layout, as a detection snapshot.
+
+    WP-O2 builds the same snapshot from a live system's ServiceNow, Confluence
+    and Git; until then the lab's reference systems are the input.
+    """
+    sources = path / "sources"
+    git_root = sources / "git"
+    files = {
+        p.relative_to(git_root).as_posix(): p.read_text(encoding="utf-8", errors="replace")
+        for p in sorted(git_root.rglob("*"))
+        if p.is_file()
+    }
+    docs = []
+    for page in sorted((sources / "confluence").rglob("*.md")):
+        meta = load_front_matter(page)
+        body = page.read_text(encoding="utf-8").split("---", 2)[-1]
+        labels = meta.get("labels") or []
+        docs.append(
+            DocPage(
+                page_id=str(meta.get("page_id", page.stem)),
+                title=str(meta.get("title", page.stem)),
+                labels=frozenset(str(label) for label in labels),
+                text=body,
+            )
+        )
+    incidents = [
+        IncidentText(
+            number=str(r["number"]),
+            text=" ".join(
+                str(r.get(k) or "") for k in ("short_description", "description", "close_notes")
+            ),
+            caused_by_change=bool(r.get("caused_by")),
+        )
+        for r in load_yaml_records(sources / "servicenow" / "incidents.yaml")
+    ]
+    cmdb = load_yaml_document(sources / "servicenow" / "cmdb.yaml")
+    classes = frozenset(
+        str(ci["sys_class_name"])
+        for ci in cmdb.get("cis", [])
+        if str(ci.get("install_status", "")).lower() != "retired"
+    )
+    manifest = load_yaml_document(path / "system.yaml")
+    repos = (manifest.get("sources") or {}).get("git") or []
+    hosts = frozenset(str(r["repo"]).split(":", 1)[0] for r in repos if ":" in str(r.get("repo")))
+    return SourceSnapshot(
+        files=files, docs=docs, incidents=incidents, cmdb_classes=classes, git_hosts=hosts
+    )
+
+
+def detect_plugins(path: Path, plugins: Sequence[LoadedPlugin] | None = None) -> list[Detection]:
+    """Which plugins the system at ``path`` needs, with the evidence for each."""
+    registry = plugins if plugins is not None else load_plugins()
+    return detect([p.manifest for p in registry], snapshot_from_sources(path))
+
+
+def reference_system_dirs(root: Path = ONBOARDING_DIR) -> list[Path]:
+    return sorted(d for d in root.iterdir() if (d / "truth.yaml").is_file())
+
+
+def run_onboarding_pipeline(
+    path: Path, plugins: Sequence[LoadedPlugin] | None = None
+) -> tuple[OnboardingResult, list[Detection]]:
+    """What the onboarding stages built so far produce for the system at ``path``.
+
+    WP-O1: plugin detection. The other stages (graph, incident map, requests)
+    join as their WPs land; until then their parts of the result are empty.
+    """
+    detections = detect_plugins(path, plugins)
+    return OnboardingResult(plugins=detected_ids(detections)), detections
+
+
+def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
+    """``supportagent plugin index``: re-pin every plugin as it is now (after review)."""
+    return write_index(root)

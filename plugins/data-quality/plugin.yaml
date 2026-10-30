@@ -1,0 +1,12 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: data-quality
+version: 0.1.0
+description: Data freshness, volume and schema drift for analytics platforms (walks lineage upstream).
+core_api: ">=1.0,<2"
+provides:
+  needs: [snowflake.query_history, snowflake.task_history, kafka.consumer_lag]
+detectors:
+  min_score: 1.5
+  signals:
+    - {incidents: "\\b(stale|not (been )?updated|behind|delayed|late|missing)\\b|schema", min_share: 0.15, weight: 1.0}
+    - {files: "**/*", contains: "(?i)snowflake|bigquery|redshift|databricks", weight: 0.5}

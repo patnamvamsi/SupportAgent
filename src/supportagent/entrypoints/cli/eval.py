@@ -29,8 +29,11 @@ from supportagent.bootstrap import (
     load_eval_suite,
     load_lab,
     load_onboarding_gates,
-    load_reference_systems,
+    load_plugins,
+    load_reference_system,
     quality_gates,
+    reference_system_dirs,
+    run_onboarding_pipeline,
     split_problems,
     wall_clock,
 )
@@ -347,36 +350,51 @@ def entail(
 
 
 @app.command("onboarding")
-def onboarding(
+def onboarding(  # noqa: PLR0912 — one report: fixture, self-test, pipeline
     root: Path = typer.Option(  # noqa: B008
         ONBOARDING_DIR, "--root", help="Directory of reference systems (ADR-0015)."
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the scores as JSON."),
 ) -> None:
-    """The onboarding lab (WP-O7): each reference system is checked and the scorer self-tested.
+    """The onboarding lab (ADR-0015): the fixtures, the scorer, and the pipeline built so far.
 
-    For each system under ``--root``: the fixture must be self-consistent
-    (every truth fact cites a source the fixture contains), the **oracle**
-    result (the truth) must pass every gate, and the **null** result must
-    fail every stage. Once a pipeline stage exists it is scored here too, and
-    its gates bind when ``gates.yaml`` lists it in ``enforced_stages``.
+    For each reference system under ``--root``:
+
+    - the fixture is self-consistent (every truth fact cites a source it contains);
+    - the scorer self-test: the **oracle** result passes every gate, the **null**
+      result fails every stage;
+    - the **pipeline** (the onboarding stages built so far, from the system's
+      sources) passes the gates of every stage in ``gates.yaml``
+      ``enforced_stages``.
+
     Exit 0 when all of that holds, 1 otherwise, 2 for an unreadable fixture.
     """
     try:
-        systems = load_reference_systems(root)
+        dirs = reference_system_dirs(root)
+        systems = [load_reference_system(d) for d in dirs]
         gates = load_onboarding_gates(root)
+        plugins = load_plugins()
     except ConfigError as exc:
         typer.echo(f"config error: {exc}", err=True)
         raise typer.Exit(2) from exc
     failed = False
     report: list[dict[str, object]] = []
-    for system in systems:
+    for path, system in zip(dirs, systems, strict=True):
         problems = system.problems()
-        oracle_scores = score(system, oracle(system))
-        oracle_gates = evaluate(oracle_scores, gates)
+        oracle_gates = evaluate(score(system, oracle(system)), gates)
         null_gates = evaluate(score(system, null()), gates)
         null_bites = [stage for stage in STAGES if not stage_passes(null_gates, stage)]
-        ok = not problems and all(g.ok for g in oracle_gates) and len(null_bites) == len(STAGES)
+        result, detections = run_onboarding_pipeline(path, plugins)
+        pipeline_scores = score(system, result)
+        pipeline_gates = [
+            g for g in evaluate(pipeline_scores, gates) if g.stage in gates.enforced_stages
+        ]
+        ok = (
+            not problems
+            and all(g.ok for g in oracle_gates)
+            and len(null_bites) == len(STAGES)
+            and all(g.ok for g in pipeline_gates)
+        )
         failed |= not ok
         weights = system.class_weights()
         report.append(
@@ -386,38 +404,57 @@ def onboarding(
                 "fixture_problems": problems,
                 "oracle_failed_gates": [g.detail for g in oracle_gates if not g.ok],
                 "null_passing_stages": [s for s in STAGES if s not in null_bites],
-                "incident_classes": weights,
-                "inventory": {
-                    "confluence_pages": len(system.inventory.confluence),
-                    "git_files": len(system.inventory.git),
-                    "cmdb_records": len(system.inventory.cmdb),
-                    "incidents": len(system.inventory.incidents),
+                "pipeline": {
+                    stage: {
+                        "metrics": dict(pipeline_scores[stage].metrics),
+                        "notes": list(pipeline_scores[stage].notes),
+                        "gates": [
+                            {"gate": g.detail, "ok": g.ok}
+                            for g in pipeline_gates
+                            if g.stage == stage
+                        ],
+                    }
+                    for stage in gates.enforced_stages
                 },
+                "detections": [
+                    {"plugin": d.plugin, "detected": d.detected, "why": d.explain()}
+                    for d in detections
+                ],
+                "incident_classes": weights,
             }
         )
-        if not as_json:
-            mark = "ok  " if ok else "FAIL"
-            inv = system.inventory
-            typer.echo(
-                f"{mark}  {system.id:<20} {len(inv.confluence)} pages, {len(inv.git)} repo files, "
-                f"{len(inv.incidents)} incidents in {len(weights)} classes; "
-                f"graph {len(system.truth.graph.nodes)} nodes / "
-                f"{len(system.truth.graph.edges)} edges"
-            )
-            for problem in problems:
-                typer.echo(f"      fixture: {problem}")
-            for gate in oracle_gates:
-                if not gate.ok:
-                    typer.echo(f"      oracle fails {gate.detail}")
-            for stage in STAGES:
-                if stage not in null_bites:
-                    typer.echo(f"      null passes {stage}: its gates don't bite")
-    if as_json:
+        if as_json:
+            continue
+        mark = "ok  " if ok else "FAIL"
+        inv = system.inventory
         typer.echo(
-            json.dumps({"systems": report, "enforced_stages": gates.enforced_stages}, indent=2)
+            f"{mark}  {system.id:<20} {len(inv.confluence)} pages, {len(inv.git)} repo files, "
+            f"{len(inv.incidents)} incidents in {len(weights)} classes"
         )
+        for problem in problems:
+            typer.echo(f"      fixture: {problem}")
+        for gate in oracle_gates:
+            if not gate.ok:
+                typer.echo(f"      oracle fails {gate.detail}")
+        for stage in STAGES:
+            if stage not in null_bites:
+                typer.echo(f"      null passes {stage}: its gates don't bite")
+        for stage in gates.enforced_stages:
+            metrics = ", ".join(f"{k} {v:g}" for k, v in pipeline_scores[stage].metrics.items())
+            typer.echo(f"      pipeline {stage}: {metrics}")
+            for gate in pipeline_gates:
+                if gate.stage == stage and not gate.ok:
+                    typer.echo(f"        fails {gate.detail}")
+            for note in pipeline_scores[stage].notes:
+                typer.echo(f"        {note}")
+        if "plugins" in gates.enforced_stages:
+            chosen = [d.plugin for d in detections if d.detected]
+            typer.echo(f"      detected plugins: {', '.join(chosen) or 'none'}")
+    if as_json:
+        out = {"systems": report, "enforced_stages": gates.enforced_stages}
+        typer.echo(json.dumps(out, indent=2))
     else:
-        enforced = ", ".join(gates.enforced_stages) or "none yet (they land with WP-O1..O6)"
+        enforced = ", ".join(gates.enforced_stages) or "none yet"
         typer.echo(
             f"onboarding lab: {len(systems)} system(s); stages enforced on the pipeline: {enforced}"
         )

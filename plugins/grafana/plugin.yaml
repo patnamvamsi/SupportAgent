@@ -1,0 +1,23 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: grafana
+version: 0.1.0
+description: Logs and metrics through Grafana (Loki, Prometheus) via the mcp-grafana server.
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    logs.search: {description: "LogQL search over Loki"}
+    metrics.query: {description: "PromQL over Prometheus"}
+  backends:
+    - {capability: logs.search, mcp: {image: "mcp/grafana:0.4", tools: [query_loki_logs]}, access: grafana_ro}
+    - {capability: metrics.query, mcp: {image: "mcp/grafana:0.4", tools: [query_prometheus]}, access: grafana_ro}
+requires:
+  grafana_ro:
+    description: A Grafana service account with the Viewer role.
+    grant: "Service account, role Viewer, on the Grafana instance"
+    target: Observability
+    verify_can: [list datasources]
+    verify_cannot: [create dashboard, edit datasource]
+detectors:
+  min_score: 1.0
+  signals:
+    - {docs: "\\bgrafana\\b", min_pages: 2, weight: 1.0}

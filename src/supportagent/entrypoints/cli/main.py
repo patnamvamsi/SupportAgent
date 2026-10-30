@@ -17,6 +17,7 @@ from supportagent.entrypoints.cli import extend as extend_command
 from supportagent.entrypoints.cli import grants as grants_command
 from supportagent.entrypoints.cli import init as init_command
 from supportagent.entrypoints.cli import migrate as migrate_command
+from supportagent.entrypoints.cli import plugin as plugin_command
 from supportagent.entrypoints.cli import replay as replay_command
 from supportagent.entrypoints.cli import serve as serve_command
 from supportagent.entrypoints.cli import shadow as shadow_command
@@ -66,6 +67,9 @@ app.add_typer(extend_command.scenario_app, name="scenario")
 app.add_typer(extend_command.runbook_app, name="runbook")
 # ADR-0014 part 2 (BL-054): ``sop list`` and ``sop auto``.
 app.add_typer(sop_command.app, name="sop")
+# ADR-0015 (WP-O1): ``plugin list|show|validate|index`` and ``onboard detect``.
+app.add_typer(plugin_command.plugin_app, name="plugin")
+app.add_typer(plugin_command.onboard_app, name="onboard")
 
 
 @app.callback()

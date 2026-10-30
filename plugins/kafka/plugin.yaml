@@ -1,0 +1,28 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+id: kafka
+version: 0.1.0
+description: Kafka topics, consumer groups and Kafka Connect (lag, rebalances, connector failures, schema compatibility).
+core_api: ">=1.0,<2"
+provides:
+  capabilities:
+    kafka.consumer_lag: {description: "Lag per consumer group and partition"}
+    kafka.topic_health: {description: "Partitions, ISR, broker status"}
+    kafka.connect_status: {description: "Connector and task status"}
+  backends:
+    - {capability: "kafka.*", first_party: kafka, access: kafka_ro}
+  extractors:
+    - {match: "**/*.py", extract: kafka_topics_and_groups}
+    - {match: "**/connector.json", extract: connect_topics_and_tables}
+requires:
+  kafka_ro:
+    description: Describe-only ACLs on the cluster.
+    grant: "ACLs: DESCRIBE on Group *, DESCRIBE on Topic *, DESCRIBE_CONFIGS on Cluster; Kafka Connect REST read"
+    target: Cluster
+    verify_can: [describe consumer groups]
+    verify_cannot: [produce, alter consumer group offsets, delete topic]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/*.py", contains: "format\\(\"kafka\"\\)|bootstrap\\.servers", weight: 1.0}
+    - {files: "**/connector.json", contains: "topics", weight: 1.0}
+    - {incidents: "kafka|consumer (group|lag)", min_share: 0.05, weight: 0.5}
