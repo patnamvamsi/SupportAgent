@@ -97,9 +97,9 @@ def detect(plugins: Sequence[PluginManifest], snapshot: SourceSnapshot) -> list[
 
 def _fire(signal: Signal, snap: SourceSnapshot) -> Fired | None:  # noqa: PLR0911 — one branch per kind
     if signal.files is not None:
-        return _files(signal, snap)
+        return _files(signal, signal.files, snap)
     if signal.incidents is not None:
-        return _incidents(signal, snap)
+        return _incidents(signal, signal.incidents, snap)
     if signal.docs is not None:
         pattern = re.compile(signal.docs, re.IGNORECASE)
         pages = [p for p in snap.docs if p.current and pattern.search(p.text)]
@@ -128,28 +128,24 @@ def _fire(signal: Signal, snap: SourceSnapshot) -> Fired | None:  # noqa: PLR091
     return None
 
 
-def _files(signal: Signal, snap: SourceSnapshot) -> Fired | None:
-    assert signal.files is not None  # noqa: S101 — the caller checked the kind
+def _files(signal: Signal, glob: str, snap: SourceSnapshot) -> Fired | None:
     pattern = re.compile(signal.contains) if signal.contains else None
     hits = sorted(
         path
         for path, text in snap.files.items()
-        if _path_matches(path, signal.files) and (pattern is None or pattern.search(text))
+        if _path_matches(path, glob) and (pattern is None or pattern.search(text))
     )
     if not hits:
         return None
     what = f"contain {signal.contains!r}" if signal.contains else "exist"
     shown = ", ".join(hits[:_EVIDENCE_SHOWN]) + (" ..." if len(hits) > _EVIDENCE_SHOWN else "")
-    return Fired(
-        "files", signal.weight, f"{len(hits)} file(s) matching {signal.files} {what}: {shown}"
-    )
+    return Fired("files", signal.weight, f"{len(hits)} file(s) matching {glob} {what}: {shown}")
 
 
-def _incidents(signal: Signal, snap: SourceSnapshot) -> Fired | None:
-    assert signal.incidents is not None  # noqa: S101 — the caller checked the kind
+def _incidents(signal: Signal, regex: str, snap: SourceSnapshot) -> Fired | None:
     if not snap.incidents:
         return None
-    pattern = re.compile(signal.incidents, re.IGNORECASE)
+    pattern = re.compile(regex, re.IGNORECASE)
     hits = [i for i in snap.incidents if pattern.search(i.text)]
     share = len(hits) / len(snap.incidents)
     if share < signal.min_share:
@@ -157,7 +153,7 @@ def _incidents(signal: Signal, snap: SourceSnapshot) -> Fired | None:
     return Fired(
         "incidents",
         signal.weight,
-        f"{len(hits)} of {len(snap.incidents)} incidents match /{signal.incidents}/",
+        f"{len(hits)} of {len(snap.incidents)} incidents match /{regex}/",
     )
 
 
