@@ -110,6 +110,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # deleted first, in their own children-first order (outbox → comms_plans →
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
+    "graph_facts",
+    "graph_questions",
     # 0014 (BL-031): the last doctor report.
     "doctor_reports",
     # 0013 (BL-013): delivered journal entries.

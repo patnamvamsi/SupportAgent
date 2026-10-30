@@ -35,3 +35,39 @@ button { font: inherit; padding: .35rem .9rem; border: 1px solid var(--line); bo
          background: transparent; color: var(--fg); cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .grid { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+/* ADR-0015 (WP-O3b): the system graph review. */
+a.button { display: inline-block; padding: .35rem .9rem; border: 1px solid var(--line); border-radius: 4px; text-decoration: none; margin-right: .5rem; }
+a.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+progress.review { width: 100%; height: .8rem; }
+.filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+main:has(.review-grid) { max-width: 1500px; }
+.review-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .review-grid { grid-template-columns: 1fr; } }
+.graph-pane { overflow: auto; border: 1px solid var(--line); border-radius: 6px; max-height: 80vh; position: sticky; top: .5rem; }
+svg.graph { display: block; color: var(--muted); font: 12px system-ui, sans-serif; }
+svg.graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+svg.graph .edge.proposed { stroke-dasharray: 5 4; }
+svg.graph .edge.confirmed { stroke: var(--ok); }
+svg.graph .edge.focus { stroke: var(--accent); stroke-width: 2.8; }
+svg.graph .node rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+svg.graph .node.proposed rect { stroke-dasharray: 4 3; }
+svg.graph .node.confirmed rect { stroke: var(--ok); }
+svg.graph .node.focus rect { stroke: var(--accent); stroke-width: 2.5; }
+svg.graph .node text { fill: var(--fg); }
+svg.graph .node.service rect, svg.graph .node.job rect { fill: rgba(31,95,191,.06); }
+svg.graph .node.datastore rect, svg.graph .node.database rect, svg.graph .node.topic rect { fill: rgba(30,107,53,.06); }
+svg.graph .node.runtime rect, svg.graph .node.external rect { fill: rgba(154,91,0,.06); }
+.cards .bulk { display: flex; gap: .5rem; align-items: center; position: sticky; top: 0; background: var(--bg); padding: .4rem 0; z-index: 1; }
+.card { border: 1px solid var(--line); border-radius: 6px; padding: .6rem .8rem; margin: .5rem 0; }
+.card.active { outline: 2px solid var(--accent); }
+.card.confirmed { border-left: 4px solid var(--ok); }
+.card.rejected { border-left: 4px solid var(--bad); opacity: .75; }
+.card .meta { margin: .25rem 0; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.card .sources { margin: .25rem 0; padding-left: 1.1rem; }
+.card blockquote { margin: .25rem 0; padding: .25rem .6rem; border-left: 3px solid var(--line); color: var(--muted); font-style: italic; }
+.card .decide { margin: .4rem 0 0; display: flex; gap: .5rem; }
+.badge { font-size: .8rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--line); }
+.badge.status-proposed { border-color: var(--warn); color: var(--warn); }
+.badge.status-confirmed { border-color: var(--ok); color: var(--ok); }
+.badge.status-rejected { border-color: var(--bad); color: var(--bad); }
+kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 .3rem; }

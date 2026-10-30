@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block title %}Questions{% endblock %}
+{% block content %}
+<h1>Questions to settle</h1>
+<p class="muted">Where two sources disagree, SupportAgent doesn't choose silently. Pick the answer that's true today.</p>
+{% for q in questions %}
+<article class="card {{ q.status }}">
+  <h2>{{ q.about }}</h2>
+  <p>{{ q.detail }}</p>
+  <p class="muted">Sources: {% for s in q.sources %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% if q.status == "open" %}
+  <form method="post" action="/ui/onboarding/questions/{{ q.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% for o in q.options %}<button type="submit" name="choice" value="{{ loop.index0 }}"{% if loop.first %} class="primary"{% endif %}>{{ o.label }}</button> {% endfor %}
+  </form>
+  {% else %}
+  <p class="ok">Settled by {{ q.resolved_by }}: {{ q.options[q.choice].label }}</p>
+  {% endif %}
+</article>
+{% else %}<p class="muted">No open questions: the sources agree.</p>{% endfor %}
+{% endblock %}

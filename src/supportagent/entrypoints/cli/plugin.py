@@ -20,6 +20,7 @@ from supportagent.bootstrap import (
     detect_plugins,
     ingest_system,
     load_plugins,
+    onboard_graph,
     pin_plugins,
 )
 from supportagent.config.loader import load_config_default
@@ -145,3 +146,32 @@ def onboard_ingest(
         for note in report.notes:
             typer.echo(f"    {note}")
     typer.echo(f"workspace: {out}  (next: supportagent onboard detect {out})")
+
+
+@onboard_app.command("graph")
+def onboard_graph_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, model)."
+    ),
+    docs: bool = typer.Option(True, "--docs/--no-docs", help="Read documentation with the model."),
+) -> None:
+    """Build the system graph from a workspace and save it for review at /ui/onboarding."""
+    try:
+        report = onboard_graph(load_config_default(config), workspace, docs=docs)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    saved = report.saved
+    typer.echo(
+        f"graph: {report.nodes} nodes, {report.edges} edges, {report.questions} question(s); "
+        f"saved {saved['new']} new, {saved['kept']} kept, {saved['gone']} no longer found"
+    )
+    if docs:
+        typer.echo(
+            f"docs: {report.pages_read} current pages read, {report.pages_skipped} left out "
+            f"(legacy, draft, superseded), {report.rejected} facts rejected as ungrounded"
+        )
+    if report.failed_pages:
+        typer.echo(f"no answer for pages {list(report.failed_pages)}: re-run to retry them")
+    typer.echo("review it at /ui/onboarding")

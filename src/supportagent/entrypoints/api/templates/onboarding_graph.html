@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}System graph{% endblock %}
+{% block content %}
+<h1>System graph</h1>
+<p class="muted">Solid lines are confirmed and dashed lines are proposed. Click a box to see only its facts.
+Keys: <kbd>j</kbd>/<kbd>k</kbd> next and previous, <kbd>c</kbd> confirm, <kbd>r</kbd> reject, <kbd>x</kbd> select.</p>
+<form class="filters" method="get" action="/ui/onboarding/graph">
+  <label>Status <select name="status">
+    {% for value, label in (("", "all"), ("proposed", "to review"), ("confirmed", "confirmed"), ("rejected", "rejected")) %}
+    <option value="{{ value }}"{% if status_filter == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select></label>
+  <label>From <select name="layer">
+    <option value="">any source</option>
+    {% for value, label in layers.items() %}<option value="{{ value }}"{% if layer == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select></label>
+  {% if focus %}<input type="hidden" name="focus" value="{{ focus }}"><span>Focused on <code>{{ focus }}</code> · <a href="/ui/onboarding/graph?status={{ status_filter }}">show everything</a></span>{% endif %}
+  <button type="submit">Filter</button>
+</form>
+<div class="review-grid">
+  <div class="graph-pane">{{ svg }}</div>
+  <form id="cards" class="cards" method="post" action="/ui/onboarding/facts">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="back" value="{{ back }}">
+    <div class="bulk">
+      <span class="muted">{{ facts | length }} fact{{ "s" if facts | length != 1 }}</span>
+      <button type="submit" name="decision" value="confirmed">Confirm selected</button>
+      <button type="submit" name="decision" value="rejected">Reject selected</button>
+    </div>
+    {% for f in facts %}
+    <article class="card {{ f.status }}" id="fact-{{ f.id }}" tabindex="-1">
+      <label class="pick"><input type="checkbox" name="id_{{ f.id }}"> <strong>{{ f.text }}</strong></label>
+      <p class="meta"><span class="badge layer-{{ f.layer }}">from {{ f.layer_label }}</span>
+        <span class="badge status-{{ f.status }}">{{ "to review" if f.status == "proposed" else f.status }}</span>
+        {% if f.reviewed_by %}<span class="muted">by {{ f.reviewed_by }}</span>{% endif %}
+        {% if f.tech %}<span class="muted">{{ f.tech | join(", ") }}</span>{% endif %}</p>
+      <ul class="sources">{% for s in f.sources %}
+        <li>{% if s.url %}<a href="{{ s.url }}" rel="noreferrer">{{ s.ref }}</a>{% else %}<code>{{ s.ref }}</code>{% endif %}
+          {% if s.quote %}<blockquote>{{ s.quote }}</blockquote>{% endif %}</li>
+      {% endfor %}</ul>
+      <p class="decide">
+        <button type="submit" name="one" value="{{ f.id }}|confirmed" class="primary" data-key="c">Confirm</button>
+        <button type="submit" name="one" value="{{ f.id }}|rejected" data-key="r">Reject</button>
+        {% if f.status != "proposed" %}<button type="submit" name="one" value="{{ f.id }}|proposed">Undo</button>{% endif %}
+      </p>
+    </article>
+    {% else %}<p class="muted">Nothing here. Try "all" or another source.</p>{% endfor %}
+  </form>
+</div>
+<script src="/static/review.js"></script>
+{% endblock %}

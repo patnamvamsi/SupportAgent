@@ -128,12 +128,21 @@ class Edge:
 
 
 @dataclass(frozen=True, slots=True)
+class QuestionOption:
+    """One way to settle a question; ``edge`` is added to the graph when it is chosen."""
+
+    label: str
+    edge: tuple[str, str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Question:
     """A conflict between sources, raised for a person instead of resolved silently."""
 
     about: str
     sources: tuple[str, ...]
     detail: str
+    options: tuple[QuestionOption, ...] = ()
 
 
 @dataclass(slots=True)
@@ -245,6 +254,10 @@ def _overrule_cmdb(graph: SystemGraph) -> None:
                         f"the CMDB says {edge.dst}; its configuration connects it to "
                         f"{', '.join(sorted(configured))}"
                     ),
+                    options=(
+                        QuestionOption(f"Keep the configuration: {', '.join(sorted(configured))}"),
+                        QuestionOption(f"The CMDB is right: it uses {edge.dst}", edge.key),
+                    ),
                 )
             )
             graph.dropped.append(f"{edge.src} uses {edge.dst}: overruled by configuration")
@@ -299,6 +312,7 @@ __all__ = [
     "NodeFact",
     "NodeKind",
     "Question",
+    "QuestionOption",
     "SystemGraph",
     "build",
     "edge_keys",

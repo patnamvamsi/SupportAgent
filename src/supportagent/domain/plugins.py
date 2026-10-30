@@ -35,6 +35,7 @@ class DocPage:
     title: str
     labels: frozenset[str]
     text: str
+    url: str | None = None
 
     @property
     def current(self) -> bool:
