@@ -20,6 +20,7 @@ from supportagent.bootstrap import (
     detect_plugins,
     ingest_system,
     load_plugins,
+    onboard_drift,
     onboard_graph,
     onboard_incidents,
     onboard_readiness,
@@ -249,3 +250,30 @@ def onboard_readiness_command(
     for line in report.lines():
         typer.echo(line)
     typer.echo(f"wrote {path}; triage routes only ready classes from its next start")
+
+
+@onboard_app.command("drift")
+def onboard_drift_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (the model)."
+    ),
+    accept: bool = typer.Option(
+        False, "--accept", help="Take this run as the new baseline (after dealing with it)."
+    ),
+) -> None:
+    """Re-run onboarding and say what changed since the accepted snapshot (drift.json)."""
+    try:
+        findings, accepted, path = onboard_drift(
+            load_config_default(config), workspace, accept=accept
+        )
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not findings:
+        typer.echo("no drift" if not accepted or accept else "first run: accepted as the baseline")
+    for f in findings:
+        typer.echo(f"  {f.kind:<16} {f.subject}: {f.detail} -> {f.action}")
+    if findings and not accepted:
+        typer.echo("deal with these, then re-run with --accept")
+    typer.echo(f"wrote {path}")

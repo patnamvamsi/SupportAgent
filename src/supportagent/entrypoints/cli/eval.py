@@ -12,28 +12,36 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import typer
 
+from supportagent.adapters.files.plugin_loader import LoadedPlugin
 from supportagent.bootstrap import (
     ONBOARDING_DIR,
     EvalPipeline,
+    OnboardingPipeline,
+    OnboardingRun,
     QualityPipeline,
     build_entail_pipeline,
     build_lab_pipeline,
     build_onboarding_pipeline,
     build_readiness,
     build_readiness_lab,
+    changed_system,
     create_snapshot,
     detector_recall,
     eval_config,
+    load_drift_case,
     load_entail_suite,
     load_eval_suite,
     load_lab,
     load_onboarding_gates,
     load_plugins,
     load_reference_system,
+    onboarding_snapshot,
     quality_gates,
     read_readiness_baseline,
     reference_system_dirs,
@@ -44,6 +52,7 @@ from supportagent.bootstrap import (
 )
 from supportagent.config.loader import load_config_default, load_config_offline
 from supportagent.config.schema import AppConfig
+from supportagent.domain.drift import diff
 from supportagent.domain.errors import ConfigError
 from supportagent.evals.calibration import build_calibration, build_holdout_calibration
 from supportagent.evals.cases import EvalCase
@@ -418,6 +427,7 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
         readiness_reports.append(readiness)
         unrecorded = 0 if live or replays.caching is None else replays.caching.misses - misses
         lost = regressions(readiness, accepted.get(readiness.system, {}))
+        drift = _drift(path, run, plugins, graph)
         ok = (
             not problems
             and all(g.ok for g in oracle_gates)
@@ -425,6 +435,7 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
             and all(g.ok for g in pipeline_gates)
             and not unrecorded
             and (write_readiness or not lost)
+            and (drift is None or not (drift["missing"] or drift["unexpected"] or drift["unread"]))
         )
         failed |= not ok
         weights = system.class_weights()
@@ -453,6 +464,7 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
                 ],
                 "incident_classes": weights,
                 "readiness": readiness.as_dict() | {"regressions": lost, "unrecorded": unrecorded},
+                "drift": drift,
                 "graph": {
                     "nodes": len(built.graph.nodes),
                     "edges": len(built.graph.edges),
@@ -538,6 +550,19 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
             )
         for lost_class in [] if write_readiness else lost:
             typer.echo(f"      readiness regressed: {lost_class} was ready in the baseline")
+        if drift is not None:
+            typer.echo(
+                f"      drift: {len(drift['found'])} finding(s) for the change set; "
+                f"{len(drift['missing'])} missing, {len(drift['unexpected'])} unexpected"
+            )
+            for kind, subject in drift["missing"]:
+                typer.echo(f"        missing {kind} {subject}")
+            for kind, subject in drift["unexpected"]:
+                typer.echo(f"        unexpected {kind} {subject}")
+            if drift["unread"]:
+                typer.echo(
+                    f"        unrecorded after the change {drift['unread']}: re-record with --live"
+                )
     if write_readiness:
         path = write_readiness_baseline(root, readiness_reports)
         typer.echo(f"wrote {path}")
@@ -550,3 +575,28 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
             f"onboarding lab: {len(systems)} system(s); stages enforced on the pipeline: {enforced}"
         )
     raise typer.Exit(1 if failed or not systems else 0)
+
+
+def _drift(
+    path: Path, run: OnboardingRun, plugins: Sequence[LoadedPlugin], pipeline: OnboardingPipeline
+) -> dict[str, Any] | None:
+    """WP-O8: the change set applied to a copy, re-onboarded, diffed with ``expected``."""
+    case = load_drift_case(path)
+    if case is None:
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        later = run_onboarding_pipeline(
+            changed_system(path, case, Path(tmp) / path.name), plugins, pipeline
+        )
+    findings = diff(onboarding_snapshot(run, plugins), onboarding_snapshot(later, plugins))
+    got = {f.key for f in findings}
+    raw = case.get("expected")
+    want = {(str(k[0]), str(k[1])) for k in raw} if isinstance(raw, list) else set()
+    return {
+        "found": [list(f.key) for f in findings],
+        "missing": sorted(want - got),
+        "unexpected": sorted(got - want),
+        "unread": sorted(
+            set(later.incidents.unread) | (set(later.graph.failed) - set(run.graph.failed))
+        ),
+    }

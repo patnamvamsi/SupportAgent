@@ -59,6 +59,7 @@ from supportagent.adapters.fakes.demo_servicenow import build as _build_demo_ser
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink, FaultInjectingTool
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
+from supportagent.adapters.files.change_set import apply_change_set
 from supportagent.adapters.files.comms_loader import CommsCatalog, load_comms_catalog
 from supportagent.adapters.files.deprecation_loader import load_deprecation_feed
 from supportagent.adapters.files.eval_loader import (
@@ -202,6 +203,7 @@ from supportagent.config.system_manifest import ConfluenceSpace, GitSource, Syst
 from supportagent.domain.auto import AutoConditions
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
+from supportagent.domain.drift import ClassShape, Finding, Snapshot, diff
 from supportagent.domain.errors import (
     ConfigError,
     DomainValidationError,
@@ -3511,6 +3513,85 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         system=system.system.id,
         model_id=lab.model_id,
     )
+
+
+# --- WP-O8: drift and re-onboarding --------------------------------------------------------
+
+#: Each reference system's "some time later" change set and the diff it must produce.
+DRIFT_DIR = ONBOARDING_DIR / "drift"
+#: The workspace artifact that holds the last accepted onboarding snapshot.
+SNAPSHOT_ARTIFACT = "onboarding_snapshot.json"
+
+
+def onboarding_snapshot(run: OnboardingRun, plugins: Sequence[LoadedPlugin]) -> Snapshot:
+    """What one onboarding run understood, as drift compares it."""
+    graph = run.graph.graph
+    return Snapshot(
+        plugins=frozenset(detected_ids(run.detections)),
+        nodes={n.id: n.kind for n in graph.nodes.values()},
+        edges=frozenset(graph.edges),
+        classes={
+            c.id: ClassShape(c.cause, c.label, c.share, len(c.incidents))
+            for c in run.incidents.classes
+        },
+        known_causes=frozenset(incident_catalogue(run.detections, plugins).causes),
+        requests=frozenset("/".join(r.key) for r in run.plan.requests),
+    )
+
+
+def load_drift_case(system: Path) -> dict[str, object] | None:
+    """``evals/onboarding/drift/<system>.yaml``, if the system has one."""
+    path = DRIFT_DIR / f"{system.name}.yaml"
+    return load_yaml_document(path) if path.is_file() else None
+
+
+def changed_system(system: Path, case: Mapping[str, object], out: Path) -> Path:
+    """The reference system with its drift change set applied, written to ``out``."""
+    return apply_change_set(system, dict(case), out)
+
+
+def onboard_drift(
+    config: AppConfig,
+    workspace: Path,
+    *,
+    accept: bool = False,
+    provider: LLMProvider | None = None,
+) -> tuple[list[Finding], bool, Path]:
+    """``onboard drift``: re-run onboarding (P1 to P4) and diff it with the accepted snapshot.
+
+    The first run has nothing to compare with, so it is accepted. ``accept``
+    takes this run as the new baseline once its findings are dealt with.
+    Returns the findings, whether this run was accepted, and ``drift.json``.
+    """
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    plugins = load_plugins()
+    pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
+    now = onboarding_snapshot(run_onboarding_pipeline(workspace, plugins, pipeline), plugins)
+    space = Workspace(workspace)
+    previous = workspace / SNAPSHOT_ARTIFACT
+    compared = previous.is_file()
+    findings = (
+        diff(Snapshot.of(json.loads(previous.read_text(encoding="utf-8"))), now) if compared else []
+    )
+    accepted = accept or not compared
+    if accepted:
+        space.write_artifact(SNAPSHOT_ARTIFACT, now.as_dict())
+    path = space.write_artifact(
+        "drift.json",
+        {
+            "v": 1,
+            "compared": compared,
+            "accepted": accepted,
+            "findings": [
+                {"kind": f.kind, "subject": f.subject, "detail": f.detail, "action": f.action}
+                for f in findings
+            ],
+        },
+    )
+    return findings, accepted, path
 
 
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:

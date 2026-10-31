@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: kafka
-version: 0.1.0
+version: 0.1.1
 description: Kafka topics, consumer groups and Kafka Connect (lag, rebalances, connector failures, schema compatibility).
 core_api: ">=1.0,<2"
 provides:
@@ -32,4 +32,5 @@ detectors:
   signals:
     - {files: "**/*.py", contains: "format\\(\"kafka\"\\)|bootstrap\\.servers", weight: 1.0}
     - {files: "**/connector.json", contains: "topics", weight: 1.0}
+    - {files: "**/pom.xml", contains: "spring-kafka", weight: 1.0}   # WP-O8: Spring Kafka services
     - {incidents: "kafka|consumer (group|lag)", min_share: 0.05, weight: 0.5}
