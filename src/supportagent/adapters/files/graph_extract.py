@@ -48,6 +48,7 @@ _TASK_REF = re.compile(r"EXECUTE\s+TASK\s+(?:[A-Z0-9_]+\.)?([A-Z0-9_]+)", re.I)
 _WAREHOUSE = re.compile(r"WAREHOUSE\s*=\s*([A-Z0-9_]+)", re.I)
 _OPTION = re.compile(r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)')
 _CI_RUNTIME = {"cmdb_ci_kubernetes_namespace": "k8s"}
+#: CMDB classes the core maps to nodes; plugins declare the rest (ADR-0016).
 _CI_KIND: Mapping[str, NodeKind] = {
     "cmdb_ci_service_auto": "Service",
     "cmdb_ci_appl": "Service",
@@ -173,6 +174,13 @@ def _slug(value: str) -> str:
 
 def _flatten(fmt: str, text: str) -> list[tuple[str, str]]:
     """A config file's ``(dotted key, string value)`` leaves; an unreadable file has none."""
+    if fmt == "lines":
+        out = []
+        for line in text.splitlines():
+            key, _, value = line.strip().partition(" ")
+            if key and not key.startswith(("#", "//")) and value:
+                out.append((key, value.strip().strip("'\"")))
+        return out
     if fmt in ("env", "properties"):
         out = []
         for line in text.splitlines():
@@ -676,4 +684,13 @@ def _leaves(data: object, prefix: str = "") -> Iterable[tuple[str, object]]:
         yield prefix, data
 
 
-__all__ = ["structured_facts"]
+def mapped_cmdb_classes(declared: Sequence[tuple[str, Extractor]]) -> frozenset[str]:
+    """Every CMDB class something turns into a node: the core's and the plugins' (ADR-0017)."""
+    return (
+        frozenset(_CI_KIND)
+        | frozenset(_CI_RUNTIME)
+        | frozenset(e.match.removeprefix("cmdb:") for _, e in declared if e.node is not None)
+    )
+
+
+__all__ = ["mapped_cmdb_classes", "structured_facts"]

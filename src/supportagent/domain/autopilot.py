@@ -25,8 +25,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-Step = Literal["ingest", "sense", "graph", "incidents", "requests", "readiness"]
-STEPS: tuple[Step, ...] = ("ingest", "sense", "graph", "incidents", "requests", "readiness")
+Step = Literal["ingest", "sense", "graph", "incidents", "requests", "readiness", "gaps"]
+STEPS: tuple[Step, ...] = (
+    "ingest",
+    "sense",
+    "graph",
+    "incidents",
+    "requests",
+    "readiness",
+    "gaps",
+)
 State = Literal["done", "blocked", "failed"]
 NeedKind = Literal["access", "plugin", "review", "evidence", "source"]
 #: Who or what a need waits on, as shown.

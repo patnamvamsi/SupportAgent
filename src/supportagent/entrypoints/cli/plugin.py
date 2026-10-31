@@ -23,12 +23,14 @@ from supportagent.bootstrap import (
     install_from_catalog,
     load_plugins,
     onboard_drift,
+    onboard_gaps,
     onboard_graph,
     onboard_incidents,
     onboard_readiness,
     onboard_requests,
     onboard_run,
     pin_plugins,
+    scaffold_plugin,
 )
 from supportagent.config.loader import load_config_default
 from supportagent.domain.errors import ConfigError, ExternalServiceError
@@ -133,6 +135,25 @@ def install(
         raise typer.Exit(2) from exc
     typer.echo(f"installed {result.plugin} as {result.status}: {result.detail}")
     typer.echo("re-run `supportagent onboard run` to use it")
+
+
+@plugin_app.command("new")
+def new(
+    plugin_id: str = typer.Argument(..., help="The new plugin's id (the stack: go, ruby, ...)."),
+    manifest: str = typer.Option(..., "--from", help="The manifest that names the stack (go.mod)."),
+    out: Path = typer.Option(  # noqa: B008
+        Path("plugin-drafts"), "--out", help="Where to write it (outside the registry)."
+    ),
+) -> None:
+    """Scaffold a skeleton plugin from an onboarding gap (ADR-0017), to review and complete."""
+    try:
+        path = scaffold_plugin(plugin_id, manifest, out)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"wrote {path}: add its causes and a pack, then a catalogue or plugins/, then pin it"
+    )
 
 
 @onboard_app.command("detect")
@@ -352,3 +373,24 @@ def onboard_status_command(
     typer.echo(f"  needed from you: {len(needs) or 'nothing'}")
     for need in needs:
         typer.echo(f"    {need['kind']:<8} {need['what']} -> {need['how']}")
+
+
+@onboard_app.command("gaps")
+def onboard_gaps_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (the model)."
+    ),
+) -> None:
+    """What no plugin covers (ADR-0017): unclaimed repos, unmapped CMDB classes, and more."""
+    try:
+        gaps, path = onboard_gaps(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not gaps:
+        typer.echo("nothing uncovered")
+    for g in gaps:
+        typer.echo(f"  {g.kind:<20} {g.subject}: {'; '.join(g.evidence)}")
+        typer.echo(f"  {'':<20} -> {g.suggestion}")
+    typer.echo(f"wrote {path}")

@@ -160,7 +160,8 @@ class Extractor(DomainModel):
 
     match: str = Field(min_length=1)
     extract: str | None = None
-    format: Literal["json", "yaml", "env", "properties"] | None = None
+    #: ``lines``: one ``key value`` per line, split at the first space (``go.mod``, ``Gemfile``).
+    format: Literal["json", "yaml", "env", "properties", "lines"] | None = None
     rules: list[ExtractRule] = Field(default_factory=list)
     node: NodeTemplate | None = None
 

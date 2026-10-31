@@ -101,7 +101,7 @@ They're written to the workspace and the database. Routing uses them from the ne
 |---|---|---|
 | WP-A1 (*delivered*: `onboard run`, `onboard status`, `domain/autopilot.py`) | `onboard run` (one resumable command) and `onboard status`; `onboarding.json` steps with input digests | A reference system goes from `system.yaml` to readiness in one command; an interrupted run resumes; a no-change re-run does nothing |
 | WP-A2 (*delivered*: `plugins.catalogs`, `plugin install`, embedded packs and `tree_sha256`; git catalogues are a follow-up) | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
-| WP-A3 | Sensing the unknown (§3) with scaffolds | A fixture with a Go service and an unmapped CMDB class reports both gaps, with evidence |
+| WP-A3 (*delivered*: `domain/gaps.py`, the `gaps` step, `onboard gaps`, `plugin new`, the `lines` format) | Sensing the unknown (§3) with scaffolds | A fixture with a Go service and an unmapped CMDB class reports both gaps, with evidence |
 | WP-A4 | The status page: what's needed, ranked by weight | `/ui/onboarding` shows one ranked list; acting on an item clears it on the next run |
 | WP-A5 | Calibration fitted per system | The calibration table and gates are fitted from replay, and routing uses them |
 

@@ -70,7 +70,15 @@ def test_one_command_takes_a_new_system_through_every_step(
 ) -> None:
     status = _run(tmp_path, db, clock)
     steps = {s.step: s for s in status.steps}
-    assert list(steps) == ["ingest", "sense", "graph", "incidents", "requests", "readiness"]
+    assert list(steps) == [
+        "ingest",
+        "sense",
+        "graph",
+        "incidents",
+        "requests",
+        "readiness",
+        "gaps",
+    ]
     # The model never answers here: the steps that need it say so, and nothing claims ready.
     blocked = {s.step for s in status.steps if s.state == "blocked"}
     assert blocked == {"graph", "incidents"}, status.lines()
@@ -85,7 +93,7 @@ def test_one_command_takes_a_new_system_through_every_step(
     assert any(n.kind == "review" for n in status.needs)  # the graph facts to confirm
     assert status.bar == 0.70
     saved = json.loads((tmp_path / "ws" / AUTOPILOT_STATE).read_text())
-    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 6
+    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 7
 
 
 def test_a_rerun_skips_what_is_done_and_clears_what_a_person_did(

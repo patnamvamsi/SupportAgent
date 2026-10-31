@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import socket
+from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -70,7 +71,7 @@ from supportagent.adapters.files.eval_loader import (
     load_yaml_records,
 )
 from supportagent.adapters.files.gates_loader import load_promotion_gate, load_quality_gates
-from supportagent.adapters.files.graph_extract import structured_facts
+from supportagent.adapters.files.graph_extract import mapped_cmdb_classes, structured_facts
 from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.plugin_loader import (
@@ -232,6 +233,14 @@ from supportagent.domain.errors import (
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
 from supportagent.domain.gap_plan import GapPlan
 from supportagent.domain.gap_plan import plan as gap_plan
+from supportagent.domain.gaps import (
+    Gap,
+    technology,
+    uncaused_incidents,
+    unclaimed_repos,
+    unknown_capabilities,
+    unmapped_cmdb_classes,
+)
 from supportagent.domain.graph import SystemGraph
 from supportagent.domain.incident_map import Catalogue, IncidentMap, PastIncident, catalogue
 from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
@@ -4146,6 +4155,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                     ]
                 ),
             ),
+            ("gaps", lambda: _gaps_detail(onboard_gaps(config, workspace, provider=provider))),
         ]
         for step, run in stages:
             if skip(step, sensed):
@@ -4204,6 +4214,7 @@ def _autopilot_status(
     status = OnboardingStatus(system=system, steps=[records[s] for s in STEPS if s in records])
     status.needs.extend(_step_needs(status.steps))
     status.needs.extend(_catalogue_needs(workspace))
+    status.needs.extend(_gap_needs(workspace))
     review = GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).progress()
     pending = int(str(review["total"])) - int(str(review["reviewed"]))
     if pending:
@@ -4410,3 +4421,119 @@ def _catalogue_needs(workspace: Path) -> list[Need]:
         for a in raw.get("available", [])
         if isinstance(a, dict) and a.get("plugin") not in installed
     ]
+
+
+# --- ADR-0017 (WP-A3): sensing the unknown ------------------------------------------------------
+
+
+def onboard_gaps(
+    config: AppConfig, workspace: Path, *, provider: LLMProvider | None = None
+) -> tuple[list[Gap], Path]:
+    """``onboard gaps``: what no plugin covers in a workspace, with evidence; ``gaps.json``."""
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    plugins = load_plugins()
+    pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
+    run = run_onboarding_pipeline(workspace, plugins, pipeline)
+    snapshot = snapshot_from_sources(workspace)
+    cmdb_path = workspace / "sources" / "servicenow" / "cmdb.yaml"
+    cmdb = load_yaml_document(cmdb_path) if cmdb_path.is_file() else {}
+    declared = [(p.manifest.id, e) for p in plugins for e in p.manifest.provides.extractors]
+    cis = [
+        (str(c.get("name")), str(c.get("sys_class_name")), str(c.get("install_status", "")))
+        for c in cmdb.get("cis") or []
+        if isinstance(c, dict)
+    ]
+    packs = _pack_set(config)
+    gaps = [
+        *unclaimed_repos(snapshot.files, run.graph.graph),
+        *unmapped_cmdb_classes(cis, mapped_cmdb_classes(declared)),
+        *uncaused_incidents(run.incidents, _past_incidents(workspace)),
+        *unknown_capabilities(
+            {p.id: p.tools for p in packs.packs if not p.placeholder}, KNOWN_TOOL_SCHEMAS
+        ),
+    ]
+    path = Workspace(workspace).write_artifact(
+        "gaps.json", {"v": 1, "gaps": [g.as_dict() for g in gaps]}
+    )
+    return gaps, path
+
+
+def _gaps_detail(result: tuple[list[Gap], Path]) -> str:
+    gaps = result[0]
+    if not gaps:
+        return "nothing uncovered"
+    kinds = Counter(g.kind for g in gaps)
+    return ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(kinds.items()))
+
+
+def _gap_needs(workspace: Path) -> list[Need]:
+    path = workspace / "gaps.json"
+    if not path.is_file():
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    out = []
+    for g in raw.get("gaps", []):
+        if not isinstance(g, dict):
+            continue
+        evidence = "; ".join(str(e) for e in g.get("evidence", []))
+        what = f"{str(g.get('kind', '')).replace('_', ' ')} {g.get('subject')}: {evidence}"
+        out.append(Need("plugin", what, float(g.get("weight", 0.0)), str(g.get("suggestion"))))
+    return out
+
+
+#: How a scaffold claims a repository from its manifest (``plugin new``), when the format allows.
+_SCAFFOLD_RULES: Mapping[str, tuple[str, str, str]] = {
+    "package.json": ("json", "^name$", "(?P<name>[A-Za-z0-9_.-]+)$"),
+    "go.mod": ("lines", "^module$", "(?:.*/)?(?P<name>[A-Za-z0-9_.-]+)$"),
+    "composer.json": ("json", "^name$", "(?:.*/)?(?P<name>[A-Za-z0-9_.-]+)$"),
+}
+
+
+def scaffold_plugin(plugin_id: str, manifest: str, out: Path) -> Path:
+    """``plugin new`` (ADR-0017): a skeleton plugin from a gap, to review and complete.
+
+    It detects the manifest and, where its format allows, claims the
+    repository's component. It is written outside the registry: a person
+    reviews it, adds causes and a pack, then puts it in a catalogue or
+    ``plugins/`` and pins it.
+    """
+    target = out / plugin_id
+    if target.exists():
+        raise ConfigError(f"{target} already exists")  # noqa: TRY003
+    tech = technology(manifest) or plugin_id
+    rule = _SCAFFOLD_RULES.get(manifest)
+    lines = [
+        "# Scaffolded by `supportagent plugin new` (ADR-0017) from an onboarding gap.",
+        "# Review it, add the causes this stack's incidents have (and a pack to test",
+        "# them), then put it in a catalogue or plugins/ and pin it (`plugin index`).",
+        f"id: {plugin_id}",
+        "version: 0.1.0",
+        f"description: TODO, what a {tech} system is and fails with.",
+        'core_api: ">=1.0,<2"',
+        "status: skeleton",
+        "provides:",
+        "  causes: []   # TODO: {id: <area>/<cause>, description: ...}",
+    ]
+    if rule is not None:
+        fmt, key, value = rule
+        lines += [
+            "  extractors:",
+            f'    - match: "**/{manifest}"',
+            f"      format: {fmt}",
+            "      rules:",
+            f'        - {{key: "{key}", value: "{value}", own: true,'
+            f' node: {{id: "service:{{name}}", kind: Service, tech: [{tech}]}}}}',
+        ]
+    else:
+        lines.append(
+            f"  # TODO: an extractor for {manifest} (json, yaml, env, properties or lines)"
+        )
+    lines += ["detectors:", "  signals:", f'    - {{files: "**/{manifest}", weight: 1.0}}']
+    target.mkdir(parents=True)
+    path = target / "plugin.yaml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    load_manifest(target)  # it must load as written
+    return path
