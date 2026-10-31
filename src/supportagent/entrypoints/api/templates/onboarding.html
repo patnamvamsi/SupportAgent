@@ -2,6 +2,21 @@
 {% block title %}Onboarding{% endblock %}
 {% block content %}
 <h1>What SupportAgent understands about this system</h1>
+{% if run %}
+<section class="run">
+  <p class="verdict {{ 'ok' if run.ready else 'bad' }}"><strong>{{ "Ready to support" if run.ready else "Not ready to support yet" }}</strong>{% if run.ready_share is not none %}: proven classes hold {{ (run.ready_share * 100) | round | int }}% of the incident weight (bar {{ (run.bar * 100) | round | int }}%){% endif %}.</p>
+  <ol class="steps">{% for s in run.steps %}<li class="step {{ s.state }}"><strong>{{ s.step }}</strong> <span class="badge">{{ s.state }}{% if s.on %} on {{ s.on }}{% endif %}</span> {{ s.detail }}</li>{% endfor %}</ol>
+  <h2>Needed from you{% if run.needs %} ({{ run.needs | length }}){% endif %}</h2>
+  {% if run.needs %}
+  <p class="muted">Most valuable first: each item's share is the incident weight it holds back. Act on it, then re-run <code>supportagent onboard run</code>; it continues where it stopped.</p>
+  <ul class="needs">{% for n in run.needs %}
+    <li class="need {{ n.kind }}">{% if n.weight %}<meter class="share" min="0" max="1" value="{{ n.weight }}">{{ (n.weight * 100) | round | int }}%</meter> {% endif %}<strong>{{ need_labels[n.kind] }}:</strong> {{ n.what }}
+      {% if n.how.startswith("/ui/") %}<a href="{{ n.how }}">Open</a>{% else %}<code>{{ n.how }}</code>{% endif %}</li>
+  {% endfor %}</ul>
+  {% else %}<p class="ok">Nothing: onboarding is waiting on no one.</p>{% endif %}
+  <p class="muted">As of the last run, {{ run.at }}.</p>
+</section>
+{% endif %}
 {% if not p.total %}
 <p class="muted">No graph yet. Build one from a workspace: <code>supportagent onboard graph --workspace &lt;dir&gt;</code>.</p>
 <p class="actions">{% if asks and (asks.open or asks.approved or asks.declined) %}<a class="button" href="/ui/onboarding/requests">{{ asks.open }} access request{{ "s" if asks.open != 1 }} to decide</a>{% endif %}

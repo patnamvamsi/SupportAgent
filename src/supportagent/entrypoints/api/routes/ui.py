@@ -24,6 +24,7 @@ from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SessionUser
 from supportagent.app.stats import Mode as StatsMode
 from supportagent.app.stats import parse_window
+from supportagent.domain.autopilot import NEED_LABELS
 from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
@@ -520,6 +521,7 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
     def build(user: SessionUser) -> Response:
         asks = _requests(ctx).progress() if ctx.request_review is not None else None
         ready = ctx.readiness().load() if ctx.readiness is not None else None
+        run = ctx.onboarding_status().load() if ctx.onboarding_status is not None else None
         return _render(
             request,
             ctx,
@@ -528,6 +530,8 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
             p=_review(ctx).progress(),
             asks=asks,
             ready=ready,
+            run=run,
+            need_labels=NEED_LABELS,
         )
 
     return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)

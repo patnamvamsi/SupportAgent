@@ -74,6 +74,12 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
 
 /* WP-O5: a request's share of the incident weight it unlocks */
 meter.share { width: 6rem; vertical-align: middle; }
+/* ADR-0017: the onboarding run. */
+.steps { padding-left: 1.2rem; }
+.step.blocked .badge, .step.failed .badge { border-color: var(--bad); color: var(--bad); }
+.step.done .badge { border-color: var(--ok); color: var(--ok); }
+.needs { padding-left: 1.1rem; }
+.need { margin: .3rem 0; }
 /* WP-O6b: readiness. */
 meter.readiness { width: 100%; max-width: 28rem; height: 1.2rem; }
 .verdict { font-size: 1.25rem; margin: .25rem 0; }

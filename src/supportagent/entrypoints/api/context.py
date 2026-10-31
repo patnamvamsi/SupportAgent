@@ -11,7 +11,7 @@ from supportagent.app.comms import CommsPlans
 from supportagent.app.graph_review import GraphReview
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.queries import AdminQueries
-from supportagent.app.readiness_store import ReadinessStore
+from supportagent.app.readiness_store import OnboardingStatusStore, ReadinessStore
 from supportagent.app.replay import ReplayView
 from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SetupService
@@ -49,3 +49,5 @@ class ApiContext:
     request_review: Callable[[], RequestReview] | None = None
     #: WP-O6b: the system's last readiness report.
     readiness: Callable[[], ReadinessStore] | None = None
+    #: ADR-0017 (WP-A4): the last ``onboard run``'s steps and needs.
+    onboarding_status: Callable[[], OnboardingStatusStore] | None = None
