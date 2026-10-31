@@ -80,6 +80,15 @@ The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_ru
   - the `ToolBinding`: `mcp`, `tool`, `profile` (`passthrough`, `grafana.query_prometheus` or `grafana.query_loki_logs`), `args`.
 
   The reply must fit the capability's schema.
+- **A new capability with no core code** (ADR-0016): the plugin declares it under `provides.capabilities` with a `result_schema` (an object schema whose required keys are properties) and `literal_args`, and a deployment binds it to an MCP server tool with the `passthrough` profile. Checks compile against the declared schema, and every result is validated against it.
+
+### A new stack's graph facts (ADR-0016)
+
+A plugin's `provides.extractors` can be declarative instead of naming a built-in (`extract`):
+- **Config files:** a `match` glob, a `format` (`json`, `yaml`, `env`, `properties`) and `rules`. Each rule has a flattened `key` regex and a `value` regex whose named groups fill a `node` template (`id`, `kind`, `tech`). A rule can be `own` (the repository's component), add an `edge` to that node, add an edge `to` a node found elsewhere, or add `tech` to the component.
+- **CMDB classes:** `cmdb:<class>` with a `node` turns installed CIs of that class into nodes.
+
+Edges are the graph's vocabulary only. The built-in extractors run first.
 
 ## 4. Workflow
 

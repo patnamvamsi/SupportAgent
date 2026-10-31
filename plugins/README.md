@@ -5,9 +5,9 @@ One model for everything pluggable. A plugin is `plugins/<id>/plugin.yaml` and c
 | Part | What it is |
 |---|---|
 | `provides.pack` | A skill pack by id under `packs/`: taxonomy, hypotheses, probes, runbooks, prompt fragments, lab scenarios (ADR-0011 §1) |
-| `provides.capabilities` | Read-only evidence, such as `oracle.locks` or `kafka.consumer_lag`, each with one result schema |
+| `provides.capabilities` | Read-only evidence, such as `oracle.locks` or `kafka.consumer_lag`, each with one result schema. A built-in tool's schema is its own; for a new capability, the plugin declares `result_schema` (and `literal_args`) and an MCP server serves it, with no core code (ADR-0016) |
 | `provides.backends` | How a capability is served: a `first_party` adapter (ours, signed, in process) or an `mcp` server (out of process) |
-| `provides.extractors` | What onboarding can read off a system with this plugin (WP-O3) |
+| `provides.extractors` | What onboarding reads off a system with this plugin (WP-O3). `extract: <name>` names a built-in extractor. A declarative one (ADR-0016) has a file glob, a `format` (`json`, `yaml`, `env`, `properties`) and `rules`: a flattened key and a value regex whose named groups fill a node (`own` for the repo's component), a relationship (`edge`, `to`) or `tech`. `cmdb:<class>` with a `node` turns installed CIs of a class into nodes |
 | `provides.labels`, `provides.causes` | The problem labels and known causes (`oracle/lock_contention`) the incident map can use when the plugin applies (WP-O4) |
 | `requires.<contract>.find` | Where onboarding finds the contract's targets, one request each (WP-O5): `graph` nodes of a kind and technology, the manifest's `repos` on a host, installed `cmdb_class` items (a `name` regex group names the target), or a `docs` regex group |
 | `provides.needs` | Capabilities this plugin's knowledge uses that other plugins provide |

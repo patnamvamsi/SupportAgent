@@ -49,8 +49,9 @@ def _plan(system: str) -> GapPlan:
 
 def test_targets_are_named_without_the_kind_or_the_runtime_area() -> None:
     assert target_name("database:paydb") == "paydb"
-    assert target_name("runtime:emr/emr-batch") == "emr-batch"
-    assert target_name("runtime:prod-eu1/payments") == "prod-eu1/payments"
+    assert target_name("runtime:emr/emr-batch", {"emr", "spark"}) == "emr-batch"
+    assert target_name("runtime:rabbitmq/orders-mq", {"rabbitmq"}) == "orders-mq"  # no list
+    assert target_name("runtime:prod-eu1/payments", {"kubernetes"}) == "prod-eu1/payments"
 
 
 def test_each_finder_kind_finds_its_targets() -> None:

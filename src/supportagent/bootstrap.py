@@ -12,6 +12,7 @@ app service) and returns the ``ReplayView``.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -20,7 +21,7 @@ import os
 import re
 import secrets
 import socket
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -128,7 +129,7 @@ from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
 from supportagent.adapters.tools.airflow import AirflowTool
-from supportagent.adapters.tools.capabilities import CAPABILITIES
+from supportagent.adapters.tools.capabilities import CAPABILITIES, Capability
 from supportagent.adapters.tools.changes import RecentChangesTool
 from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
@@ -972,12 +973,56 @@ def _worker_owner() -> str:
     return f"worker:{socket.gethostname()}:{os.getpid()}"
 
 
-#: The declared result schema of every first-party tool (WP-107). Runbooks are
-#: validated against these whether or not the tool is configured; an
-#: unconfigured tool's step simply can't run (ARCH §5.5).
-KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = {
-    name: capability.result_schema for name, capability in CAPABILITIES.items()
-}
+@functools.cache
+def capability_catalog() -> Mapping[str, Capability]:
+    """Every capability: the built-in tools' (WP-107) and the pinned plugins' (ADR-0016)."""
+    return merge_capabilities(load_plugins())
+
+
+def merge_capabilities(plugins: Sequence[LoadedPlugin]) -> dict[str, Capability]:
+    """The built-in capabilities plus each one a plugin declares a ``result_schema`` for
+    (ADR-0016): an MCP server serves it, with no core code.
+
+    A plugin can't redefine a built-in capability's schema, and two plugins that
+    declare one capability must agree on it.
+    """
+    out: dict[str, Capability] = dict(CAPABILITIES)
+    owner: dict[str, str] = {}
+    for plugin in plugins:
+        for name, spec in sorted(plugin.manifest.provides.capabilities.items()):
+            if spec.result_schema is None:
+                continue
+            pid = plugin.manifest.id
+            if name in CAPABILITIES:
+                raise ConfigError(  # noqa: TRY003
+                    f"plugin {pid}: {name} is a built-in capability; its schema is the tool's"
+                )
+            declared = Capability(name, spec.result_schema, frozenset(spec.literal_args))
+            if name in out and out[name] != declared:
+                raise ConfigError(  # noqa: TRY003
+                    f"plugins {owner[name]} and {pid} declare {name} differently"
+                )
+            out[name], owner[name] = declared, pid
+    return out
+
+
+class _CatalogSchemas(Mapping[str, Mapping[str, object]]):
+    """``capability_catalog``'s result schemas, read on first use (importing reads no plugin)."""
+
+    def __getitem__(self, name: str) -> Mapping[str, object]:
+        return capability_catalog()[name].result_schema
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(capability_catalog())
+
+    def __len__(self) -> int:
+        return len(capability_catalog())
+
+
+#: The declared result schema of every capability. Runbooks are validated
+#: against these whether or not the tool is configured; an unconfigured
+#: tool's step simply can't run (ARCH §5.5).
+KNOWN_TOOL_SCHEMAS: Mapping[str, Mapping[str, object]] = _CatalogSchemas()
 
 
 def build_rca_knowledge(config: AppConfig, registered: Collection[str]) -> Knowledge:
@@ -2231,11 +2276,11 @@ def _mcp_clients(cfg: Tools, transport: httpx.BaseTransport | None) -> dict[str,
 def _mcp_bound_tools(cfg: Tools, clients: Mapping[str, McpHttpClient]) -> list[Tool]:
     tools: list[Tool] = []
     for capability, binding in sorted(cfg.bindings.items()):
-        known = CAPABILITIES.get(capability)
+        known = capability_catalog().get(capability)
         if known is None:
             raise ConfigError(  # noqa: TRY003
                 f"tools.bindings.{capability}: not a known capability "
-                f"({', '.join(sorted(CAPABILITIES))})"
+                f"({', '.join(sorted(capability_catalog()))})"
             )
         server = cfg.mcp_servers[binding.mcp]
         tools.append(
@@ -3328,7 +3373,8 @@ def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> Graph
     cmdb = load_yaml_document(sources / "servicenow" / "cmdb.yaml")
     live_path = sources / "live" / "discovery.yaml"
     live = load_yaml_document(live_path) if live_path.is_file() else {}
-    facts = structured_facts(snapshot.files, cmdb, live)
+    declared = [(p.manifest.id, e) for p in load_plugins() for e in p.manifest.provides.extractors]
+    facts = structured_facts(snapshot.files, cmdb, live, declared)
     return build_graph(facts, snapshot.docs, pipeline.extract if pipeline is not None else None)
 
 

@@ -172,7 +172,8 @@ def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
     """
     name = ci if ci[:1].isalnum() else f"ci-{ci}"
     node = next(
-        (n for n in graph.nodes.values() if n.kind in _SERVING and target_name(n.id) == ci), None
+        (n for n in graph.nodes.values() if n.kind in _SERVING and target_name(n.id, n.tech) == ci),
+        None,
     )
     entry: dict[str, Any] = {"name": name, "stack": []}
     if node is None:
@@ -190,10 +191,10 @@ def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
         database = dst if target.kind == "Database" else part_of.get(dst)
         if relation != "runs_on" and database in graph.nodes:
             stack |= graph.nodes[database].tech
-            if (name_ := target_name(database)) not in databases:
+            if (name_ := target_name(database, graph.nodes[database].tech)) not in databases:
                 databases.append(name_)
         if relation == "runs_on" and "kubernetes" in target.tech:
-            entry["k8s_namespace"] = target_name(dst).rsplit("/", 1)[-1]
+            entry["k8s_namespace"] = target_name(dst, target.tech).rsplit("/", 1)[-1]
             entry["k8s_selector"] = f"app={name}"
     entry["stack"] = sorted(stack)
     if databases:
