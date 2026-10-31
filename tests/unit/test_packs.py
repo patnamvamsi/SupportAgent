@@ -6,7 +6,7 @@ import dataclasses
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypedDict, TypeVar
 
 import pytest
 
@@ -36,7 +36,13 @@ _REPO = Path(__file__).resolve().parents[2]
 TModel = TypeVar("TModel", bound=DomainModel)
 
 
-def _legacy(tmp_path: Path) -> dict[str, Path]:
+class _Legacy(TypedDict):
+    taxonomy: Path
+    hypotheses: Path
+    runbooks: Path
+
+
+def _legacy(tmp_path: Path) -> _Legacy:
     """The shipped common files, read in place."""
     return {
         "taxonomy": _REPO / "taxonomy" / "classification.yaml",

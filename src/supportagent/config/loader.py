@@ -292,3 +292,9 @@ def _resolve_variable(variable: object, key: str, env: Mapping[str, str]) -> str
             f"config: missing environment variable '{variable}' required by {key}"
         )
     return value
+
+
+def plugins_dir_override() -> Path | None:
+    """ADR-0017: ``SUPPORTAGENT_PLUGINS_DIR``, a writable plugins root an instance installs into."""
+    configured = os.environ.get("SUPPORTAGENT_PLUGINS_DIR")
+    return Path(configured) if configured else None

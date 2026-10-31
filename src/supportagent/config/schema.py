@@ -620,6 +620,19 @@ class KnowledgeConfig(DomainModel):
         return self
 
 
+class PluginsConfig(DomainModel):
+    """ADR-0017: where available plugins come from, and whether onboarding installs them.
+
+    Each catalogue is a directory laid out like ``plugins/``, with its own pinned
+    ``index.yaml``. ``auto_install: first-party`` installs a detected first-party
+    plugin (after its lab runs here); otherwise each one waits for approval
+    (``supportagent plugin install <id>``). Third-party plugins always wait.
+    """
+
+    catalogs: list[str] = Field(default_factory=list)
+    auto_install: Literal["none", "first-party"] = "none"
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -652,6 +665,8 @@ class AppConfig(DomainModel):
     severity: SeverityConfig = Field(default_factory=SeverityConfig)
     #: WP-M08: knowledge sources (docs as guidance, never evidence).
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    #: ADR-0017: plugin catalogues and install.
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

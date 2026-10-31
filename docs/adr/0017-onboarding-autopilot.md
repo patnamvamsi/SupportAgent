@@ -48,8 +48,8 @@ The reference systems were how the framework got built. From here they are its r
   ```yaml
   plugins:
     catalogs:
-      - {path: /srv/supportagent/catalog}               # a directory laid out like plugins/
-      - {git: https://github.com/acme/sa-plugins, ref: v3}   # the same, from a pinned git ref
+      - /srv/supportagent/catalog                       # a directory laid out like plugins/
+      # a git catalogue (url and pinned ref) is a follow-up; a checkout is a directory
     auto_install: first-party                           # none | first-party
   ```
 
@@ -100,7 +100,7 @@ They're written to the workspace and the database. Routing uses them from the ne
 | WP | What | Done when |
 |---|---|---|
 | WP-A1 (*delivered*: `onboard run`, `onboard status`, `domain/autopilot.py`) | `onboard run` (one resumable command) and `onboard status`; `onboarding.json` steps with input digests | A reference system goes from `system.yaml` to readiness in one command; an interrupted run resumes; a no-change re-run does nothing |
-| WP-A2 | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
+| WP-A2 (*delivered*: `plugins.catalogs`, `plugin install`, embedded packs and `tree_sha256`; git catalogues are a follow-up) | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
 | WP-A3 | Sensing the unknown (§3) with scaffolds | A fixture with a Go service and an unmapped CMDB class reports both gaps, with evidence |
 | WP-A4 | The status page: what's needed, ranked by weight | `/ui/onboarding` shows one ranked list; acting on an item clears it on the next run |
 | WP-A5 | Calibration fitted per system | The calibration table and gates are fitted from replay, and routing uses them |
