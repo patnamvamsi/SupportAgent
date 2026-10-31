@@ -25,6 +25,7 @@ gates.yaml               per-stage floors, forbidden ceilings, enforced_stages
 generate_history.py      the seeded generator for servicenow/*.yaml and truth_incidents.yaml
 generate_evidence.py     the seeded generator for system-a's evidence (from the generated history)
 readiness_baseline.json  each class's accepted readiness; a ready class may not regress
+drift/<system>.yaml      the system some time later (a change set) and the diff it must produce
 ```
 
 **Every truth fact cites the sources it can be derived from** (`confluence:<page_id>`, `git:<repo>/<path>`, `cmdb:<sys_id>`, `live:<key>`), and the lab checks that each reference resolves. The truth never asks for something the sources don't contain. `must_not` lists what a careless reader would take from a stale, wrong or injected source. `questions` lists conflicts a good onboarding raises for review instead of resolving silently.
@@ -125,6 +126,26 @@ System B is untestable everywhere except its no-cause class, since none of its p
 A system that has never been assessed routes as before.
 
 **Not done yet.** Calibration per class, shadow replay through the real pipeline, and capturing evidence from live tools for a workspace's past incidents. Until that last one lands, a real workspace has no evidence, and none of its classes can be ready.
+
+## Drift (WP-O8)
+
+`domain/drift.py` compares two onboarding **snapshots**: the plugins needed, the graph's nodes and edges, the incident classes and their shares, and the requests. The **re-onboarding diff** lists what changed, each finding with what a person should do about it:
+- a plugin newly needed or no longer needed;
+- a node added, removed or **renamed** (same kind, relationships that mostly agree once one name replaces the other);
+- an edge added or removed;
+- a class that is new, gone, or grew by 5 points of the weight;
+- a new class whose cause no detected plugin declares (**uncovered**);
+- more incidents with no known cause;
+- a request newly asked for or no longer needed.
+
+`drift/system-a.yaml` is System A three months later:
+- **disputes-service** ships on Spring Kafka (MSK) and PAYDB, behind the gateway;
+- **customer-service** is renamed **customer-profile** in the repo, the gateway, the CMDB and live discovery (the docs still say customer-service);
+- the history gains a recurring **consumer-lag** problem on disputes-service, and three incidents from base image bumps that dropped the PDF renderer's font.
+
+The lab applies it to a copy (`adapters/files/change_set.py`), re-onboards, and requires the diff to equal `expected` exactly: the kafka plugin, the rename (not a removal and an addition), the new service, its cluster and its four relationships, the consumer-lag class, the change-caused class growing, and the `kafka_ro` request on the new cluster. The docs still say customer-service, so what they state about its schema no longer attaches: three edges are reported gone. That is a real finding, since the docs need the new name.
+
+`supportagent onboard drift --workspace <dir>` does the same for a workspace. It compares the current run with the last accepted snapshot (`onboarding_snapshot.json`; the first run is accepted) and writes `drift.json`. `--accept` takes the new run once its findings are dealt with. The graph review already keeps each fact's decision across rebuilds and marks facts that are gone, so `/ui/onboarding` shows the same changes fact by fact.
 
 ## Changing the history
 

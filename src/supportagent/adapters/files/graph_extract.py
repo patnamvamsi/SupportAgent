@@ -35,6 +35,8 @@ import yaml
 from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, NodeKind
 
 _POM_ARTIFACT = re.compile(r"</parent>\s*.*?<artifactId>([^<]+)</artifactId>", re.S)
+#: An MSK broker host names its cluster: ``b-1.<cluster>[.<id>.c2].kafka.<region>...``.
+_MSK = re.compile(r"b-\d+\.([a-z0-9-]+)\.(?:[a-z0-9]+\.)*kafka\.")
 _JDBC = re.compile(r"jdbc:(oracle|postgresql|mysql|sqlserver)[^\s\"']*?[/:@]([A-Za-z0-9_]+)\s*$")
 _URL_HOST = re.compile(r"^[a-z]+://([^/:]+)")
 _SVC_HOST = re.compile(r"^([a-z0-9-]+)\.[a-z0-9-]+\.svc(\.|$)")
@@ -161,6 +163,11 @@ def _spring_config(out: _Collect, repo: str, path: str, text: str) -> None:
             db = f"database:{m.group(2).lower()}"
             out.node(db, "Database", source, tech=[m.group(1)], by="jdbc")
             out.edge(owner, "uses", db, source, by="jdbc")
+            continue
+        if key.endswith("kafka.bootstrap-servers") and (m := _MSK.search(value)):  # WP-O8
+            cluster = f"runtime:kafka/{m.group(1)}"
+            out.node(cluster, "Runtime", source, tech=["kafka"], by="spring_kafka")
+            out.edge(owner, "uses", cluster, source, by="spring_kafka")
             continue
         host = _host(value)
         if host is None or "origin" in key.lower():

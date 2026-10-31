@@ -8,7 +8,7 @@ plugins:
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
   - {id: java-spring, version: 0.2.0, sha256: 954a8342a4d76df33711412aaab3ef8b9df1a203236cbfd9482ee83191adf503}
-  - {id: kafka, version: 0.1.0, sha256: b01ba0adeefaa672c124d439d0cd953e3683463012cc7de5ff2f28d9391162af}
+  - {id: kafka, version: 0.1.1, sha256: 2a62888243d66c7d76179ed960a5f6a580635ada7a82336aeb0bb344d6d72ff3}
   - {id: kubernetes, version: 0.2.0, sha256: 9dc1ec19846d817c309310a97a2e52e55ffd3ec88f2e1e9a77163a38d4ca3310}
   - {id: oracle, version: 0.2.0, sha256: 3675140400d81f70c2db49f101e7f256ad245d319d5bff5d096e948ed583c26c}
   - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}

@@ -1,0 +1,111 @@
+# WP-O8 (ADR-0015 P7): System A three months later. The onboarding lab copies
+# system-a, applies these changes, re-runs onboarding and compares the
+# re-onboarding diff with `expected`. Edit only with a `why` note.
+why: >-
+  A new Spring service, disputes-service, ships on Kafka (MSK) and PAYDB, behind
+  the gateway; customer-service is renamed customer-profile in the repo, the
+  gateway, the CMDB and live discovery (the docs still say customer-service);
+  and the history gains a recurring consumer-lag problem on disputes-service and
+  three incidents from base image bumps that dropped the PDF renderer's font.
+remove:
+  - sources/git/customer-service
+files:
+  sources/git/customer-profile/pom.xml: |
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.3.4</version></parent>
+      <groupId>com.acme.payments</groupId>
+      <artifactId>customer-profile</artifactId>
+      <properties><java.version>21</java.version></properties>
+      <dependencies>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
+        <dependency><groupId>com.oracle.database.jdbc</groupId><artifactId>ojdbc11</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+      </dependencies>
+    </project>
+  sources/git/customer-profile/helm/values.yaml: |
+    namespace: payments
+    replicas: 2
+  sources/git/customer-profile/src/main/resources/application.yml: |
+    spring:
+      application: {name: customer-profile}
+      datasource:
+        url: jdbc:oracle:thin:@//crmdb.acme.internal:1521/CRMDB
+        username: crm_app
+  sources/git/disputes-service/pom.xml: |
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.3.4</version></parent>
+      <groupId>com.acme.payments</groupId>
+      <artifactId>disputes-service</artifactId>
+      <properties><java.version>21</java.version></properties>
+      <dependencies>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+        <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
+        <dependency><groupId>com.oracle.database.jdbc</groupId><artifactId>ojdbc11</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+      </dependencies>
+    </project>
+  sources/git/disputes-service/helm/values.yaml: |
+    namespace: payments
+    replicas: 2
+    image: ghcr.io/acme/disputes-service
+  sources/git/disputes-service/src/main/resources/application.yml: |
+    spring:
+      application: {name: disputes-service}
+      datasource:
+        url: jdbc:oracle:thin:@//paydb-scan.acme.internal:1521/PAYDB
+        username: disputes_app
+      kafka:
+        bootstrap-servers: b-1.payments-msk.x7k2p1.c2.kafka.eu-west-1.amazonaws.com:9096
+        consumer: {group-id: disputes-service}
+replace:
+  - file: sources/git/payments-gateway/src/main/resources/application.yml
+    old: "customer-service.payments.svc:8080\", predicates: [\"Path=/api/customers/**\"]}\n"
+    new: "customer-profile.payments.svc:8080\", predicates: [\"Path=/api/customers/**\"]}\n        - {id: disputes, uri: \"http://disputes-service.payments.svc:8080\", predicates: [\"Path=/api/disputes/**\"]}\n"
+  - {file: sources/live/discovery.yaml, old: "  - customer-service\n", new: "  - customer-profile\n  - disputes-service\n"}
+  - {file: sources/servicenow/cmdb.yaml, old: "  name: customer-service\n", new: "  name: customer-profile\n"}
+  - {file: sources/servicenow/cmdb.yaml, old: "  child: customer-service\n", new: "  child: customer-profile\n"}
+  - {file: sources/servicenow/cmdb.yaml, old: "  parent: customer-service\n", new: "  parent: customer-profile\n"}
+append:
+  sources/servicenow/cmdb.yaml#cis:
+    - {sys_id: ci-a-dis, name: disputes-service, sys_class_name: cmdb_ci_service_auto, install_status: Installed}
+  sources/servicenow/cmdb.yaml#relationships:
+    - {sys_id: rel-a-20, parent: disputes-service, type: "Depends on::Used by", child: PAYDB}
+    - {sys_id: rel-a-21, parent: disputes-service, type: "Runs on::Runs", child: prod-eu1/payments}
+  sources/servicenow/problems.yaml:
+    - number: PRBA090
+      short_description: disputes-service consumer group lags behind dispute-events
+      state: Root Cause Analysis
+      related_incidents: [INCA0046, INCA0047, INCA0049, INCA0050, INCA0052, INCA0054]
+  sources/servicenow/incidents.yaml:
+    - {number: INCA0046, sys_id: a000046, opened_at: "2026-11-03 09:12:00", resolved_at: "2026-11-03 11:40:00", priority: "2", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Disputes not appearing in the back office, description: New chargebacks take hours to show up; disputes-service is far behind on dispute-events., state: Closed, close_code: Solved (Permanently), close_notes: "Consumer group disputes-service lag at 180k messages on dispute-events; a slow PDF step blocked the listener. Scaled consumers to 6; lag cleared.", problem_id: PRBA090}
+    - {number: INCA0047, sys_id: a000047, opened_at: "2026-11-17 14:05:00", resolved_at: "2026-11-17 15:20:00", priority: "3", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Chargeback status stale, description: Dispute status in the portal is 2 hours old., state: Closed, close_code: Solved (Permanently), close_notes: Kafka consumer lag on dispute-events after a rebalance storm; restarted the consumers., problem_id: PRBA090}
+    - {number: INCA0048, sys_id: a000048, opened_at: "2026-11-24 10:30:00", resolved_at: "2026-11-24 16:00:00", priority: "3", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Dispute letters print as boxes, description: Customer dispute letters (PDF) show empty boxes instead of text., state: Closed, close_code: Solved (Permanently), close_notes: The new base image lacks the font the PDF renderer embeds; added the font package to the image.}
+    - {number: INCA0049, sys_id: a000049, opened_at: "2026-12-02 08:45:00", resolved_at: "2026-12-02 10:10:00", priority: "2", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Disputes backlog growing, description: Dispute intake is hours behind; Kafka consumer lag alert fired., state: Closed, close_code: Solved (Permanently), close_notes: Consumer lag on dispute-events from a poison message retried forever; skipped it to the DLT., problem_id: PRBA090}
+    - {number: INCA0050, sys_id: a000050, opened_at: "2026-12-15 13:00:00", resolved_at: "2026-12-15 13:55:00", priority: "3", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Back office shows no new disputes, description: No new disputes for 90 minutes., state: Closed, close_code: Solved (Permanently), close_notes: disputes-service consumer group stuck after a broker restart; consumer lag recovered once the group rejoined., problem_id: PRBA090}
+    - {number: INCA0051, sys_id: a000051, opened_at: "2026-12-29 09:20:00", resolved_at: "2026-12-29 12:00:00", priority: "4", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Dispute PDF letters garbled, description: Letters render with missing characters., state: Closed, close_code: Solved (Permanently), close_notes: Same missing font in the PDF renderer image after a rebuild; pinned the font package.}
+    - {number: INCA0052, sys_id: a000052, opened_at: "2027-01-08 07:50:00", resolved_at: "2027-01-08 09:30:00", priority: "2", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Chargebacks delayed, description: Chargeback events are not processed; dispute-events lag rising., state: Closed, close_code: Solved (Permanently), close_notes: Consumer lag on dispute-events; the listener's max.poll.interval was exceeded by the PDF step. Moved PDFs off the listener thread., problem_id: PRBA090}
+    - {number: INCA0053, sys_id: a000053, opened_at: "2027-01-14 11:10:00", resolved_at: "2027-01-14 13:00:00", priority: "4", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Dispute letters unreadable, description: PDFs show boxes again., state: Closed, close_code: Solved (Permanently), close_notes: Font package dropped by a base image bump; added a build check for it.}
+    - {number: INCA0054, sys_id: a000054, opened_at: "2027-01-21 16:30:00", resolved_at: "2027-01-21 17:15:00", priority: "3", cmdb_ci: disputes-service, category: Software, assignment_group: PAY-L2, short_description: Disputes intake behind, description: Kafka consumer group lag on dispute-events above the alert threshold., state: Closed, close_code: Solved (Permanently), close_notes: Consumer lag after a partition reassignment; lag drained without action., problem_id: PRBA090}
+# The re-onboarding diff this change must produce, every finding by (kind, subject).
+expected:
+  - [plugin_added, kafka]
+  - [node_renamed, "service:customer-service -> service:customer-profile"]
+  - [node_added, "service:disputes-service"]
+  - [node_added, "runtime:kafka/payments-msk"]
+  - [edge_added, "service:disputes-service uses database:paydb"]
+  - [edge_added, "service:disputes-service uses runtime:kafka/payments-msk"]
+  - [edge_added, "service:disputes-service runs_on runtime:prod-eu1/payments"]
+  - [edge_added, "service:payments-gateway calls service:disputes-service"]
+  # The docs still say customer-service: what they state about its schema no
+  # longer attaches, and the code's coarser `uses database:crmdb` shows again.
+  - [edge_added, "service:customer-profile uses database:crmdb"]
+  - [edge_removed, "service:customer-service reads schema:crmdb.customers"]
+  - [edge_removed, "service:customer-service uses schema:crmdb.customers"]
+  - [edge_removed, "service:customer-service writes schema:crmdb.customers"]
+  - [class_new, kafka-consumer-lag]
+  # The font incidents are read as change-caused (a base image bump), which they are.
+  - [class_grew, recent-change-push]
+  - [request_new, "kafka/kafka_ro/payments-msk"]
