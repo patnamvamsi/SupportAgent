@@ -23,7 +23,7 @@ Pure: the caller gives the detected plugins, the graph, the snapshot and the map
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from supportagent.domain.graph import SystemGraph
@@ -40,8 +40,6 @@ BUILT_IN_NEEDS: Mapping[str, frozenset[str]] = {
     "traffic_spike": frozenset({"metrics.query"}),
     "data_volume": frozenset({"metrics.query", "logs.search"}),
 }
-#: Runtime ids with an area segment (``runtime:emr/<cluster>``); a target is named without it.
-_AREAS = frozenset({"emr", "kafka", "airflow", "snowflake"})
 _REACH = 3
 
 
@@ -106,11 +104,16 @@ class GapPlan:
     unlocked: float
 
 
-def target_name(node_id: str) -> str:
-    """``database:paydb`` -> ``paydb``; ``runtime:emr/emr-batch`` -> ``emr-batch``."""
+def target_name(node_id: str, tech: Collection[str] = ()) -> str:
+    """``database:paydb`` -> ``paydb``; ``runtime:emr/emr-batch`` -> ``emr-batch``.
+
+    ADR-0016: a first segment that names the node's own technology (``emr``,
+    ``kafka``) is an area, not part of the name; ``runtime:prod-eu1/payments``
+    (a Kubernetes namespace) keeps its cluster.
+    """
     rest = node_id.split(":", 1)[-1]
     area, _, tail = rest.partition("/")
-    return tail if tail and area in _AREAS else rest
+    return tail if tail and area in tech else rest
 
 
 def find_targets(finder: TargetFinder, graph: SystemGraph, snap: SourceSnapshot) -> list[Target]:
@@ -130,7 +133,7 @@ def find_targets(finder: TargetFinder, graph: SystemGraph, snap: SourceSnapshot)
 
 def _in_graph(kind: str, tech: str | None, graph: SystemGraph) -> list[Target]:
     return [
-        Target(target_name(n.id), f"graph node {n.id}", n.id)
+        Target(target_name(n.id, n.tech), f"graph node {n.id}", n.id)
         for n in sorted(graph.nodes.values(), key=lambda n: n.id)
         if n.kind == kind and (tech is None or tech in n.tech)
     ]
@@ -206,7 +209,7 @@ def _reach(graph: SystemGraph, start: Iterable[str]) -> set[str]:
 
 def _class_nodes(cls: IncidentClass, cis: Mapping[str, str], graph: SystemGraph) -> set[str]:
     names = {cis[n] for n in cls.incidents if n in cis}
-    return {node for node in graph.nodes if target_name(node) in names}
+    return {n.id for n in graph.nodes.values() if target_name(n.id, n.tech) in names}
 
 
 def plan(

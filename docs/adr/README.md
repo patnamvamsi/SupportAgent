@@ -19,6 +19,8 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0013](0013-connector-seam.md) | The connector seam: neutral ports, stored keys kept, shadow-only degradation | accepted |
 | [0014](0014-sop-driven-requests.md) | SOP-driven requests: SOPs propose existing action kinds; auto mode is a conditioned grant | accepted |
 | [0015](0015-system-onboarding-and-plugins.md) | System onboarding: an instance learns the system it supports, asks for what it lacks, and proves readiness; everything pluggable is a plugin | accepted |
+| [0016](0016-plugins-are-data.md) | Plugins are data: declared capabilities and declarative extractors, so a new stack needs no core code | accepted |
+| [0016](0016-plugins-are-data.md) | Plugins are data: declared capabilities and declarative extractors, so a new stack needs no core code | accepted |
 
 ## Naming
 

@@ -43,9 +43,28 @@ _WRITE_GRANT = re.compile(
 
 
 class CapabilitySpec(DomainModel):
+    """One read-only capability. A built-in tool serves it, or (ADR-0016) the plugin
+    declares its ``result_schema`` and an MCP server serves it: no core code."""
+
     description: str = Field(min_length=1)
-    #: Path (relative to the plugin) of the result's JSON schema; ``None`` until the adapter lands.
-    schema_path: str | None = None
+    #: ADR-0016: the result's JSON schema (an object with ``required`` properties).
+    #: Runbook checks compile against it; every result is validated against it.
+    result_schema: dict[str, object] | None = None
+    #: Argument keys passed literally (a reviewed query), not bound from the catalog.
+    literal_args: list[str] = Field(default_factory=list)
+
+    @field_validator("result_schema")
+    @classmethod
+    def _an_object(cls, value: dict[str, object] | None) -> dict[str, object] | None:
+        if value is None:
+            return value
+        props = value.get("properties")
+        required = value.get("required", [])
+        if value.get("type") != "object" or not isinstance(props, dict):
+            raise ValueError("result_schema must be an object schema with properties")  # noqa: TRY003
+        if not isinstance(required, list) or not set(map(str, required)) <= set(props):
+            raise ValueError("result_schema: every required key must be a property")  # noqa: TRY003
+        return value
 
 
 class McpBackend(DomainModel):
@@ -69,11 +88,92 @@ class Backend(DomainModel):
         return self
 
 
+_TEMPLATE = re.compile(r"\{(\w+)\}")
+GraphKind = Literal["Service", "Job", "UI", "Database", "Datastore", "Topic", "Runtime", "External"]
+#: The relationships a declared rule may assert (the system graph's vocabulary).
+RULE_EDGES = frozenset(
+    {"calls", "uses", "reads", "writes", "consumes", "publishes", "runs_on", "depends_on"}
+)
+
+
+class NodeTemplate(DomainModel):
+    """A graph node a rule yields. ``{name}`` (and any named group) fill ``id``, lowercased."""
+
+    id: str = Field(pattern=r"^[a-z]+:[^\s]+$")
+    kind: GraphKind
+    tech: list[str] = Field(default_factory=list)
+
+
+class ExtractRule(DomainModel):
+    """ADR-0016: one declarative rule over a config file's flattened keys.
+
+    A leaf whose dotted key matches ``key`` and whose string value matches
+    ``value`` (named groups fill the templates) yields, from the repository's
+    component:
+
+    - ``own``: ``node`` *is* the component (``name`` in a ``package.json``);
+    - ``node`` (+ ``edge``): a node it relates to (``uses database:{name}``);
+    - ``to`` + ``edge``: a relationship to a node found elsewhere (``calls service:{name}``);
+    - ``tech``: technology the component has (a dependency it declares).
+    """
+
+    key: str = Field(min_length=1)
+    value: str = "(?P<name>.+)"
+    own: bool = False
+    node: NodeTemplate | None = None
+    edge: str | None = None
+    to: str | None = None
+    tech: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _well_formed(self) -> ExtractRule:
+        for pattern in (self.key, self.value):
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"bad regex {pattern!r}: {exc}") from exc  # noqa: TRY003
+        groups = set(re.compile(self.value).groupindex)
+        for template in (self.node.id if self.node else None, self.to):
+            if template and not set(_TEMPLATE.findall(template)) <= groups:
+                raise ValueError(f"{template!r} names a group {self.value!r} lacks")  # noqa: TRY003
+        if self.edge is not None and self.edge not in RULE_EDGES:
+            raise ValueError(f"edge {self.edge!r} is not one of {sorted(RULE_EDGES)}")  # noqa: TRY003
+        if self.own and (self.node is None or self.edge or self.to):
+            raise ValueError("an own rule names the component's node and nothing else")  # noqa: TRY003
+        if self.to is not None and (self.edge is None or self.node is not None):
+            raise ValueError("a to rule needs an edge and no node")  # noqa: TRY003
+        if not (self.own or self.node or self.to or self.tech):
+            raise ValueError("a rule yields a node, a relationship or tech")  # noqa: TRY003
+        return self
+
+
 class Extractor(DomainModel):
-    """A discovery rule for WP-O3: a file glob or CMDB class, and what it yields."""
+    """A discovery rule for WP-O3: a file glob or ``cmdb:<class>``, and what it yields.
+
+    ``extract`` names a built-in extractor (documentation of what core code
+    reads). ADR-0016 makes the rest declarative, with no core code:
+
+    - a file glob with a ``format`` and ``rules`` (:class:`ExtractRule`);
+    - ``cmdb:<class>`` with a ``node``: installed CIs of that class become that
+      node (``{name}`` is the CI's name).
+    """
 
     match: str = Field(min_length=1)
-    extract: str = Field(min_length=1)
+    extract: str | None = None
+    format: Literal["json", "yaml", "env", "properties"] | None = None
+    rules: list[ExtractRule] = Field(default_factory=list)
+    node: NodeTemplate | None = None
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> Extractor:
+        declared = bool(self.rules) or self.node is not None
+        if (self.extract is None) == (not declared):
+            raise ValueError("an extractor names a built-in (extract) or declares rules or a node")  # noqa: TRY003
+        if self.rules and (self.format is None or self.match.startswith("cmdb:")):
+            raise ValueError("rules need a file glob and a format")  # noqa: TRY003
+        if self.node is not None and not self.match.startswith("cmdb:"):
+            raise ValueError("a node extractor matches a cmdb:<class>")  # noqa: TRY003
+        return self
 
 
 class Signal(DomainModel):
@@ -294,14 +394,18 @@ def _glob(pattern: str, name: str) -> bool:
 
 __all__ = [
     "CORE_API",
+    "RULE_EDGES",
     "AccessContract",
     "Backend",
     "CapabilitySpec",
     "CauseSpec",
     "Detectors",
+    "ExtractRule",
     "Extractor",
+    "GraphKind",
     "LabelSpec",
     "McpBackend",
+    "NodeTemplate",
     "PluginManifest",
     "Provides",
     "Signal",

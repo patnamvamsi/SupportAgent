@@ -138,7 +138,7 @@ def _files(signal: Signal, glob: str, snap: SourceSnapshot) -> Fired | None:
     hits = sorted(
         path
         for path, text in snap.files.items()
-        if _path_matches(path, glob) and (pattern is None or pattern.search(text))
+        if path_matches(path, glob) and (pattern is None or pattern.search(text))
     )
     if not hits:
         return None
@@ -162,7 +162,7 @@ def _incidents(signal: Signal, regex: str, snap: SourceSnapshot) -> Fired | None
     )
 
 
-def _path_matches(path: str, glob: str) -> bool:
+def path_matches(path: str, glob: str) -> bool:
     """``fnmatch`` where ``**/`` also matches zero directories."""
     if fnmatch.fnmatchcase(path, glob):
         return True
@@ -182,4 +182,5 @@ __all__ = [
     "SourceSnapshot",
     "detect",
     "detected_ids",
+    "path_matches",
 ]

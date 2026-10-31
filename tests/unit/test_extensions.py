@@ -21,6 +21,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 from typer.testing import CliRunner
 
+from supportagent.adapters.tools.capabilities import CAPABILITIES
 from supportagent.adapters.tools.mcp import PROFILES
 from supportagent.app.extend import (
     GAPS,
@@ -275,7 +276,7 @@ def test_skill_doc_names_every_contract() -> None:
         if f not in named
     ]
     missing += [f"model {m.__name__}" for m in _CONTRACTS if m.__name__ not in doc]
-    missing += [f"capability {c}" for c in KNOWN_TOOL_SCHEMAS if c not in named]
+    missing += [f"capability {c}" for c in CAPABILITIES if c not in named]  # the built-in ones
     missing += [f"profile {p}" for p in PROFILES if p not in named]
     missing += [f"gap {g.gap!r}" for g in GAPS if g.gap not in doc]
     missing += [f"command {g.command!r}" for g in GAPS if f"`{g.command}`" not in doc]

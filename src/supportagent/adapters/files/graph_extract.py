@@ -26,13 +26,15 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
 
 from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, NodeKind
+from supportagent.domain.model.plugin import Extractor, ExtractRule, NodeTemplate
+from supportagent.domain.plugins import path_matches
 
 _POM_ARTIFACT = re.compile(r"</parent>\s*.*?<artifactId>([^<]+)</artifactId>", re.S)
 #: An MSK broker host names its cluster: ``b-1.<cluster>[.<id>.c2].kafka.<region>...``.
@@ -58,6 +60,8 @@ class _Collect:
     facts: list[Fact] = field(default_factory=list)
     #: repo -> its component id
     components: dict[str, str] = field(default_factory=dict)
+    #: node id -> the kind it was first asserted with
+    kinds: dict[str, NodeKind] = field(default_factory=dict)
 
     def node(
         self,
@@ -69,6 +73,7 @@ class _Collect:
         tech: Iterable[str] = (),
         by: str,
     ) -> None:
+        self.kinds.setdefault(node_id, kind)
         self.facts.append(NodeFact(node_id, kind, source, layer, by, tuple(tech)))  # type: ignore[arg-type]
 
     def edge(self, src: str, kind: str, dst: str, source: str, *, layer: int = 1, by: str) -> None:
@@ -79,9 +84,17 @@ class _Collect:
 
 
 def structured_facts(
-    files: Mapping[str, str], cmdb: Mapping[str, Any], live: Mapping[str, Any]
+    files: Mapping[str, str],
+    cmdb: Mapping[str, Any],
+    live: Mapping[str, Any],
+    declared: Sequence[tuple[str, Extractor]] = (),
 ) -> list[Fact]:
-    """Every layer-1 (config, CMDB) and layer-2 (live) fact about the system."""
+    """Every layer-1 (config, CMDB) and layer-2 (live) fact about the system.
+
+    ``declared`` (ADR-0016) is each plugin's declarative extractors, as
+    ``(plugin id, extractor)``: they run after the built-in ones, a component
+    rule only for a repository no built-in claimed.
+    """
     out = _Collect()
     by_repo: dict[str, dict[str, str]] = {}
     for key, text in files.items():
@@ -89,15 +102,96 @@ def structured_facts(
         by_repo.setdefault(repo, {})[path] = text
     for repo, repo_files in sorted(by_repo.items()):
         _components(out, repo, repo_files)
+    _declared(out, by_repo, declared, own=True)
     for repo, repo_files in sorted(by_repo.items()):
         for path, text in sorted(repo_files.items()):
             for matches, extractor in _RELATIONS:
                 if matches(path):
                     extractor(out, repo, path, text)
-    _cmdb(out, cmdb)
+    _declared(out, by_repo, declared, own=False)
+    _cmdb(out, cmdb, {e.match.removeprefix("cmdb:"): e.node for _, e in declared if e.node})
     _live(out, live)
     _reconcile(out)
     return out.facts
+
+
+# --- ADR-0016: plugin-declared rules --------------------------------------------------
+
+
+def _declared(
+    out: _Collect,
+    by_repo: Mapping[str, Mapping[str, str]],
+    declared: Sequence[tuple[str, Extractor]],
+    *,
+    own: bool,
+) -> None:
+    for plugin_id, extractor in declared:
+        rules = [r for r in extractor.rules if r.own == own]
+        if not rules or extractor.format is None:
+            continue
+        for repo, repo_files in sorted(by_repo.items()):
+            for path, text in sorted(repo_files.items()):
+                if not path_matches(f"{repo}/{path}", extractor.match):
+                    continue
+                leaves = _flatten(extractor.format, text)
+                source = f"git:{repo}/{path}"
+                for rule in rules:
+                    key = re.compile(rule.key)
+                    value = re.compile(rule.value)
+                    for leaf, text_value in leaves:
+                        if key.search(leaf) and (m := value.search(text_value)):
+                            _apply(out, repo, source, rule, m, by=f"plugin:{plugin_id}")
+
+
+def _apply(
+    out: _Collect, repo: str, source: str, rule: ExtractRule, match: re.Match[str], *, by: str
+) -> None:
+    groups = {k: _slug(v) for k, v in match.groupdict().items() if v}
+    owner = out.components.get(repo)
+    if rule.own and rule.node is not None:
+        if owner is None:
+            node_id = rule.node.id.format(**groups)
+            out.node(node_id, rule.node.kind, source, tech=rule.node.tech, by=by)
+            out.components[repo] = node_id
+        return
+    if owner is None:
+        return
+    if rule.tech:
+        out.node(owner, out.kinds.get(owner, "Service"), source, tech=rule.tech, by=by)
+    if rule.node is not None:
+        node_id = rule.node.id.format(**groups)
+        out.node(node_id, rule.node.kind, source, tech=rule.node.tech, by=by)
+        if rule.edge is not None:
+            out.edge(owner, rule.edge, node_id, source, by=by)
+    elif rule.to is not None and rule.edge is not None:
+        out.edge(owner, rule.edge, rule.to.format(**groups), source, by=by)
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9._/-]+", "-", value.strip().lower()).strip("-")
+
+
+def _flatten(fmt: str, text: str) -> list[tuple[str, str]]:
+    """A config file's ``(dotted key, string value)`` leaves; an unreadable file has none."""
+    if fmt in ("env", "properties"):
+        out = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("#", "!")):
+                continue
+            key, sep, value = stripped.partition("=")
+            if not sep and fmt == "properties":
+                key, sep, value = stripped.partition(":")
+            if sep:
+                out.append(
+                    (key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
+                )
+        return out
+    try:
+        data = json.loads(text) if fmt == "json" else yaml.safe_load(text)
+    except (ValueError, yaml.YAMLError):
+        return []
+    return [(k, v) for k, v in _leaves(data) if isinstance(v, str)]
 
 
 # --- pass 1: components -------------------------------------------------------------
@@ -355,7 +449,9 @@ _RELATIONS: list[tuple[Callable[[str], bool], Callable[[_Collect, str, str, str]
 # --- the CMDB and live discovery ---------------------------------------------------------
 
 
-def _cmdb(out: _Collect, cmdb: Mapping[str, Any]) -> None:
+def _cmdb(
+    out: _Collect, cmdb: Mapping[str, Any], declared: Mapping[str, NodeTemplate | None]
+) -> None:
     installed: dict[str, str] = {}
     for ci in cmdb.get("cis") or []:
         if str(ci.get("install_status", "")).lower() == "retired":
@@ -372,6 +468,9 @@ def _cmdb(out: _Collect, cmdb: Mapping[str, Any]) -> None:
                 out.node(node, "Database", source, tech=["oracle"], by="cmdb")
             else:
                 out.node(node, kind, source, by="cmdb")
+        elif (template := declared.get(cls)) is not None:  # ADR-0016: a plugin's CMDB class
+            node = template.id.format(name=_slug(name))
+            out.node(node, template.kind, source, tech=template.tech, by="cmdb")
         else:
             node = f"cmdb:{name}"  # resolved to a known runtime by name, or dropped
         installed[name] = node
