@@ -1,0 +1,13 @@
+# A Node.js service stops keeping up with requests: one blocked event loop
+# stalls every request on the process.
+id: runbook:node-capacity
+applies_when: {classification: request/capacity}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: event-loop
+    hypothesis: node_event_loop_blocked
+    tool: metrics.query
+    args:
+      query: 'max(nodejs_eventloop_lag_p99_seconds{service="{{service}}"})'
+      service: "$service.name"
+    check: 'result.query.contains("eventloop_lag") && double(result.max_value) > 0.5'

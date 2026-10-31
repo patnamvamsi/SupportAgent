@@ -1,0 +1,1 @@
+{"latency_ms": 6037, "raw_text": "{\"classification\":\"network/outage\",\"severity\":\"P2\",\"summary\":\"The label-printer service is timing out and its outbound carrier calls are failing with ETIMEDOUT, indicating a network connectivity or upstream carrier path issue.\",\"confidence\":0.72}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 645, "tokens_out": 339}

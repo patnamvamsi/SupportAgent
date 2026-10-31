@@ -9,6 +9,7 @@ A skill pack is one technology stack's failure knowledge (ADR-0011 §1). A catal
 | `oracle` | WP-O6a, the oracle plugin's: 4 hypotheses, 4 runbooks over the read-only `oracle.*` tools and the application's ORA- log lines, 6 lab scenarios (1 held out). |
 | `java-spring` | WP-O6a: 4 hypotheses (heap, HikariCP, threads, GC), 4 runbooks over logs and JVM metrics, 6 lab scenarios (1 held out). |
 | `kubernetes` | WP-O6a: image pulls, evictions and bad rollouts, 3 lab scenarios (1 held out). |
+| `nodejs`, `mongodb`, `rabbitmq` | ADR-0016, data only: the event loop and heap; unindexed queries, the pool and elections; backlogs and memory alarms. 11 lab scenarios (3 held out). `rabbitmq` adds the `messaging/backlog` label. |
 | `spark`, `snowflake` | Placeholders: loaded and reported, never selected. |
 
 ## Manifest

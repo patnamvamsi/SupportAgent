@@ -1,0 +1,36 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: rabbit-no-cause
+pack: rabbitmq
+split: holdout
+description: A short burst is drained as fast as it arrives.
+incident:
+  subject: Order events a little slow
+  priority: '3'
+  body: Events arrive a few seconds later than usual.
+service:
+  name: events-worker
+  stack:
+  - nodejs
+  - amqplib
+  - rabbitmq
+world:
+  rabbitmq.queues:
+    result:
+      broker: orders-mq
+      queues:
+      - name: order-events
+        messages: 1200
+        consumers: 4
+        publish_rate: 40.0
+        deliver_rate: 42.0
+      max_messages: 1200
+      alarms: []
+truth:
+  classification: messaging/backlog
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - rabbitmq_queue_backlog
+  - rabbitmq_memory_alarm
+why: '1,200 messages with four consumers delivering faster than publishers: not a backlog.'

@@ -233,9 +233,8 @@ jobs:
         if: steps.filter.outputs.triggered == 'true'
         run: |
           uv run supportagent eval lab --pack common --config evals/lab/lab.yaml --split all
-          uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --split all
-          for pack in oracle java-spring kubernetes; do  # WP-O6a: the plugins' packs
-            uv run supportagent eval lab --pack "$pack" --config evals/lab/lab.yaml --split all
+          for evals in packs/*/evals; do  # every pack with a lab (ADR-0016)
+            uv run supportagent eval lab --pack "$(basename "$(dirname "$evals")")" --config evals/lab/lab.yaml --split all
           done
       - name: citation faithfulness replay (BL-039)
         # The entail checker on curated claim/evidence pairs, replayed from

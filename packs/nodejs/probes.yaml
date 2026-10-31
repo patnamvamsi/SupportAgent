@@ -1,0 +1,15 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  node_event_loop_blocked:
+    tool: metrics.query
+    args:
+      query: 'max(nodejs_eventloop_lag_p99_seconds{service="{{service}}"})'
+      service: "$service.name"
+    check: 'result.query.contains("eventloop_lag") && double(result.max_value) > 0.5'
+  node_heap_oom:
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "JavaScript heap out of memory|Reached heap limit"'
+      service: "$service.name"
+      window_min: 120
+    check: 'result.matches.exists(m, m.line.contains("JavaScript heap out of memory") || m.line.contains("Reached heap limit"))'

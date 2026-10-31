@@ -1,0 +1,12 @@
+{
+  "port": 8080,
+  "fastship": {
+    "baseUrl": "https://api.fastship.example/v2",
+    "timeoutMs": 4000
+  },
+  "amqp": {
+    "publish": {
+      "scans": "carrier-scans"
+    }
+  }
+}

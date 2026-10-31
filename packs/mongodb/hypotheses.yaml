@@ -1,0 +1,6 @@
+# One hypothesis per mongodb plugin cause (`mongodb/<cause>` -> `mongodb_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: mongodb_missing_index
+  - id: mongodb_connection_pool_exhausted
+  - id: mongodb_primary_election

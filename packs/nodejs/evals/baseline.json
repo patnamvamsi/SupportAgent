@@ -1,0 +1,12 @@
+{
+  "cases": {
+    "node-event-loop-blocked": true,
+    "node-heap-oom": true,
+    "node-latency-no-cause": true,
+    "node-upstream-provider": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "nodejs",
+  "samples": 1,
+  "v": 1
+}

@@ -1,0 +1,1 @@
+{"latency_ms": 9211, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"orders-api is returning 500s during peak load because database calls are timing out at 10 seconds, consistent with database saturation under load.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 645, "tokens_out": 449}

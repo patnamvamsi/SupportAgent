@@ -1,0 +1,1 @@
+{"latency_ms": 13647, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P4\",\n  \"summary\": \"The daily orders report has regressed from 30 seconds to 40 seconds.\",\n  \"confidence\": 0.55\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 609}

@@ -1,0 +1,1 @@
+{"latency_ms": 4909, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"shipments-api is showing elevated p95 latency with MongoDB slow-query activity on shipment searches, indicating a database latency regression.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 685, "tokens_out": 243}

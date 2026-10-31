@@ -1,0 +1,12 @@
+{
+  "cases": {
+    "mongo-collscan": true,
+    "mongo-election": true,
+    "mongo-latency-no-cause": true,
+    "mongo-pool-exhausted": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "mongodb",
+  "samples": 1,
+  "v": 1
+}

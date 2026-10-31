@@ -1,0 +1,1 @@
+{"latency_ms": 7625, "raw_text": "{\n  \"classification\": \"batch/schedule\",\n  \"severity\": \"P2\",\n  \"summary\": \"Customer tracking updates have not progressed since this morning, suggesting a delayed or unfired batch job responsible for refreshing tracking status.\",\n  \"confidence\": 0.58\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 674, "tokens_out": 358}

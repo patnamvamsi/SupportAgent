@@ -1,0 +1,66 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: mongo-pool-exhausted
+pack: mongodb
+split: tune
+description: A burst of traffic needs more connections than the pool allows.
+incident:
+  subject: orders-api errors under load
+  priority: '2'
+  body: orders-api returns 500s at peak; database calls time out after 10 s.
+service:
+  name: orders-api
+  stack:
+  - nodejs
+  - express
+  - mongodb
+  databases:
+  - ordersdb
+world:
+  mongodb.slow_ops:
+    result:
+      database: ordersdb
+      ops:
+      - ns: ordersdb.orders
+        op: find
+        ms: 85.0
+        plan: IXSCAN
+      max_ms: 85.0
+      collscans: 0
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 5
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:13:00Z'
+        line: 'MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:14:00Z'
+        line: 'MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool'
+        labels:
+          service: orders-api
+truth:
+  classification: database/saturation
+  also_acceptable:
+  - request/capacity
+  severity: P2
+  root_cause: mongodb_connection_pool_exhausted
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+  must_not_claim:
+  - mongodb_missing_index
+why: Every query uses an index and is fast; the driver can't get a connection.

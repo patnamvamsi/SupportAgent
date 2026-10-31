@@ -1,0 +1,1 @@
+{"latency_ms": 4451, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"Downstream systems are receiving order events hours late, suggesting delayed event delivery or a message-processing backlog.\",\n  \"confidence\": 0.7\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 673, "tokens_out": 285}

@@ -1,0 +1,1 @@
+{"latency_ms": 5295, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P3\",\n  \"summary\": \"User is locked out of the tracking console and requesting a password reset.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 671, "tokens_out": 253}

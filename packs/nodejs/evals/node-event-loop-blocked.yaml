@@ -1,0 +1,58 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: node-event-loop-blocked
+pack: nodejs
+split: tune
+description: A synchronous parse of a 40 MB manifest blocks the event loop; every call times out.
+incident:
+  subject: label-printer timing out
+  priority: '2'
+  body: Calls to label-printer time out; its own calls to the carrier fail with ETIMEDOUT.
+service:
+  name: label-printer
+  stack:
+  - nodejs
+  - express
+world:
+  metrics.query:
+    result:
+      query: max(nodejs_eventloop_lag_p99_seconds{service="label-printer"})
+      series:
+      - labels: {}
+        value: 2.8
+      count: 1
+      max_value: 2.8
+  logs.search:
+    result:
+      query: '{service="label-printer"}'
+      window_min: 60
+      count: 4
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'Error: connect ETIMEDOUT 10.4.2.17:443'
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'Error: connect ETIMEDOUT 10.4.2.17:443'
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'Error: connect ETIMEDOUT 10.4.2.17:443'
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:13:00Z'
+        line: 'Error: connect ETIMEDOUT 10.4.2.17:443'
+        labels:
+          service: label-printer
+truth:
+  classification: network/latency
+  also_acceptable:
+  - network/outage
+  - request/capacity
+  severity: P2
+  root_cause: node_event_loop_blocked
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - upstream_provider
+why: A 2.8 s event-loop lag stalls everything on the process; the ETIMEDOUTs are its symptom, not a failing carrier.

@@ -1,0 +1,48 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: mongo-collscan
+pack: mongodb
+split: tune
+description: A new filter on order status runs without an index; it scans the collection.
+incident:
+  subject: Order search slow
+  priority: '3'
+  body: Searching orders by status takes 5 seconds; it used to be instant.
+service:
+  name: orders-api
+  stack:
+  - nodejs
+  - express
+  - mongodb
+  databases:
+  - ordersdb
+world:
+  mongodb.slow_ops:
+    result:
+      database: ordersdb
+      ops:
+      - ns: ordersdb.orders
+        op: find
+        ms: 5200.0
+        plan: COLLSCAN
+      - ns: ordersdb.orders
+        op: find
+        ms: 4900.0
+        plan: COLLSCAN
+      max_ms: 5200.0
+      collscans: 2
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+truth:
+  classification: database/latency
+  severity: P3
+  root_cause: mongodb_missing_index
+  verdict: SUPPORTED
+  must_cite:
+  - mongodb.slow_ops
+  must_not_claim:
+  - mongodb_connection_pool_exhausted
+why: 'Two 5-second finds on orders, each a COLLSCAN: no index serves the filter.'

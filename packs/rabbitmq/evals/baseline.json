@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "rabbit-backlog-no-consumers": true,
+    "rabbit-memory-alarm": true,
+    "rabbit-no-cause": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "rabbitmq",
+  "samples": 1,
+  "v": 1
+}

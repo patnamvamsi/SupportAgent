@@ -1,0 +1,23 @@
+# A Node.js service times out talking to others (network/*). A blocked event
+# loop is checked first: it makes every outbound call time out too, so those
+# timeouts are its symptom. Otherwise the provider it calls is failing.
+id: runbook:node-network
+applies_when: {classification: network}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: event-loop
+    hypothesis: node_event_loop_blocked
+    tool: metrics.query
+    args:
+      query: 'max(nodejs_eventloop_lag_p99_seconds{service="{{service}}"})'
+      service: "$service.name"
+    check: 'result.query.contains("eventloop_lag") && double(result.max_value) > 0.5'
+    stop_if: true
+  - id: outbound
+    hypothesis: upstream_provider
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ETIMEDOUT|ECONNREFUSED|socket hang up|status code 50[234]"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("ETIMEDOUT") || m.line.contains("ECONNREFUSED") || m.line.contains("socket hang up") || m.line.contains("status code 50"))) >= 3'

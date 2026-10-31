@@ -1,0 +1,1 @@
+{"latency_ms": 5040, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"Shipment event messages are backing up in the queue, causing tracking page status updates to lag by hours.\",\n  \"confidence\": 0.93\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 681, "tokens_out": 179}

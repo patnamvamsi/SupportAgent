@@ -1,0 +1,10 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  rabbitmq_queue_backlog:
+    tool: rabbitmq.queues
+    args: {service: "$service.name"}
+    check: "result.queues.exists(q, q.messages >= 10000 && (q.consumers == 0 || double(q.deliver_rate) < double(q.publish_rate)))"
+  rabbitmq_memory_alarm:
+    tool: rabbitmq.queues
+    args: {service: "$service.name"}
+    check: "result.alarms.exists(a, a == 'memory')"

@@ -1,0 +1,45 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: node-heap-oom
+pack: nodejs
+split: tune
+description: A worker buffers whole export files in memory; V8 runs out of heap.
+incident:
+  subject: label-printer restarting
+  priority: '2'
+  body: label-printer pods restart every few minutes during the evening batch.
+service:
+  name: label-printer
+  stack:
+  - nodejs
+  - express
+world:
+  logs.search:
+    result:
+      query: '{service="label-printer"}'
+      window_min: 60
+      count: 2
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:11:00Z'
+        line: <--- Last few GCs --->
+        labels:
+          service: label-printer
+  metrics.query:
+    result:
+      query: max(nodejs_eventloop_lag_p99_seconds{service="label-printer"})
+      series:
+      - labels: {}
+        value: 0.04
+      count: 1
+      max_value: 0.04
+truth:
+  classification: app/memory
+  severity: P2
+  root_cause: node_heap_oom
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+why: 'V8 names the cause before each restart: the heap limit.'

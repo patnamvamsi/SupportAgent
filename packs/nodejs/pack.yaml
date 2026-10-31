@@ -1,0 +1,14 @@
+# Node.js services and workers (ADR-0015 §2, ADR-0016): the nodejs plugin's
+# knowledge. Its checks read the service's logs, its event-loop and heap
+# metrics, and its pods; it brings no tool of its own.
+id: nodejs
+version: 0.1.0
+description: Node.js services and workers (the event loop, the V8 heap, outbound HTTP calls).
+applies_to:
+  stack: [nodejs]
+plan_order: 50
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [logs.search, metrics.query, k8s.pod_status]
+evals: evals/

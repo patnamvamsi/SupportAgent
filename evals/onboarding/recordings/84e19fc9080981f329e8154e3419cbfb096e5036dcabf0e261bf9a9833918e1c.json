@@ -1,0 +1,1 @@
+{"latency_ms": 23306, "raw_text": "{\"hypotheses\": [\"rabbitmq_queue_backlog\", \"data_volume\", \"upstream_provider\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 285, "tokens_out": 1124}

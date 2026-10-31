@@ -1,0 +1,1 @@
+{"latency_ms": 14555, "raw_text": "{\"classification\":\"network/outage\",\"severity\":\"P2\",\"summary\":\"The label-printer service began failing at 09:05 to retrieve labels from an external carrier, preventing label printing.\",\"confidence\":0.4}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 643, "tokens_out": 700}

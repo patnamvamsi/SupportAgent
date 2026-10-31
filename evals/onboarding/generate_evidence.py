@@ -93,7 +93,12 @@ def locks(db: str, chain: list[tuple[int, int, float]]) -> dict[str, Any]:
 
 
 def pods(
-    service: str, n: int, *, restarts: int = 0, termination: str | None = None
+    service: str,
+    n: int,
+    *,
+    restarts: int = 0,
+    termination: str | None = None,
+    namespace: str = NAMESPACE,
 ) -> dict[str, Any]:
     items = [
         {
@@ -109,7 +114,7 @@ def pods(
     ]
     return {
         "result": {
-            "namespace": NAMESPACE,
+            "namespace": namespace,
             "selector": f"app={service}",
             "pods": items,
             "restarts_total": restarts * n,
@@ -205,7 +210,13 @@ def tablespace(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
     }
 
 
-def deploy(inc: dict[str, Any], at: datetime, rnd: random.Random, changes: dict[str, Any]) -> World:
+def deploy(
+    inc: dict[str, Any],
+    at: datetime,
+    rnd: random.Random,
+    changes: dict[str, Any],
+    namespace: str = NAMESPACE,
+) -> World:
     svc = inc["cmdb_ci"]
     change = changes[inc["caused_by"]]
     started = datetime.fromisoformat(change["start_date"]).replace(tzinfo=UTC)
@@ -221,7 +232,7 @@ def deploy(inc: dict[str, Any], at: datetime, rnd: random.Random, changes: dict[
     }
     return {
         "changes.recent": {"result": {"window_min": 180, "changes": [rollout], "count": 1}},
-        "k8s.pod_status": pods(svc, 3),
+        "k8s.pod_status": pods(svc, 3, namespace=namespace),
     }
 
 
@@ -285,6 +296,151 @@ BUILDERS: dict[str, Callable[..., World]] = {
 }
 
 
+# --- System C (ADR-0016): Node.js on MongoDB and RabbitMQ ---------------------------
+
+C_NAMESPACE = "logistics"
+#: The share of backlogs whose consumers were gone (the rest: too few for a burst).
+STALLED = 0.6
+C_DATABASE = {"shipments-api": "shipmentsdb", "tracking-worker": "trackingdb"}
+LOOP = 'max(nodejs_eventloop_lag_p99_seconds{service="%s"})'
+
+
+def slow_ops(db: str, ops: list[tuple[str, str, float, str]]) -> dict[str, Any]:
+    return {
+        "result": {
+            "database": db,
+            "ops": [{"ns": n, "op": o, "ms": ms, "plan": p} for n, o, ms, p in ops],
+            "max_ms": max((o[2] for o in ops), default=0.0),
+            "collscans": sum(1 for o in ops if o[3] == "COLLSCAN"),
+        }
+    }
+
+
+def queues(qs: list[tuple[str, int, int, float, float]], alarms: list[str]) -> dict[str, Any]:
+    rows = [
+        {"name": n, "messages": m, "consumers": c, "publish_rate": p, "deliver_rate": d}
+        for n, m, c, p, d in qs
+    ]
+    return {
+        "result": {
+            "broker": "logistics-mq",
+            "queues": rows,
+            "max_messages": max((r["messages"] for r in rows), default=0),
+            "alarms": alarms,
+        }
+    }
+
+
+def c_missing_index(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    svc = inc["cmdb_ci"]
+    db = C_DATABASE[svc]
+    scans = [(f"{db}.shipments", "find", float(rnd.randint(4000, 12000)), "COLLSCAN")]
+    scans += [(f"{db}.shipments", "find", float(rnd.randint(30, 90)), "IXSCAN")]
+    return {"mongodb.slow_ops": slow_ops(db, scans), "logs.search": logs(at, svc, [])}
+
+
+def c_pool(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    svc = inc["cmdb_ci"]
+    line = (
+        "MongoWaitQueueTimeoutError: Timed out while checking out a connection from connection pool"
+    )
+    return {
+        "mongodb.slow_ops": slow_ops(
+            C_DATABASE[svc], [(f"{C_DATABASE[svc]}.shipments", "find", 60.0, "IXSCAN")]
+        ),
+        "logs.search": logs(at, svc, [line] * rnd.randint(4, 8)),
+    }
+
+
+def c_backlog(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    depth = rnd.randint(120, 410) * 1000
+    stalled = rnd.random() < STALLED  # crashed consumers, or too few for a burst
+    consumers, deliver = (0, 0.0) if stalled else (2, 20.0)
+    return {
+        "rabbitmq.queues": queues(
+            [
+                ("shipment-events", depth, consumers, 60.0, deliver),
+                ("carrier-scans", 300, 2, 5.0, 5.0),
+            ],
+            [],
+        )
+    }
+
+
+def c_memory_alarm(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    return {
+        "rabbitmq.queues": queues(
+            [("shipment-events", rnd.randint(500, 3000), 3, 0.0, 0.0)], ["memory"]
+        )
+    }
+
+
+def c_event_loop(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    svc = inc["cmdb_ci"]
+    lines = ["Error: connect ETIMEDOUT 10.8.1.20:443"] * rnd.randint(3, 6)
+    return {
+        "metrics.query": _loop(svc, round(rnd.uniform(2.0, 5.0), 2)),
+        "logs.search": logs(at, svc, lines),
+    }
+
+
+def _loop(svc: str, value: float) -> dict[str, Any]:
+    return {
+        "result": {
+            "query": LOOP % svc,
+            "series": [{"labels": {}, "value": value}],
+            "count": 1,
+            "max_value": value,
+        }
+    }
+
+
+def c_heap(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    svc = inc["cmdb_ci"]
+    lines = [
+        "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+        "<--- Last few GCs --->",
+    ]
+    return {
+        "logs.search": logs(at, svc, lines),
+        "k8s.pod_status": pods(
+            svc, 4, restarts=rnd.randint(3, 9), termination="Error", namespace=C_NAMESPACE
+        ),
+    }
+
+
+def c_upstream(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    svc = inc["cmdb_ci"]
+    line = "Request failed with status code 503 (api.fastship.example)"
+    return {
+        "logs.search": logs(at, svc, [line] * rnd.randint(4, 9)),
+        "metrics.query": _loop(svc, 0.03),
+    }
+
+
+def c_deploy(
+    inc: dict[str, Any], at: datetime, rnd: random.Random, changes: dict[str, Any]
+) -> World:
+    return deploy(inc, at, rnd, changes, namespace=C_NAMESPACE)
+
+
+BUILDERS_C: dict[str, Callable[..., World]] = {
+    "mongo-missing-index": c_missing_index,
+    "tracking-backlog": c_backlog,
+    "event-loop-blocked": c_event_loop,
+    "node-heap-oom": c_heap,
+    "bad-deploy": c_deploy,
+    "carrier-outage": c_upstream,
+    "mongo-pool": c_pool,
+    "rabbit-memory-alarm": c_memory_alarm,
+    # noise: access requests leave no evidence.
+}
+
+
+BY_SYSTEM = {"system-a": BUILDERS, "system-c": BUILDERS_C}
+_NEED_CHANGES = (deploy, c_deploy)
+
+
 def generate(system: Path = SYSTEM, out: Path | None = None) -> int:
     """Write ``<out>`` (default ``<system>/sources/evidence``) from the system's history."""
     sn = system / "sources" / "servicenow"
@@ -298,14 +454,14 @@ def generate(system: Path = SYSTEM, out: Path | None = None) -> int:
     header = "# Generated by evals/onboarding/generate_evidence.py: edit the builders there.\n"
     kept = 0
     for cls in truth:
-        build = BUILDERS.get(cls["id"])
+        build = BY_SYSTEM.get(system.name, {}).get(cls["id"])
         for number in cls["incidents"] if build else ():
             inc = incidents[number]
             rnd = random.Random(f"evidence-{number}")  # noqa: S311 — fixtures, not secrets
             if rnd.random() < UNCAPTURED:
                 continue
             at = datetime.fromisoformat(inc["opened_at"]).replace(tzinfo=UTC)
-            world = build(inc, at, rnd, changes) if build is deploy else build(inc, at, rnd)
+            world = build(inc, at, rnd, changes) if build in _NEED_CHANGES else build(inc, at, rnd)
             body = {"incident": number, "captured_at": inc["opened_at"], "world": world}
             (out / f"{number}.yaml").write_text(
                 header + yaml.safe_dump(body, sort_keys=False, width=110)
@@ -315,4 +471,5 @@ def generate(system: Path = SYSTEM, out: Path | None = None) -> int:
 
 
 if __name__ == "__main__":
-    print(f"system-a: evidence for {generate()} incidents")
+    for name in BY_SYSTEM:
+        print(f"{name}: evidence for {generate(ROOT / name)} incidents")

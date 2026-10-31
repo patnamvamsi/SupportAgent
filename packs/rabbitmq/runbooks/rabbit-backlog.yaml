@@ -1,0 +1,18 @@
+# Work carried by messages is late. A broker memory alarm is checked first:
+# it blocks every publisher, so no queue grows and nothing moves. Then a
+# queue that grows because its consumers are gone or too slow.
+id: runbook:rabbit-backlog
+applies_when: {classification: messaging/backlog}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: memory-alarm
+    hypothesis: rabbitmq_memory_alarm
+    tool: rabbitmq.queues
+    args: {service: "$service.name"}
+    check: "result.alarms.exists(a, a == 'memory')"
+    stop_if: true
+  - id: backlog
+    hypothesis: rabbitmq_queue_backlog
+    tool: rabbitmq.queues
+    args: {service: "$service.name"}
+    check: "result.queues.exists(q, q.messages >= 10000 && (q.consumers == 0 || double(q.deliver_rate) < double(q.publish_rate)))"

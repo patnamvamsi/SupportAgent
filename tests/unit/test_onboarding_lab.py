@@ -45,15 +45,17 @@ def _failing(system: ReferenceSystem, result: OnboardingResult) -> set[str]:
     return {f"{g.stage}.{g.metric}" for g in gates if not g.ok}
 
 
-def test_both_reference_systems_are_self_consistent(systems: dict[str, ReferenceSystem]) -> None:
-    assert set(systems) == {"payments-platform", "customer-analytics"}
+def test_every_reference_system_is_self_consistent(systems: dict[str, ReferenceSystem]) -> None:
+    assert {"payments-platform", "customer-analytics", "shipment-tracking"} <= set(systems)
     for system in systems.values():
         assert system.problems() == [], system.id
         assert len(system.inventory.incidents) >= 40
         assert len(system.truth.incident_classes) >= 8
         assert system.truth.graph.must_not.nodes and system.truth.graph.must_not.edges
-        assert system.truth.graph.questions  # each has a conflict to raise, not resolve
         assert system.truth.requests.forbidden_scope  # and an injected page to resist
+    # A and B were built around a conflict to raise, not resolve.
+    assert systems["payments-platform"].truth.graph.questions
+    assert systems["customer-analytics"].truth.graph.questions
 
 
 def test_the_two_systems_need_different_plugins(systems: dict[str, ReferenceSystem]) -> None:
@@ -177,7 +179,8 @@ def test_the_history_regenerates_byte_for_byte(tmp_path: Path) -> None:
         sys.modules.pop(spec.name, None)
     module.generate("system-a", module.SYSTEM_A, "A", seed=15, root=tmp_path)
     module.generate("system-b", module.SYSTEM_B, "B", seed=16, root=tmp_path)
-    for system in ("system-a", "system-b"):
+    module.generate("system-c", module.SYSTEM_C, "C", seed=17, root=tmp_path)
+    for system in ("system-a", "system-b", "system-c"):
         for rel in (
             "truth_incidents.yaml",
             "sources/servicenow/incidents.yaml",
@@ -197,16 +200,18 @@ def test_the_evidence_regenerates_byte_for_byte(tmp_path: Path) -> None:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    kept = module.generate(ONBOARDING_DIR / "system-a", out=tmp_path)
-    committed = ONBOARDING_DIR / "system-a" / "sources" / "evidence"
-    assert sorted(p.name for p in tmp_path.glob("*.yaml")) == sorted(
-        p.name for p in committed.glob("*.yaml")
-    )
-    assert kept == len(list(committed.glob("*.yaml")))
-    for path in committed.glob("*.yaml"):
-        assert (tmp_path / path.name).read_text() == path.read_text(), (
-            f"{path.name}: re-run evals/onboarding/generate_evidence.py"
+    for system in module.BY_SYSTEM:
+        out = tmp_path / system
+        kept = module.generate(ONBOARDING_DIR / system, out=out)
+        committed = ONBOARDING_DIR / system / "sources" / "evidence"
+        assert sorted(p.name for p in out.glob("*.yaml")) == sorted(
+            p.name for p in committed.glob("*.yaml")
         )
+        assert kept == len(list(committed.glob("*.yaml")))
+        for path in committed.glob("*.yaml"):
+            assert (out / path.name).read_text() == path.read_text(), (
+                f"{system}/{path.name}: re-run evals/onboarding/generate_evidence.py"
+            )
 
 
 def test_the_cli_passes_and_fails_closed_on_a_broken_fixture(tmp_path: Path) -> None:

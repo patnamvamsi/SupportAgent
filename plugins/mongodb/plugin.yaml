@@ -1,0 +1,68 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml. ADR-0016: data only.
+# Its evidence is served by a MongoDB MCP server (read-only tools); the core
+# knows the capabilities from the schemas declared here.
+id: mongodb
+version: 0.1.0
+description: MongoDB under an application (slow and unindexed queries, the driver's connection pool, elections).
+core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/mongodb/evals)
+provides:
+  pack: mongodb
+  labels: []
+  causes:
+    - {id: mongodb/missing_index, description: "A query scans a whole collection (COLLSCAN) because no index serves it; it gets slower as the collection grows. Adding the index fixes it."}
+    - {id: mongodb/connection_pool_exhausted, description: "The driver's connection pool has no free connection; operations wait in its queue and time out (MongoWaitQueueTimeoutError)."}
+    - {id: mongodb/primary_election, description: "The replica set loses its primary and elects another; writes fail until the driver finds the new one (NotWritablePrimary)."}
+  capabilities:
+    mongodb.slow_ops:
+      description: Operations slower than the profiler threshold, with their plans
+      result_schema:
+        type: object
+        required: [database, ops, max_ms, collscans]
+        properties:
+          database: {type: string}
+          ops:
+            type: array
+            items:
+              type: object
+              required: [ns, op, ms, plan]
+              properties: {ns: {type: string}, op: {type: string}, ms: {type: number}, plan: {type: string}}
+          max_ms: {type: number}
+          collscans: {type: integer}
+    mongodb.replset:
+      description: Replica set members and the last election
+      result_schema:
+        type: object
+        required: [database, primary, members, elections_last_hour]
+        properties:
+          database: {type: string}
+          primary: {type: ["string", "null"]}
+          members: {type: array}
+          elections_last_hour: {type: integer}
+  backends:
+    - {capability: "mongodb.*", mcp: {image: "ghcr.io/acme/mongodb-mcp:0.3", tools: [slow_ops, replset]}, access: mongodb_ro}
+  needs: [logs.search]
+  extractors:
+    - match: "**/config/*.json"
+      format: json
+      rules:
+        - key: "(?i)mongo\\w*\\.uri$"
+          value: "mongodb(?:\\+srv)?://[^/]+/(?P<name>[A-Za-z0-9_-]+)"
+          node: {id: "database:{name}", kind: Database, tech: [mongodb]}
+          edge: uses
+    - match: "cmdb:u_cmdb_ci_mongodb_database"
+      node: {id: "database:{name}", kind: Database, tech: [mongodb]}
+requires:
+  mongodb_ro:
+    description: A read-only monitoring user on each database.
+    grant: "Built-in roles clusterMonitor and read, on the target database only"
+    target: Database
+    verify_can: ["db.currentOp()", "db.system.profile.find()"]
+    verify_cannot: [insert, update, createIndex, dropDatabase]
+    find: {graph: Database, tech: mongodb}
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/package.json", contains: "\"mongoose\"|\"mongodb\"", weight: 1.0}
+    - {cmdb_class: u_cmdb_ci_mongodb_database, weight: 1.0}
+    - {incidents: "Mongo\\w*Error|COLLSCAN|MongoDB", min_share: 0.05, weight: 0.5}

@@ -1,0 +1,15 @@
+# RabbitMQ (ADR-0015 §2, ADR-0016): the rabbitmq plugin's knowledge.
+# rabbitmq.queues comes from the plugin's MCP server (a declared schema); the
+# deployment's binding fixes which broker it reads.
+id: rabbitmq
+version: 0.1.0
+description: RabbitMQ brokers and queues (backlogs, missing consumers, memory alarms).
+applies_to:
+  stack: [rabbitmq]
+plan_order: 20
+taxonomy: taxonomy.yaml
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [rabbitmq.queues]
+evals: evals/

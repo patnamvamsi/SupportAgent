@@ -1,0 +1,14 @@
+{
+  "port": 8080,
+  "mongo": {
+    "uri": "mongodb+srv://shipments_app@shipments-rs.acme.internal/shipmentsdb"
+  },
+  "amqp": {
+    "publish": {
+      "events": "shipment-events"
+    }
+  },
+  "carrierAdapter": {
+    "url": "http://carrier-adapter.logistics.svc:8080"
+  }
+}

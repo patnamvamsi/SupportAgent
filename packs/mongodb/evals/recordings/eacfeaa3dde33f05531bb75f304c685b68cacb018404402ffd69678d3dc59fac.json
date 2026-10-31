@@ -1,0 +1,1 @@
+{"latency_ms": 7905, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"Order saving failed with database errors for about one minute, causing transactions to fail outright.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 635, "tokens_out": 372}

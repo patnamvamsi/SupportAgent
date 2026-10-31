@@ -1,0 +1,1 @@
+{"latency_ms": 11750, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"All bookings are failing because the carrier adapter receives 503 responses from the external FastShip API, indicating an upstream service outage.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 684, "tokens_out": 570}

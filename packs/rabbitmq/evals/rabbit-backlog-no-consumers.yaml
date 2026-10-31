@@ -1,0 +1,42 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: rabbit-backlog-no-consumers
+pack: rabbitmq
+split: tune
+description: The consumers crashed overnight; the queue grows with nobody reading it.
+incident:
+  subject: Order events delayed
+  priority: '2'
+  body: Downstream systems see order events hours late.
+service:
+  name: events-worker
+  stack:
+  - nodejs
+  - amqplib
+  - rabbitmq
+world:
+  rabbitmq.queues:
+    result:
+      broker: orders-mq
+      queues:
+      - name: order-events
+        messages: 380000
+        consumers: 0
+        publish_rate: 55.0
+        deliver_rate: 0.0
+      - name: audit
+        messages: 120
+        consumers: 2
+        publish_rate: 3.0
+        deliver_rate: 3.0
+      max_messages: 380000
+      alarms: []
+truth:
+  classification: messaging/backlog
+  severity: P2
+  root_cause: rabbitmq_queue_backlog
+  verdict: SUPPORTED
+  must_cite:
+  - rabbitmq.queues
+  must_not_claim:
+  - rabbitmq_memory_alarm
+why: 380k messages and no consumer on order-events; the broker has no alarm.

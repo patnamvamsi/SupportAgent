@@ -56,9 +56,9 @@ e2e() { uv run pytest -m e2e "${NET[@]}"; }
 evals() {
   uv run supportagent eval run --suite smoke &&
     uv run supportagent eval lab --pack common --config evals/lab/lab.yaml --split all &&
-    uv run supportagent eval lab --pack python-postgres --config evals/lab/lab.yaml --split all &&
-    for pack in oracle java-spring kubernetes; do
-      uv run supportagent eval lab --pack "$pack" --config evals/lab/lab.yaml --split all || return 1
+    for evals in packs/*/evals; do  # every pack with a lab (ADR-0016: a new plugin's pack is data)
+      uv run supportagent eval lab --pack "$(basename "$(dirname "$evals")")" \
+        --config evals/lab/lab.yaml --split all || return 1
     done &&
     if [ -d evals/entail ]; then uv run supportagent eval entail --config evals/lab/lab.yaml; fi &&
     if [ -d evals/onboarding ]; then uv run supportagent eval onboarding; fi

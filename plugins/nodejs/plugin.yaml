@@ -1,0 +1,34 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml. ADR-0016: data only.
+id: nodejs
+version: 0.1.0
+description: Node.js services and workers (Express, the event loop, V8 heap, outbound HTTP).
+core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/nodejs/evals)
+provides:
+  pack: nodejs
+  causes:
+    - {id: node/event_loop_blocked, description: "Synchronous work (a large JSON parse, a sync crypto or fs call) blocks the Node.js event loop; every request on the process waits and times out."}
+    - {id: node/heap_oom, description: "The V8 heap reaches its limit (JavaScript heap out of memory) and the process dies and restarts."}
+  needs: [logs.search, metrics.query, k8s.pod_status]
+  extractors:
+    # The repository's component: a package.json name, with what it runs on.
+    - match: "**/package.json"
+      format: json
+      rules:
+        - {key: "^name$", own: true, node: {id: "service:{name}", kind: Service, tech: [nodejs]}}
+        - {key: "^dependencies\\.express$", value: ".", tech: [express]}
+        - {key: "^dependencies\\.amqplib$", value: ".", tech: [amqplib]}
+    # Its config: the services it calls and the third parties it depends on.
+    - match: "**/config/*.json"
+      format: json
+      rules:
+        - {key: "(?i)url$", value: "^https?://(?P<name>[a-z0-9-]+)\\.[a-z0-9-]+\\.svc", edge: calls, to: "service:{name}"}
+        - key: "(?i)(baseurl|base_url|endpoint)$"
+          value: "^https://api\\.(?P<name>[a-z0-9-]+)\\.(?:com|net|io|example)"
+          node: {id: "external:{name}", kind: External}
+          edge: depends_on
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/package.json", contains: "\"express\"|\"engines\"\\s*:\\s*\\{\\s*\"node\"", weight: 1.0}
+    - {incidents: "JavaScript heap|event loop|ETIMEDOUT|ECONNRESET|UnhandledPromiseRejection", min_share: 0.05, weight: 0.5}

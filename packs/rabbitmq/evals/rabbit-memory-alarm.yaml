@@ -1,0 +1,38 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: rabbit-memory-alarm
+pack: rabbitmq
+split: tune
+description: The broker hits its memory watermark and blocks every publisher.
+incident:
+  subject: Order events not flowing
+  priority: '1'
+  body: No order events since 13:20; publishers report blocked connections.
+service:
+  name: events-worker
+  stack:
+  - nodejs
+  - amqplib
+  - rabbitmq
+world:
+  rabbitmq.queues:
+    result:
+      broker: orders-mq
+      queues:
+      - name: order-events
+        messages: 2100
+        consumers: 4
+        publish_rate: 0.0
+        deliver_rate: 0.0
+      max_messages: 2100
+      alarms:
+      - memory
+truth:
+  classification: messaging/backlog
+  severity: P1
+  root_cause: rabbitmq_memory_alarm
+  verdict: SUPPORTED
+  must_cite:
+  - rabbitmq.queues
+  must_not_claim:
+  - rabbitmq_queue_backlog
+why: The memory alarm is up; nothing is published, so no queue grows.
