@@ -1,0 +1,45 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: jvm-gc-pauses
+pack: java-spring
+split: tune
+description: Old-generation collections stall the service for seconds; it never runs out of heap.
+incident:
+  subject: orders-api stalls under load
+  priority: '3'
+  body: Requests stall for several seconds at a time; no restarts; heap stays below its maximum.
+service:
+  name: orders-api
+  stack:
+  - java
+  - spring-boot
+  repos:
+  - github:acme/orders
+world:
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+  metrics.query:
+    result:
+      query: max(rate(jvm_gc_pause_seconds_sum{service="orders-api"}[5m]))
+      series:
+      - labels: {}
+        value: 0.72
+      count: 1
+      max_value: 0.72
+truth:
+  classification: app/memory
+  also_acceptable:
+  - request/capacity
+  - network/latency
+  - database/latency
+  severity: P3
+  root_cause: jvm_gc_pauses
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - jvm_heap_exhaustion
+why: '72% of each interval goes to GC pauses, with no OutOfMemoryError: pauses, not exhaustion.'

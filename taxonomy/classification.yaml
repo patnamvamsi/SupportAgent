@@ -1,9 +1,9 @@
-# Classification taxonomy v1.0.0 (ARCH §12, 06 §3).
+# Classification taxonomy v1.1.0 (ARCH §12, 06 §3).
 # Labels are <domain>/<signal>, pattern ^[a-z0-9_]+/[a-z0-9_]+$ (01 §4 TriageResult).
 # Versioning (06 §3): adding a label = MINOR; rename/remove = MAJOR; description fix = PATCH.
 # v0.0 seed: >= 12 labels across the database, deploy, network, batch, auth, request
 # domains (WP-002).
-version: 1.0.0
+version: 1.1.0
 labels:
   - id: database/saturation
     description: >-
@@ -45,3 +45,12 @@ labels:
   - id: request/capacity
     description: >-
       Throttling, rate limits, or autoscaler limits are shedding or rejecting requests.
+  # v1.1.0 (WP-O6a): two app-layer labels every stack has, moved from python-postgres.
+  - id: app/memory
+    description: >-
+      The service runs out of memory: OOMKilled pods, OutOfMemoryError or MemoryError,
+      restarts that grow with uptime (a leak) or with load.
+  - id: app/config
+    description: >-
+      The service fails to start or misbehaves because of configuration: a bad
+      environment variable, secret or setting, usually right after a rollout.

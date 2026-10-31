@@ -1,0 +1,1 @@
+{"latency_ms": 15204, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"catalog-api 5xx errors increased from 0.1% to 8% minutes after the 07:46 release, indicating a deployment-related failure.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 653, "tokens_out": 772}

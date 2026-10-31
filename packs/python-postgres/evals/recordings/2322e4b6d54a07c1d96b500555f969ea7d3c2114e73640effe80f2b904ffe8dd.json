@@ -1,0 +1,1 @@
+{"latency_ms": 6092, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api is experiencing intermittent WORKER TIMEOUT events on web workers, causing periodic request failures without an obvious pattern.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1022, "tokens_out": 311}

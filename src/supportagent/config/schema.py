@@ -365,7 +365,8 @@ class ToolOnCall(DomainModel):
 
 
 class ToolPostgresDatabase(DomainModel):
-    """One read-only connection (WP-M04): a role with SELECT on the ``pg_stat_*`` views."""
+    """One read-only connection (WP-M04): a role with SELECT on the ``pg_stat_*`` views
+    (Postgres) or the oracle plugin's ``oracle_ro`` grant (Oracle, WP-O6a)."""
 
     dsn: SecretStr
 
@@ -375,6 +376,16 @@ class ToolPostgres(DomainModel):
 
     databases: dict[str, ToolPostgresDatabase] = Field(min_length=1)
     statement_timeout_ms: int = Field(default=5000, ge=100, le=60000)
+
+
+class ToolOracle(DomainModel):
+    """``oracle.*`` (WP-O6a): catalog ``databases:`` names map to these connections.
+
+    Each DSN is the oracle plugin's ``oracle_ro`` account (``user/password@host/service``).
+    """
+
+    databases: dict[str, ToolPostgresDatabase] = Field(min_length=1)
+    call_timeout_ms: int = Field(default=5000, ge=100, le=60000)
 
 
 class ToolPrometheus(DomainModel):
@@ -472,6 +483,8 @@ class Tools(DomainModel):
     oncall: ToolOnCall | None = None
     #: WP-M04: the python-postgres pack's tools.
     postgres: ToolPostgres | None = None
+    #: WP-O6a: the oracle plugin's tools.
+    oracle: ToolOracle | None = None
     prometheus: ToolPrometheus | None = None
     #: BL-050: ``logs.search`` over Loki.
     loki: ToolLoki | None = None

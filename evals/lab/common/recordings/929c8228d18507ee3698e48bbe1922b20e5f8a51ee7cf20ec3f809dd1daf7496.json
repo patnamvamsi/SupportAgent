@@ -1,0 +1,1 @@
+{"latency_ms": 6687, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The nightly sync batch completed but produced no rows, leaving downstream reports empty.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 639, "tokens_out": 366}

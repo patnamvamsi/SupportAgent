@@ -49,6 +49,8 @@ class Pack:
     tools: tuple[str, ...] = ()
     fragments: Mapping[SlotName, str] = field(default_factory=dict)
     placeholder: bool = False
+    #: WP-O6a: the order matching stack-pack runbooks merge in (lowest first).
+    plan_order: int = 50
     #: Where the pack's lab scenarios live (WP-M02); ``None``: not evaluated.
     evals: str | None = None
     #: WP-M08: the knowledge spaces the pack's cases may read.

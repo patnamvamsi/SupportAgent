@@ -1,0 +1,1 @@
+{"latency_ms": 5149, "raw_text": "{\"classification\":\"app/worker_timeout\",\"severity\":\"P1\",\"summary\":\"checkout-api is experiencing gunicorn WORKER TIMEOUT errors on /orders/history with elevated p95 latency following the 04:00 release.\",\"confidence\":0.9}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1041, "tokens_out": 300}

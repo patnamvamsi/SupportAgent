@@ -1,0 +1,5 @@
+# One hypothesis per kubernetes plugin cause (`k8s/<cause>` -> `k8s_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: k8s_node_pressure
+  - id: k8s_image_pull_failure

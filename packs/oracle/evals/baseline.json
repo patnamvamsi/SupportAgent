@@ -1,0 +1,14 @@
+{
+  "cases": {
+    "ora-blocking-chain": true,
+    "ora-deadlock-retries": true,
+    "ora-latency-no-cause": true,
+    "ora-listener-down": true,
+    "ora-plan-regression": true,
+    "ora-tablespace-full": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "oracle",
+  "samples": 1,
+  "v": 1
+}

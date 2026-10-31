@@ -1,0 +1,1 @@
+{"latency_ms": 9203, "raw_text": "{\"classification\":\"request/capacity\",\"severity\":\"P2\",\"summary\":\"orders-api is stalling for seconds under load without restarts or memory exhaustion, suggesting capacity or resource saturation rather than an outage or memory issue.\",\"confidence\":0.55}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 643, "tokens_out": 452}

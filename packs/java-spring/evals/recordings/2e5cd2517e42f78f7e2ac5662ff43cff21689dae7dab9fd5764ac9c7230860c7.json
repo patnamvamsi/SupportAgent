@@ -1,0 +1,1 @@
+{"latency_ms": 3922, "raw_text": "{\"classification\":\"app/memory\",\"severity\":\"P3\",\"summary\":\"orders-api triggered a memory usage alert at 85% without reported service failure.\",\"confidence\":0.72}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 185}

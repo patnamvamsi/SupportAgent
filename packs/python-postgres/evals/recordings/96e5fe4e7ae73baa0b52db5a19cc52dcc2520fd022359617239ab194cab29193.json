@@ -1,0 +1,1 @@
+{"latency_ms": 5660, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout is failing with HTTPS connection errors to the payments upstream, indicating lost connectivity or an upstream outage.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1014, "tokens_out": 271}

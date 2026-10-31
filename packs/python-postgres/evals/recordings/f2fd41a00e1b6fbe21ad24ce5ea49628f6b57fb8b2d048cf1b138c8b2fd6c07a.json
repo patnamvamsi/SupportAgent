@@ -1,0 +1,1 @@
+{"latency_ms": 2893, "raw_text": "{\"classification\":\"database/failure\",\"severity\":\"P1\",\"summary\":\"Orders writes are failing with DiskFull errors on orders-db while reads continue to work, indicating a production database storage failure.\",\"confidence\":0.99}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1053, "tokens_out": 160}

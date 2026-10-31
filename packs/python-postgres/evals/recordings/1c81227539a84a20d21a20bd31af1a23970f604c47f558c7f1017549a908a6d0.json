@@ -1,1 +1,0 @@
-{"latency_ms": 6143, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Orders write requests are hanging and timing out with 504s, likely due to slow database write latency.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1010, "tokens_out": 361}

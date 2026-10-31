@@ -1,0 +1,64 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-plan-regression
+pack: oracle
+split: tune
+description: One statement flips to a full scan after a statistics refresh; nothing else changed.
+incident:
+  subject: Account search slow
+  priority: '3'
+  body: p99 of account search went from 150ms to 7s this morning; nothing was deployed.
+service:
+  name: ledger-api
+  stack:
+  - java
+  - spring-boot
+  - oracle
+  databases:
+  - ledgerdb
+  repos:
+  - github:acme/ledger
+world:
+  oracle.top_sql:
+    result:
+      database: ledgerdb
+      statements:
+      - sql_id: 3k9dq0vbn2x7p
+        plans: 2
+        mean_ms: 6900.0
+        previous_mean_ms: 140.0
+        plan_changed: true
+        slowdown: 49.286
+      - sql_id: 2x7mfk1pq9d0c
+        plans: 1
+        mean_ms: 41.0
+        previous_mean_ms: null
+        plan_changed: false
+        slowdown: 1.0
+      max_slowdown: 49.286
+  oracle.locks:
+    result:
+      database: ledgerdb
+      blocked: 1
+      blockers:
+      - sid: 77
+        blocking: 1
+        status: ACTIVE
+        sql_id: null
+        event: 'enq: TX - row lock contention'
+        wait_s: 2.0
+  logs.search:
+    result:
+      query: '{service="ledger-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+truth:
+  classification: database/latency
+  severity: P3
+  root_cause: oracle_plan_regression
+  verdict: SUPPORTED
+  must_cite:
+  - oracle.top_sql
+  must_not_claim:
+  - oracle_lock_contention
+why: 3k9dq0vbn2x7p runs 49x slower on its new plan; the one 2-second lock wait is ordinary traffic.

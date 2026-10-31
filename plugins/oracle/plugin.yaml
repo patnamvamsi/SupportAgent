@@ -1,9 +1,11 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: oracle
-version: 0.1.0
+version: 0.2.0
 description: Oracle Database (locks and deadlocks, tablespaces, ORA- errors, plan regressions).
 core_api: ">=1.0,<2"
+status: evaluated   # WP-O6a: its pack passes its lab (packs/oracle/evals)
 provides:
+  pack: oracle   # WP-O6a: hypotheses, probes, runbooks and its lab (packs/oracle)
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: oracle/lock_contention, description: "Sessions block each other on row locks or deadlock (ORA-00060, enq: TX - row lock contention); a DBA kills the blocking session."}
     - {id: oracle/tablespace_full, description: "A tablespace or datafile is full, so writes fail (ORA-01653, ORA-01654); adding a datafile fixes it."}

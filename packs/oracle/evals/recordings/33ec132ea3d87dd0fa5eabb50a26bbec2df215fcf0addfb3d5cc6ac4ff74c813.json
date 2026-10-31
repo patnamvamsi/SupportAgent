@@ -1,0 +1,1 @@
+{"latency_ms": 21919, "raw_text": "{\"classification\":\"database/saturation\",\"severity\":\"P2\",\"summary\":\"Statement batch write step failed with ORA-01653 unable to extend table, indicating database tablespace/disk saturation.\",\"confidence\":0.78}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 650, "tokens_out": 1098}

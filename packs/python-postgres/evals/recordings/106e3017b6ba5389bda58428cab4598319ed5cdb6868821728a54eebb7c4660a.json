@@ -1,1 +1,0 @@
-{"latency_ms": 3720, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Customers are seeing stale order statuses after successful payments, consistent with lagging database reads or a replication delay.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 220}

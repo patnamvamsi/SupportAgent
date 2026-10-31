@@ -245,6 +245,8 @@ class Knowledge:
     packs: PackSet | None = None
     #: WP-M08: the knowledge spaces the case's active packs may read.
     doc_spaces: frozenset[str] = frozenset()
+    #: Runbook ids of the case's stack packs (set by ``for_case``).
+    specific: frozenset[str] = frozenset()
 
     @property
     def hypothesis_ids(self) -> list[str]:
@@ -257,12 +259,15 @@ class Knowledge:
         active = self.packs.active(case.service.stack if case.service is not None else ())
         hypotheses = self.packs.hypothesis_ids(active)
         runbook_ids = self.packs.runbook_ids(active)
-        # The most specific runbook wins: a stack pack's before common's (ADR-0011).
+        # The most specific runbook wins: a stack pack's before common's (ADR-0011),
+        # stack packs in plan order (WP-O6a; ``match`` merges theirs).
         specific = self.packs.runbook_ids([p for p in active if not p.always])
+        order = {r: p.plan_order for p in active for r in p.runbook_ids}
         scoped = [(r, c) for r, c in self.runbooks if r.id in runbook_ids]
-        scoped.sort(key=lambda rc: rc[0].id not in specific)
+        scoped.sort(key=lambda rc: (rc[0].id not in specific, order.get(rc[0].id, 50)))
         return Knowledge(
             runbooks=scoped,
+            specific=specific,
             probes={h: p for h, p in self.probes.items() if h in hypotheses},
             excludes={
                 h: [x for x in excl if x in hypotheses]
@@ -273,16 +278,59 @@ class Knowledge:
         )
 
     def match(self, case: RcaCase) -> tuple[Runbook, Mapping[str, CompiledCheck]] | None:
+        """The case's runbook. Several stack packs' matches merge, in plan order (WP-O6a)."""
         label = case.classification
         if label is None:
             return None
-        for runbook, checks in self.runbooks:
-            want = runbook.applies_when.classification
-            if (label == want or label.startswith(want + "/")) and (
-                case.severity in runbook.applies_when.severities
-            ):
-                return runbook, checks
-        return None
+        found = [
+            (runbook, checks)
+            for runbook, checks in self.runbooks
+            if (
+                label == runbook.applies_when.classification
+                or label.startswith(runbook.applies_when.classification + "/")
+            )
+            and case.severity in runbook.applies_when.severities
+        ]
+        if not found:
+            return None
+        if found[0][0].id not in self.specific:
+            return found[0]
+        return _merged([rc for rc in found if rc[0].id in self.specific])
+
+
+def _merged(
+    found: Sequence[tuple[Runbook, Mapping[str, CompiledCheck]]],
+) -> tuple[Runbook, Mapping[str, CompiledCheck]]:
+    """One plan from several stack packs' runbooks: their steps in order, the widest budget.
+
+    A step id another runbook already used gets the runbook's position as a suffix.
+    """
+    if len(found) == 1:
+        return found[0]
+    steps = []
+    checks: dict[str, CompiledCheck] = {}
+    for n, (runbook, compiled) in enumerate(found):
+        for step in runbook.steps:
+            sid = step.id if step.id not in checks else f"{step.id[:29]}-{n}"
+            steps.append(step.model_copy(update={"id": sid}))
+            checks[sid] = compiled[step.id]
+    first = found[0][0]
+    budget = first.budget.model_copy(
+        update={
+            field: max(getattr(r.budget, field) for r, _ in found)
+            for field in ("max_tool_calls", "max_tokens", "max_hypotheses")
+        }
+    )
+    comms = next((r.comms_if_supported for r, _ in found if r.comms_if_supported), None)
+    merged = first.model_copy(
+        update={
+            "id": "+".join(r.id for r, _ in found),
+            "steps": steps,
+            "budget": budget,
+            "comms_if_supported": comms,
+        }
+    )
+    return merged, checks
 
 
 class RcaService:

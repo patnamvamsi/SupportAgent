@@ -1,0 +1,22 @@
+# A Spring service runs out of memory. The JVM says so in its logs before it
+# dies (OutOfMemoryError); long GC pauses without one are a different cause.
+id: runbook:jvm-memory
+applies_when: {classification: app/memory}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: heap
+    hypothesis: jvm_heap_exhaustion
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "java.lang.OutOfMemoryError|GC overhead limit exceeded"'
+      service: "$service.name"
+      window_min: 120
+    check: 'result.matches.exists(m, m.line.contains("java.lang.OutOfMemoryError") || m.line.contains("GC overhead limit exceeded"))'
+    stop_if: true
+  - id: gc
+    hypothesis: jvm_gc_pauses
+    tool: metrics.query
+    args:
+      query: 'max(rate(jvm_gc_pause_seconds_sum{service="{{service}}"}[5m]))'
+      service: "$service.name"
+    check: 'result.query.contains("jvm_gc_pause") && double(result.max_value) > 0.5'

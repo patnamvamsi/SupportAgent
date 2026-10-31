@@ -1,0 +1,1 @@
+{"latency_ms": 8745, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P3\",\n  \"summary\": \"Transient checkout-api error-rate spike above 1% for two minutes that recovered, with insufficient detail to distinguish root cause.\",\n  \"confidence\": 0.45\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1014, "tokens_out": 418}

@@ -1,0 +1,32 @@
+# A Spring service sheds or stalls requests. A starved connection pool is
+# checked first, then every request thread busy (a slow call holds them), then
+# long GC pauses. Each metric check names
+# the series it reads, so an answer to another query can't satisfy it.
+id: runbook:jvm-capacity
+applies_when: {classification: request/capacity}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: hikari
+    hypothesis: jvm_connection_pool_exhaustion
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "HikariPool-[0-9]+ - Connection is not available"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("Connection is not available"))) >= 3'
+    stop_if: true
+  - id: threads
+    hypothesis: jvm_thread_pool_exhaustion
+    tool: metrics.query
+    args:
+      query: 'max(tomcat_threads_busy_threads{service="{{service}}"} / tomcat_threads_config_max_threads{service="{{service}}"})'
+      service: "$service.name"
+    check: 'result.query.contains("tomcat_threads") && double(result.max_value) >= 0.98'
+    stop_if: true
+  - id: gc
+    hypothesis: jvm_gc_pauses
+    tool: metrics.query
+    args:
+      query: 'max(rate(jvm_gc_pause_seconds_sum{service="{{service}}"}[5m]))'
+      service: "$service.name"
+    check: 'result.query.contains("jvm_gc_pause") && double(result.max_value) > 0.5'

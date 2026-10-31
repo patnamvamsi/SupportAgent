@@ -1,1 +1,0 @@
-{"latency_ms": 3830, "raw_text": "{\n  \"classification\": \"queue/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"Billing Celery tasks are accumulating in the queue, causing invoice delivery to be delayed by about 40 minutes.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 993, "tokens_out": 212}

@@ -1,0 +1,53 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: jvm-heap-export
+pack: java-spring
+split: tune
+description: The monthly export loads every order into memory; the heap fills and the service restarts.
+incident:
+  subject: orders-api restarting during export
+  priority: '2'
+  body: orders-api restarts every few minutes while the monthly export runs.
+service:
+  name: orders-api
+  stack:
+  - java
+  - spring-boot
+  repos:
+  - github:acme/orders
+world:
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 3
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'java.lang.OutOfMemoryError: Java heap space'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'Exception in thread "export-1" java.lang.OutOfMemoryError: Java heap space'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'java.lang.OutOfMemoryError: GC overhead limit exceeded'
+        labels:
+          service: orders-api
+  metrics.query:
+    result:
+      query: max(rate(jvm_gc_pause_seconds_sum{service="orders-api"}[5m]))
+      series:
+      - labels: {}
+        value: 0.34
+      count: 1
+      max_value: 0.34
+truth:
+  classification: app/memory
+  severity: P2
+  root_cause: jvm_heap_exhaustion
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+  must_not_claim:
+  - jvm_gc_pauses
+why: 'The JVM names the cause itself before each restart: Java heap space.'

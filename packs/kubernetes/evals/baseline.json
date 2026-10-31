@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "k8s-bad-rollout": true,
+    "k8s-image-pull": true,
+    "k8s-no-recent-rollout": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "kubernetes",
+  "samples": 1,
+  "v": 1
+}

@@ -1,1 +1,0 @@
-{"latency_ms": 3742, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P2\",\"summary\":\"Customers are seeing stale order status after successful payment, indicating a delayed or lagging write/read path in the database.\",\"confidence\":0.8}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 199}

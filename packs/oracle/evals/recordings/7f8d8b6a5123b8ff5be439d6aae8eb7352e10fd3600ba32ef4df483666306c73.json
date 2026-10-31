@@ -1,0 +1,1 @@
+{"latency_ms": 6591, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"Transfer requests are failing intermittently with Oracle ORA-00060 deadlock errors, indicating transaction failures in the database layer.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 655, "tokens_out": 303}

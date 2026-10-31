@@ -1,0 +1,1 @@
+{"latency_ms": 4531, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P3\",\n  \"summary\": \"orders-api triggered a memory usage alert at 85%, indicating possible memory pressure but no confirmed outage or OOM failure.\",\n  \"confidence\": 0.65\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 230}

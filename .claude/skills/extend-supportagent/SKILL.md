@@ -33,7 +33,7 @@ Always start with the scenario: reproduce the miss in the lab first. Then make t
 
 ### Pack manifest: `packs/<id>/pack.yaml` (`PackManifest`, strict: unknown keys fail)
 
-`id` (the directory name), `version` (semver), `description`, `applies_to` (`AppliesTo`) with `stack` (the catalog stack tags that select the pack), `placeholder`, `taxonomy`, `hypotheses`, `preclass`, `runbooks`, `probes`, `tools` (capability names), `prompts` (slot to fragment file, e.g. `classify`), `knowledge` (`KnowledgeScope`) with `spaces` and `labels`, and `evals` (the scenario directory).
+`id` (the directory name), `version` (semver), `description`, `applies_to` (`AppliesTo`) with `stack` (the catalog stack tags that select the pack), `placeholder`, `plan_order` (when several stack packs' runbooks match a case, their steps merge lowest first: a database pack before an application pack), `taxonomy`, `hypotheses`, `preclass`, `runbooks`, `probes`, `tools` (capability names), `prompts` (slot to fragment file, e.g. `classify`), `knowledge` (`KnowledgeScope`) with `spaces` and `labels`, and `evals` (the scenario directory).
 
 - **Labels** (`taxonomy.yaml`): ids are `<domain>/<name>`, unique across packs.
 - **Hypotheses** (`hypotheses.yaml`): ids are unique across packs; `excludes` names the ones that can't both explain an incident.
@@ -72,7 +72,7 @@ A Git doc can carry a procedure: `sop: {when: [<hypothesis ids>], steps: [{id, k
 
 ### Tool capabilities (one result schema each)
 
-The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.
+The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `oracle.locks`, `oracle.sessions`, `oracle.tablespaces`, `oracle.top_sql`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.
 
 - **A new first-party capability** (`tool new <area>.<verb>`) generates the adapter (with `result_schema`), its fake upstream, and a contract test. Engineering reviews and registers it.
 - **Binding an existing capability to MCP** (`tool new <capability> --mcp <server> --mcp-tool <tool>`) generates a config snippet:

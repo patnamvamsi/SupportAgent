@@ -1,1 +1,0 @@
-{"latency_ms": 4897, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"Checkout API is failing to acquire Postgres connections with 'too many clients already', indicating database connection saturation.\",\n  \"confidence\": 0.97\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1012, "tokens_out": 264}

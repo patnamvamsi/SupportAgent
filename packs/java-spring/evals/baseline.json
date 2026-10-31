@@ -1,0 +1,14 @@
+{
+  "cases": {
+    "jvm-gc-pauses": true,
+    "jvm-heap-export": true,
+    "jvm-hikari-long-query": true,
+    "jvm-memory-no-evidence": true,
+    "jvm-thread-pool-blocked": true,
+    "jvm-upstream-timeouts": false
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "java-spring",
+  "samples": 1,
+  "v": 1
+}

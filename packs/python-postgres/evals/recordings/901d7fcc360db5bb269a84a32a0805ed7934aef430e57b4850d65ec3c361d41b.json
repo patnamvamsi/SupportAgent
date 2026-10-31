@@ -1,0 +1,1 @@
+{"latency_ms": 6442, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P2\",\n  \"summary\": \"checkout-api is returning HTTP 429 because its rate limiter has been rejecting requests since 10:02, causing request shedding at the service edge.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1014, "tokens_out": 321}

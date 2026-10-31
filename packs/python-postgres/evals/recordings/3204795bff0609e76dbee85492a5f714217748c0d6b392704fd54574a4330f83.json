@@ -1,0 +1,1 @@
+{"latency_ms": 6331, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api is failing with Postgres connection exhaustion errors, indicating the database is rejecting new connections under load.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1017, "tokens_out": 299}

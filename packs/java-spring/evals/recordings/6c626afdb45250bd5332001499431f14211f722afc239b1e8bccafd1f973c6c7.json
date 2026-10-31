@@ -1,0 +1,1 @@
+{"latency_ms": 8754, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P2\",\n  \"summary\": \"orders-api is repeatedly restarting every few minutes during the monthly export, consistent with memory exhaustion or load-induced instability.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 637, "tokens_out": 391}

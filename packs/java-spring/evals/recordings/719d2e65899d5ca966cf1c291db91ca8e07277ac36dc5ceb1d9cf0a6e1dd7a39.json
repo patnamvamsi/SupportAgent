@@ -1,0 +1,1 @@
+{"latency_ms": 6807, "raw_text": "{\"classification\":\"auth/failure\",\"severity\":\"P1\",\"summary\":\"Card authorisations have been failing since 09:10, with the acquirer's status page showing degraded service.\",\"confidence\":0.65}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 646, "tokens_out": 315}

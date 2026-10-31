@@ -1,0 +1,1 @@
+{"latency_ms": 5479, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout cannot reach payments and is reporting a DNS name-resolution connection error, indicating an upstream network dependency is unavailable.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1007, "tokens_out": 268}

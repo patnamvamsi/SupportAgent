@@ -1,0 +1,1 @@
+{"latency_ms": 4483, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Account search p99 latency has regressed from 150ms to 7s this morning with no reported deployments or saturation.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 646, "tokens_out": 233}

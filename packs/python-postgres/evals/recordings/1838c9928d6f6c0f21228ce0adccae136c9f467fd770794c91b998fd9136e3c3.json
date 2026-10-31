@@ -1,1 +1,0 @@
-{"latency_ms": 6764, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout-api is experiencing gunicorn worker timeouts and elevated p95 latency on /orders/history since the 04:00 release.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1020, "tokens_out": 401}

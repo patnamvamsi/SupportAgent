@@ -1,0 +1,42 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: jvm-thread-pool-blocked
+pack: java-spring
+split: tune
+description: Every Tomcat worker waits on a slow downstream call; new requests queue at the edge.
+incident:
+  subject: checkout-api not accepting requests
+  priority: '2'
+  body: The load balancer times out on checkout-api; its instances are up but answer nothing.
+service:
+  name: checkout-api
+  stack:
+  - java
+  - spring-boot
+world:
+  metrics.query:
+    result:
+      query: max(tomcat_threads_busy_threads{service="checkout-api"} / tomcat_threads_config_max_threads{service="checkout-api"})
+      series:
+      - labels: {}
+        value: 1.0
+      count: 1
+      max_value: 1.0
+  logs.search:
+    result:
+      query: '{service="checkout-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+truth:
+  classification: request/capacity
+  also_acceptable:
+  - network/latency
+  - network/outage
+  severity: P2
+  root_cause: jvm_thread_pool_exhaustion
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - jvm_gc_pauses
+why: Every request thread is busy (200 of 200); nothing is left to accept the next request.

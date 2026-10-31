@@ -1,0 +1,80 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-latency-no-cause
+pack: oracle
+split: holdout
+description: Reports are a bit slower; a plan changed but isn't slower, and lock waits are short.
+incident:
+  subject: Ledger reports slower than usual
+  priority: '3'
+  body: Month-end reports take about 40s instead of the usual 25s.
+service:
+  name: ledger-api
+  stack:
+  - java
+  - spring-boot
+  - oracle
+  databases:
+  - ledgerdb
+  repos:
+  - github:acme/ledger
+world:
+  oracle.top_sql:
+    result:
+      database: ledgerdb
+      statements:
+      - sql_id: 9c1zr8w2kd4qa
+        plans: 2
+        mean_ms: 980.0
+        previous_mean_ms: 700.0
+        plan_changed: true
+        slowdown: 1.4
+      - sql_id: 2x7mfk1pq9d0c
+        plans: 1
+        mean_ms: 40.0
+        previous_mean_ms: null
+        plan_changed: false
+        slowdown: 1.0
+      max_slowdown: 1.4
+  oracle.locks:
+    result:
+      database: ledgerdb
+      blocked: 2
+      blockers:
+      - sid: 311
+        blocking: 2
+        status: ACTIVE
+        sql_id: 5h2k1m0p9q8rz
+        event: 'enq: TX - row lock contention'
+        wait_s: 4.0
+  logs.search:
+    result:
+      query: '{service="ledger-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+  oracle.tablespaces:
+    result:
+      database: ledgerdb
+      tablespaces:
+      - name: LEDGER_DATA
+        used_pct: 64.2
+      - name: USERS
+        used_pct: 12.5
+      max_used_pct: 64.2
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.41
+      count: 1
+      max_value: 0.41
+truth:
+  classification: database/latency
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - oracle_plan_regression
+  - oracle_lock_contention
+why: A 1.4x change on a new plan and 4-second waits are below what explains a slowdown; claiming either would be a false cause.

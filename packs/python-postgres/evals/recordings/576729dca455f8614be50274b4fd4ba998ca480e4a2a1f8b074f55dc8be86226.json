@@ -1,1 +1,0 @@
-{"latency_ms": 5090, "raw_text": "{\"classification\":\"app/memory\",\"severity\":\"P2\",\"summary\":\"checkout-api pods are repeatedly restarting with exit code 137, indicating likely OOMKilled memory exhaustion or a memory-related issue.\",\"confidence\":0.95}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 263}

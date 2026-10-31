@@ -1,0 +1,58 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: k8s-no-recent-rollout
+pack: kubernetes
+split: holdout
+description: Users blame yesterday's release, but nothing rolled out in the last three hours.
+incident:
+  subject: Errors since yesterday's catalog-api deploy?
+  priority: '3'
+  body: Some users report errors on the catalog pages; the last release was yesterday.
+service:
+  name: catalog-api
+  stack:
+  - java
+  - spring-boot
+  - kubernetes
+  k8s_namespace: shop
+  k8s_selector: app=catalog-api
+  repos:
+  - github:acme/catalog
+world:
+  changes.recent:
+    result:
+      window_min: 180
+      changes: []
+      count: 0
+  k8s.pod_status:
+    result:
+      namespace: shop
+      selector: app=catalog-api
+      pods:
+      - name: catalog-api-7d9f8c-a1
+        phase: Running
+        ready: true
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: null
+      - name: catalog-api-7d9f8c-b2
+        phase: Running
+        ready: true
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: null
+      restarts_total: 0
+      oomkilled: 0
+      not_ready: 0
+truth:
+  classification: deploy/failure
+  also_acceptable:
+  - request/access
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - recent_change_push
+  - k8s_image_pull_failure
+why: 'No rollout in the window and every pod is up: blaming the change would be a false cause.'

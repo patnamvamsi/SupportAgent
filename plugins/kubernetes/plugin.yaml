@@ -1,9 +1,11 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: kubernetes
-version: 0.1.0
+version: 0.2.0
 description: Workloads on Kubernetes (pod status, restarts, OOMKills, rollouts).
 core_api: ">=1.0,<2"
+status: evaluated   # WP-O6a: its pack passes its lab (packs/kubernetes/evals)
 provides:
+  pack: kubernetes   # WP-O6a: hypotheses, probes, runbooks and its lab (packs/kubernetes)
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: k8s/node_pressure, description: "A node ran out of memory or disk and evicted or killed pods regardless of their own limits."}
     - {id: k8s/image_pull_failure, description: "Pods can't start because their image can't be pulled (ImagePullBackOff)."}
@@ -12,6 +14,7 @@ provides:
     k8s.workloads: {description: "Deployments, CronJobs and rollout history in a namespace"}
   backends:
     - {capability: "k8s.*", first_party: kubernetes, access: k8s_ro}
+  needs: [changes.recent]   # rollouts, served with the github plugin's deploys
   extractors:
     - {match: "**/helm/**", extract: workload_namespace}
 requires:

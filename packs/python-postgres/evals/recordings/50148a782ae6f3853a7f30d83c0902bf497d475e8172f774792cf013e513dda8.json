@@ -1,1 +1,0 @@
-{"latency_ms": 5816, "raw_text": "{\"classification\":\"queue/backlog\",\"severity\":\"P2\",\"summary\":\"Celery billing queue is growing and invoice dispatch is delayed by about 40 minutes, indicating a task-queue backlog.\",\"confidence\":0.95}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 993, "tokens_out": 308}

@@ -1,0 +1,29 @@
+# Writes or connections to Oracle fail. A full tablespace (ORA-01653/01654)
+# is checked before an unreachable listener, then deadlocks (ORA-00060), which
+# fail the losing transaction and leave only the application's log lines.
+id: runbook:oracle-failure
+applies_when: {classification: database/failure}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: tablespace
+    hypothesis: oracle_tablespace_full
+    tool: oracle.tablespaces
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_used_pct) >= 97.0"
+    stop_if: true
+  - id: listener
+    hypothesis: oracle_listener_down
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ORA-12541|ORA-12514|ORA-12170|ORA-03113"'
+      service: "$service.name"
+      window_min: 60
+    check: 'result.matches.exists(m, m.line.contains("ORA-12541") || m.line.contains("ORA-12514") || m.line.contains("ORA-12170") || m.line.contains("ORA-03113"))'
+  - id: deadlocks
+    hypothesis: oracle_lock_contention
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ORA-00060"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("ORA-00060"))) >= 3'

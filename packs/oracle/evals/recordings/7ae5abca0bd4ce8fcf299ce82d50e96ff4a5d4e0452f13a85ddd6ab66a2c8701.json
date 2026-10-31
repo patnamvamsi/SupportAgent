@@ -1,0 +1,1 @@
+{"latency_ms": 2701, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"ledger-api requests are failing because it cannot reach its database and is receiving database connection errors.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 152}

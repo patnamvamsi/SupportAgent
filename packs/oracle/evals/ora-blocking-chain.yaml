@@ -1,0 +1,86 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-blocking-chain
+pack: oracle
+split: tune
+description: A stuck posting holds row locks; every posting queues and the pool runs dry.
+incident:
+  subject: Ledger postings timing out
+  priority: '2'
+  body: POST /postings p99 above 25s since 07:05; the gateway times out and retries pile up.
+service:
+  name: ledger-api
+  stack:
+  - java
+  - spring-boot
+  - oracle
+  databases:
+  - ledgerdb
+  repos:
+  - github:acme/ledger
+world:
+  oracle.locks:
+    result:
+      database: ledgerdb
+      blocked: 27
+      blockers:
+      - sid: 1402
+        blocking: 27
+        status: INACTIVE
+        sql_id: 8fz1kq2mx0a1b
+        event: 'enq: TX - row lock contention'
+        wait_s: 912.0
+  oracle.sessions:
+    result:
+      database: ledgerdb
+      total: 310
+      active: 42
+      blocked: 27
+      top_waits:
+      - event: 'enq: TX - row lock contention'
+        sessions: 27
+  logs.search:
+    result:
+      query: '{service="ledger-api"}'
+      window_min: 60
+      count: 5
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:13:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:14:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.62
+      count: 1
+      max_value: 0.62
+truth:
+  classification: database/saturation
+  also_acceptable:
+  - database/latency
+  severity: P2
+  root_cause: oracle_lock_contention
+  verdict: SUPPORTED
+  must_cite:
+  - oracle.locks
+  must_not_claim:
+  - jvm_connection_pool_exhaustion
+why: 27 sessions wait 15 minutes on one idle blocker; the Hikari timeouts are what that does to the pool, not the cause.

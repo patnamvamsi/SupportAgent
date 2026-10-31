@@ -23,6 +23,7 @@ from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
 from supportagent.adapters.tools.loki import LokiSearchTool
 from supportagent.adapters.tools.oncall import OnCallTool
+from supportagent.adapters.tools.oracle import ORACLE_TOOLS
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
 
@@ -51,6 +52,7 @@ _FIRST_PARTY: tuple[type[_Declares], ...] = (
     PodStatusTool,
     RecentChangesTool,
     *POSTGRES_TOOLS,
+    *ORACLE_TOOLS,
 )
 
 CAPABILITIES: Mapping[str, Capability] = {

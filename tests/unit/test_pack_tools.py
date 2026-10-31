@@ -346,6 +346,7 @@ def test_registry_registers_each_configured_pack_tool() -> None:
     tools = Tools.model_validate(
         {
             "postgres": {"databases": {"orders": {"dsn": "postgresql://ro@db/orders"}}},
+            "oracle": {"databases": {"paydb": {"dsn": "ro/x@db/pay"}}},
             "prometheus": {"base_url": "http://prometheus:9090"},
             "kubernetes": {"api_url": "https://k8s:6443", "token": "t-fake"},
             "changes": {"github": False},
@@ -366,6 +367,10 @@ def test_registry_registers_each_configured_pack_tool() -> None:
         "postgres.slow_queries",
         "postgres.replication",
         "postgres.storage",
+        "oracle.sessions",
+        "oracle.locks",
+        "oracle.top_sql",
+        "oracle.tablespaces",
         "metrics.query",
         "k8s.pod_status",
         "changes.recent",
@@ -380,6 +385,7 @@ def test_postgres_dsn_resolved_from_its_env(tmp_path: Any) -> None:
     repo = Path(__file__).resolve().parents[2]
     raw = (repo / "supportagent.example.yaml").read_text(encoding="utf-8")
     raw += "tools:\n  postgres:\n    databases:\n      orders: {dsn_env: PG_ORDERS_RO}\n"
+    raw += "  oracle:\n    databases:\n      paydb: {dsn_env: PAYDB_RO}\n"
     path = tmp_path / "c.yaml"
     path.write_text(raw, encoding="utf-8")
     env = {
@@ -392,8 +398,11 @@ def test_postgres_dsn_resolved_from_its_env(tmp_path: Any) -> None:
         "ANTHROPIC_API_KEY": "x",
         "PAGERDUTY_TOKEN": "x",
         "PG_ORDERS_RO": "postgresql://ro@db/orders",
+        "PAYDB_RO": "ro/x@db/pay",
     }
     config = load_config(path, env)
     assert config.tools.postgres is not None
     dsn = config.tools.postgres.databases["orders"].dsn.get_secret_value()
     assert dsn == "postgresql://ro@db/orders"
+    assert config.tools.oracle is not None
+    assert config.tools.oracle.databases["paydb"].dsn.get_secret_value() == "ro/x@db/pay"
