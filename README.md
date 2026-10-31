@@ -101,6 +101,17 @@ A warning (!) is something optional you haven't set up, such as PagerDuty.
 
 Create a dedicated integration user, for example `svc_supportagent`, with the `itil` role and nothing broader. Sync also reads each incident's history, so the user needs **read access to `sys_audit` and `sys_journal_field`**, which ServiceNow restricts by default. [docs/quickstart.md](docs/quickstart.md#the-servicenow-integration-user) shows the ACL. The doctor's `servicenow.history_access` check fails until this is in place.
 
+### Pointing it at your system
+
+Describe the system once in a `system.yaml`: its ServiceNow scope, Confluence spaces and repositories (see `evals/onboarding/system-a/system.yaml`). Then:
+
+```bash
+supportagent onboard run --system system.yaml --workspace ./onboarding   # re-run to continue
+supportagent onboard status --workspace ./onboarding
+```
+
+It reads the system read-only, works out which plugins it needs, maps the system and its incident history, asks for read-only access, and proves per incident class whether it can support it. It ends with what it needs from you: access to grant, plugins to add, facts to confirm. Act on those, re-run, and it continues where it stopped. The review pages are under `/ui/onboarding`. How it works: [ADR-0015](docs/adr/0015-system-onboarding-and-plugins.md), [ADR-0016](docs/adr/0016-plugins-are-data.md), [ADR-0017](docs/adr/0017-onboarding-autopilot.md).
+
 ### Going further
 
 - **Shadow → assisted:** once the shadow run's agreement is good enough (`/ui/stats`), set `mode: assisted` in `local/supportagent.yaml`. Raise `calibration.min_score` before you do this: the local install uses a trial floor of 0. See [docs/quickstart.md](docs/quickstart.md) and [ADR-0008](docs/adr/0008-assisted-mode-in-v0-1.md).

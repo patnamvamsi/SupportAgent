@@ -202,6 +202,16 @@ from supportagent.config.schema import (
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.config.system_manifest import ConfluenceSpace, GitSource, SystemManifest
 from supportagent.domain.auto import AutoConditions
+from supportagent.domain.autopilot import (
+    STEPS,
+    Need,
+    OnboardingStatus,
+    State,
+    Step,
+    StepRecord,
+    digest,
+    should_run,
+)
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.drift import ClassShape, Finding, Snapshot, diff
@@ -3967,3 +3977,249 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
         rejected=len(built.rejected),
         failed_pages=built.failed,
     )
+
+
+# --- ADR-0017 (WP-A1): the onboarding autopilot ----------------------------------------------
+
+AUTOPILOT_STATE = "onboarding.json"
+
+
+def _tree_digest(root: Path) -> list[tuple[str, str]]:
+    return [
+        (p.relative_to(root).as_posix(), hashlib.sha256(p.read_bytes()).hexdigest())
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    ]
+
+
+def _previous_steps(workspace: Path) -> dict[str, StepRecord]:
+    path = workspace / AUTOPILOT_STATE
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    steps = raw.get("steps", []) if isinstance(raw, dict) else []
+    return {r.step: r for s in steps if isinstance(s, dict) and (r := StepRecord.of(s)) is not None}
+
+
+def onboard_run(  # noqa: PLR0913 — the inputs and the seams
+    config: AppConfig,
+    manifest_path: Path,
+    workspace: Path,
+    *,
+    provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+    transports: IngestTransports = IngestTransports(),  # noqa: B008 — frozen, immutable
+    env: Mapping[str, str] | None = None,
+) -> OnboardingStatus:
+    """``onboard run`` (ADR-0017): every onboarding step, resumable; writes ``onboarding.json``.
+
+    A step that is done on unchanged inputs is skipped. A step that fails
+    is recorded and the rest still run where they can, so one unreachable
+    source doesn't hide everything else. The needs (what a person must do)
+    are recomputed every time from the current state.
+    """
+    clock = clock or SystemClock()
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    previous = _previous_steps(workspace)
+    records: dict[str, StepRecord] = {}
+    now = clock.now().isoformat()
+
+    def record(step: Step, state: State, inputs: str, detail: str, on: str | None = None) -> None:
+        records[step] = StepRecord(step, state, inputs, detail, now, on)
+
+    def skip(step: Step, inputs: str) -> bool:
+        if should_run(previous.get(step), inputs):
+            return False
+        records[step] = previous[step]
+        return True
+
+    try:
+        manifest = manifest_path.read_text(encoding="utf-8")
+        inputs = digest(manifest)
+        if not skip("ingest", inputs):
+            try:
+                reports = ingest_system(
+                    config, manifest_path, workspace, transports=transports, env=env
+                )
+                missing = [r.source for r in reports if r.status == "unavailable"]
+                if missing:
+                    record(
+                        "ingest",
+                        "blocked",
+                        inputs,
+                        f"not read: {', '.join(missing)}",
+                        on="config",
+                    )
+                else:
+                    read = ", ".join(r.line().split(maxsplit=1)[-1] for r in reports)
+                    record("ingest", "done", inputs, read)
+            except (ConfigError, ExternalServiceError) as exc:
+                record("ingest", "failed", inputs, str(exc)[:200])
+        if not (workspace / "sources").is_dir():
+            return _autopilot_status(workspace, records, db, config, clock)
+
+        plugins = load_plugins()
+        sensed = digest(
+            _tree_digest(workspace / "sources"),
+            [("plugins", hashlib.sha256((PLUGINS_DIR / "index.yaml").read_bytes()).hexdigest())],
+        )
+        if not skip("sense", sensed):
+            detections = detect_plugins(workspace, plugins)
+            chosen = detected_ids(detections)
+            Workspace(workspace).write_artifact(
+                "detections.json",
+                {
+                    "plugins": chosen,
+                    "why": {d.plugin: d.explain() for d in detections if d.detected},
+                },
+            )
+            record("sense", "done", sensed, f"plugins: {', '.join(chosen) or 'none'}")
+
+        stages: list[tuple[Step, Callable[[], str]]] = [
+            (
+                "graph",
+                lambda: _graph_detail(
+                    onboard_graph(config, workspace, provider=provider, engine=db, clock=clock)
+                ),
+            ),
+            (
+                "incidents",
+                lambda: _incidents_detail(
+                    onboard_incidents(config, workspace, provider=provider)[0]
+                ),
+            ),
+            (
+                "requests",
+                lambda: _requests_detail(
+                    onboard_requests(config, workspace, provider=provider, engine=db, clock=clock)[
+                        0
+                    ]
+                ),
+            ),
+            (
+                "readiness",
+                lambda: _readiness_detail(
+                    onboard_readiness(config, workspace, provider=provider, engine=db, clock=clock)[
+                        0
+                    ]
+                ),
+            ),
+        ]
+        for step, run in stages:
+            if skip(step, sensed):
+                continue
+            try:
+                detail = run()
+            except (ConfigError, ExternalServiceError) as exc:
+                record(step, "failed", sensed, str(exc)[:200])
+                continue
+            # The model gave no answer for part of it: re-running retries that part.
+            unanswered = " unread" in detail
+            record(
+                step,
+                "blocked" if unanswered else "done",
+                sensed,
+                detail,
+                "model" if unanswered else None,
+            )
+        return _autopilot_status(workspace, records, db, config, clock)
+    finally:
+        if own:
+            db.dispose()
+
+
+def _graph_detail(report: OnboardGraphReport) -> str:
+    failed = f"; {len(report.failed_pages)} page(s) unread" if report.failed_pages else ""
+    return f"{report.nodes} nodes, {report.edges} edges, {report.questions} question(s){failed}"
+
+
+def _incidents_detail(mapped: IncidentMap) -> str:
+    unread = f"; {len(mapped.unread)} unread" if mapped.unread else ""
+    return f"{len(mapped.classes)} classes, {mapped.coverage:.0%} with a known cause{unread}"
+
+
+def _requests_detail(plan: GapPlan) -> str:
+    return f"{len(plan.requests)} request(s) unlocking {plan.unlocked:.0%}; {len(plan.gaps)} gap(s)"
+
+
+def _readiness_detail(report: ReadinessReport) -> str:
+    return f"{report.ready_share:.0%} of the weight ready (bar {report.bar:.0%})"
+
+
+def _autopilot_status(
+    workspace: Path,
+    records: Mapping[str, StepRecord],
+    engine: Engine,
+    config: AppConfig,
+    clock: Clock,
+) -> OnboardingStatus:
+    """The steps, and what's needed from a person now (from the database and artifacts)."""
+    tenant = config.tenant.id
+    system = workspace.name
+    manifest = workspace / "system.yaml"
+    if manifest.is_file():
+        system = load_system_manifest(manifest, {}, need_secrets=False).system.id
+    status = OnboardingStatus(system=system, steps=[records[s] for s in STEPS if s in records])
+    status.needs.extend(_step_needs(status.steps))
+    review = GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).progress()
+    pending = int(str(review["total"])) - int(str(review["reviewed"]))
+    if pending:
+        status.needs.append(
+            Need("review", f"{pending} graph fact(s) to confirm or reject", 0.0, "/ui/onboarding")
+        )
+    if int(str(review["open_questions"])):
+        status.needs.append(
+            Need(
+                "review",
+                f"{review['open_questions']} question(s) to settle",
+                0.0,
+                "/ui/onboarding/questions",
+            )
+        )
+    for req in RequestReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).requests():
+        if req.status == "open":
+            status.needs.append(
+                Need(
+                    "access",
+                    f"{req.plugin}/{req.access} on {req.target}",
+                    req.share,
+                    "/ui/onboarding/requests",
+                )
+            )
+    report = ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).load()
+    if report is not None:
+        status.ready_share = float(str(report.get("ready_share", 0.0)))
+        status.bar = float(str(report.get("bar", 0.0)))
+        status.needs.extend(_readiness_needs(report))
+    Workspace(workspace).write_artifact(AUTOPILOT_STATE, status.as_dict())
+    return status
+
+
+def _step_needs(steps: Sequence[StepRecord]) -> list[Need]:
+    """A step that failed, or waits on its config or the model, is a source to fix."""
+    out = []
+    for r in steps:
+        if r.state == "failed" or (r.state == "blocked" and r.on == "config"):
+            out.append(Need("source", f"{r.step}: {r.detail}", 0.0, "fix it, then re-run"))
+        elif r.state == "blocked" and r.on == "model":
+            out.append(Need("source", f"{r.step}: {r.detail}", 0.0, "check the model, then re-run"))
+    return out
+
+
+def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
+    """Classes that can't be ready yet: a plugin to provide, or evidence to capture."""
+    out = []
+    classes = report.get("classes")
+    for c in classes if isinstance(classes, list) else []:
+        if not isinstance(c, dict) or c.get("status") == "ready":
+            continue
+        reasons = "; ".join(str(x) for x in c.get("reasons", []))
+        share = float(c.get("share", 0.0))
+        what = f"{c.get('cause') or 'no cause'}: {reasons}"
+        if c.get("status") == "untestable":
+            out.append(Need("plugin", what, share, "add or evaluate the plugin"))
+        elif c.get("no_evidence") and not c.get("scenarios"):
+            out.append(Need("evidence", what, share, "capture its evidence"))
+    return out
