@@ -40,6 +40,20 @@ System C is the proof that a new stack needs only plugins. Its plugins, `nodejs`
 
 They landed in a PR that changed nothing under `src/`. Every stage the lab enforces passes on System C, and its readiness is replayed from its own evidence.
 
+## One command for any system (ADR-0017)
+
+```bash
+supportagent onboard run --system system.yaml --workspace <dir>   # re-run to continue
+supportagent onboard status --workspace <dir>
+```
+
+`onboard run` takes any system through ingest, sense, graph, incidents, requests and readiness, and records each step in `onboarding.json`:
+- **done** steps are skipped while their inputs (the sources and the pinned plugins) are unchanged;
+- **blocked** steps are retried: a source unreachable, or the model gave no answer for part of the work;
+- **failed** steps are retried too.
+
+It ends with **what's needed from you**, ranked by the incident weight each item holds back: access to grant, plugins to provide or evaluate, evidence to capture, facts to review, sources to fix. Acting on one clears it on the next run. The reference systems test this loop; they are not where the work is.
+
 ## A real system has the same layout
 
 `supportagent onboard ingest --system system.yaml --out <workspace>` reads a live system's ServiceNow, Confluence and Git sources into exactly this layout: redacted, within the manifest's budget, and resumable. Every stage then reads a real system the way it reads a reference one. `tests/unit/test_ingest.py` checks this by serving each reference system through fake ServiceNow, Confluence and GitHub servers, ingesting it, and requiring the same plugins to be detected.
@@ -124,7 +138,7 @@ System A, with the evaluated `oracle`, `java-spring` and `kubernetes` plugins:
 | portal CORS or stale bundle | 4% | untestable | `angular` is a skeleton |
 | no cause | 2% | ready, 3/3 | |
 
-So the recorded triage model makes System A **65% ready, under the 70% bar**, with no false cause. With a classifier that's always right (`tests/unit/test_readiness.py`) it is 81%. The difference is the model's labels, not the knowledge.
+So the recorded triage model makes System A **63% ready, under the 70% bar**, with no false cause. With a classifier that's always right (`tests/unit/test_readiness.py`) it is 79%. The difference is the model's labels, not the knowledge. Only classes with a cause count toward the bar (ADR-0017): abstaining on noise is right, but it proves nothing the agent can support.
 
 System B is untestable everywhere except its no-cause class, since none of its plugins is evaluated yet. `tests/unit/test_readiness.py` replays both systems with a stand-in that classifies every ticket correctly, so the knowledge and evidence are proven without a model. The lab replays the recorded triage model on top. Every replay must be recorded, and no class `readiness_baseline.json` has ready may stop being ready (`--write-readiness-baseline` accepts a new run).
 

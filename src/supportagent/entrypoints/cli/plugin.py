@@ -10,12 +10,14 @@ WP-O2 points the same detection at live sources.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
 
 from supportagent.adapters.files.plugin_loader import LoadedPlugin
 from supportagent.bootstrap import (
+    AUTOPILOT_STATE,
     PLUGINS_DIR,
     detect_plugins,
     ingest_system,
@@ -25,6 +27,7 @@ from supportagent.bootstrap import (
     onboard_incidents,
     onboard_readiness,
     onboard_requests,
+    onboard_run,
     pin_plugins,
 )
 from supportagent.config.loader import load_config_default
@@ -277,3 +280,48 @@ def onboard_drift_command(
     if findings and not accepted:
         typer.echo("deal with these, then re-run with --accept")
     typer.echo(f"wrote {path}")
+
+
+@onboard_app.command("run")
+def onboard_run_command(
+    system: Path = typer.Option(..., "--system", help="The system's system.yaml."),  # noqa: B008
+    workspace: Path = typer.Option(..., "--workspace", help="The workspace (created if new)."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, models)."
+    ),
+) -> None:
+    """Onboard a system end to end (ADR-0017): every step, resumable. Re-run to continue.
+
+    Steps done on unchanged inputs are skipped; blocked and failed ones are
+    retried. Ends with what's needed from you, ranked by the incident weight
+    it holds back. Exit 0 when the system is ready to support, 1 when not yet.
+    """
+    try:
+        status = onboard_run(load_config_default(config), system, workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for line in status.lines():
+        typer.echo(line)
+    typer.echo(f"wrote {workspace / AUTOPILOT_STATE}; re-run to continue once you've acted")
+    raise typer.Exit(0 if status.ready else 1)
+
+
+@onboard_app.command("status")
+def onboard_status_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An onboarded workspace."),  # noqa: B008
+) -> None:
+    """Where onboarding stands, and what's needed from you (from the last run)."""
+    path = workspace / AUTOPILOT_STATE
+    if not path.is_file():
+        typer.echo(f"not onboarded yet: run `supportagent onboard run --workspace {workspace}`")
+        raise typer.Exit(1)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    typer.echo(f"{raw.get('system')}: {'ready' if raw.get('ready') else 'not ready'} to support")
+    for step in raw.get("steps", []):
+        on = f" (on {step['on']})" if step.get("on") else ""
+        typer.echo(f"  {step['step']:<10} {step['state']}{on}: {step['detail']}")
+    needs = raw.get("needs", [])
+    typer.echo(f"  needed from you: {len(needs) or 'nothing'}")
+    for need in needs:
+        typer.echo(f"    {need['kind']:<8} {need['what']} -> {need['how']}")

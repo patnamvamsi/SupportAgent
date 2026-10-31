@@ -87,7 +87,12 @@ class ReadinessReport:
 
     @property
     def ready_share(self) -> float:
-        return round(sum(c.share for c in self.classes if c.status == "ready"), 3)
+        """The weight of ready classes **with a cause** (ADR-0017). Abstaining on the
+        no-cause class is right, but it proves nothing the agent can support: a run
+        whose readings all failed would otherwise look ready."""
+        return round(
+            sum(c.share for c in self.classes if c.status == "ready" and c.cause is not None), 3
+        )
 
     @property
     def ready(self) -> bool:
