@@ -24,6 +24,14 @@ One model for everything pluggable. A plugin is `plugins/<id>/plugin.yaml` and c
 
 `onboard run` detects over installed and available plugins. Configured with `plugins.auto_install: first-party`, it installs each detected first-party plugin; otherwise each one is listed as needed. `supportagent plugin install <id>` approves one. Either way the plugin is copied in, pinned, and proved on its own lab with this instance's model. If it doesn't pass here, it is installed as a `skeleton`: it can be detected and ask for access, but its classes can't be ready. An instance can install into a writable directory (`SUPPORTAGENT_PLUGINS_DIR`) instead of the shipped `plugins/`.
 
+**When nothing covers it (ADR-0017).** The `gaps` step of `onboard run` (or `onboard gaps`) reports:
+- repositories no extractor claimed, with their manifests (`go.mod`, `Gemfile`, `*.csproj`);
+- installed CMDB classes nothing maps;
+- operational incidents with no known cause;
+- pack checks on capabilities nothing provides.
+
+`supportagent plugin new go --from go.mod` scaffolds a skeleton plugin from such a gap, in `plugin-drafts/`, outside the registry. It detects the manifest and, where the format allows (`package.json`, `go.mod`, `composer.json`), claims the repository's component. Add its causes and a pack, then put it in a catalogue or `plugins/` and pin it. The `lines` extractor format reads plain manifests: one `key value` per line.
+
 **Pinned.** `plugins/index.yaml` records each plugin's version and the sha256 of its manifest. A manifest that changes without being re-pinned doesn't load, and neither does a plugin directory the index doesn't list. After reviewing a change, run `supportagent plugin index`. Signatures come with external catalogs.
 
 **Status.** `skeleton` means the plugin's contracts and detectors exist, so it can be detected and requested, but its knowledge hasn't been evaluated. Its incident classes can't leave shadow mode. A plugin becomes `evaluated` once its pack passes its lab gates. `oracle`, `java-spring`, `kubernetes` (WP-O6a) and `python-postgres` are evaluated.
