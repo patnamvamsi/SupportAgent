@@ -160,15 +160,20 @@ def regressions(report: ReadinessReport, baseline: Mapping[str, str]) -> list[st
 # --- the service each incident hit, from the graph ----------------------------------------
 
 _SERVING = frozenset({"Service", "Job", "UI"})
-_FOLLOWED = frozenset({"uses", "reads", "writes", "runs_on"})
+#: What a component touches; its target (and the target's container) adds to its stack.
+#: Not ``calls`` or ``depends_on``: another service's stack isn't this one's.
+_FOLLOWED = frozenset({"uses", "reads", "writes", "consumes", "publishes", "runs_on"})
 
 
 def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
     """The catalog entry the graph implies for ``ci``: its stack, databases and namespace.
 
-    The stack is the node's technology plus that of what it ``uses``, ``reads``,
-    ``writes`` and ``runs_on`` (an Oracle database, a Kubernetes runtime): the
-    packs a case on it should use. A CI the graph doesn't know gets just its name.
+    The stack is the node's technology plus that of what it uses, reads, writes,
+    consumes from, publishes to and runs on, and of what those are part of (a
+    schema's database, a queue's broker): the packs a case on it should use.
+    The graph keeps the finer edge (``publishes topic:x``) and drops the coarse
+    one (``uses runtime:rabbitmq/mq``), so the container is reached through it.
+    A CI the graph doesn't know gets just its name.
     """
     name = ci if ci[:1].isalnum() else f"ci-{ci}"
     node = next(
@@ -186,13 +191,18 @@ def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
         if src != node.id or target is None or relation not in _FOLLOWED:
             continue
         stack |= target.tech
-        # A schema it reads or writes names its database (the graph keeps the
-        # finer edge and drops ``uses database``).
-        database = dst if target.kind == "Database" else part_of.get(dst)
-        if relation != "runs_on" and database in graph.nodes:
-            stack |= graph.nodes[database].tech
-            if (name_ := target_name(database, graph.nodes[database].tech)) not in databases:
-                databases.append(name_)
+        container = graph.nodes.get(part_of.get(dst, ""))
+        if container is not None:
+            stack |= container.tech
+        database = target if target.kind == "Database" else container
+        name_ = target_name(database.id, database.tech) if database is not None else None
+        if (
+            relation != "runs_on"
+            and database is not None
+            and database.kind == "Database"
+            and name_ not in databases
+        ):
+            databases.append(str(name_))
         if relation == "runs_on" and "kubernetes" in target.tech:
             entry["k8s_namespace"] = target_name(dst, target.tech).rsplit("/", 1)[-1]
             entry["k8s_selector"] = f"app={name}"

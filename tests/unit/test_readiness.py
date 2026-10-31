@@ -127,6 +127,25 @@ def test_a_schema_the_service_reads_or_writes_names_its_database() -> None:
     assert entry["databases"] == ["paydb"] and entry["stack"] == ["java", "oracle"]
 
 
+def test_a_queue_the_service_uses_names_its_broker() -> None:
+    """The graph keeps ``consumes topic:events`` and drops ``uses runtime:rabbitmq/mq``."""
+    nodes = [
+        Node("service:worker", "Service", {"nodejs"}),
+        Node("topic:events", "Topic", {"rabbitmq"}),
+        Node("runtime:rabbitmq/mq", "Runtime", {"rabbitmq", "erlang"}),
+        Node("service:billing", "Service", {"java"}),
+    ]
+    edges = [
+        Edge("service:worker", "consumes", "topic:events"),
+        Edge("topic:events", "part_of", "runtime:rabbitmq/mq"),
+        Edge("service:worker", "calls", "service:billing"),
+    ]
+    graph = SystemGraph(nodes={n.id: n for n in nodes}, edges={e.key: e for e in edges})
+    entry = service_entry(graph, "worker")
+    assert entry["stack"] == ["erlang", "nodejs", "rabbitmq"]  # not java: a call isn't a stack
+    assert "databases" not in entry
+
+
 def test_history_becomes_scenarios_and_incidents_without_evidence_are_counted() -> None:
     d = ONBOARDING_DIR / "system-a"
     imap = _truth_map("system-a")
