@@ -1,0 +1,1 @@
+{"latency_ms": 9668, "raw_text": "{\"classification\":\"deploy/failure\",\"severity\":\"P2\",\"summary\":\"The new payments-gateway deployment is throwing NullPointerException on /api/orders, suggesting the rollout introduced a defect in the payment flow.\",\"confidence\":0.9}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 413}

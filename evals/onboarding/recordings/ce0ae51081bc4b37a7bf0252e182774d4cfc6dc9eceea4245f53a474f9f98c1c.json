@@ -1,0 +1,1 @@
+{"latency_ms": 6477, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P2\",\n  \"summary\": \"orders-service pods are restarting due to GC overhead limit exceeded, causing the order export endpoint to return 500 errors.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 639, "tokens_out": 329}

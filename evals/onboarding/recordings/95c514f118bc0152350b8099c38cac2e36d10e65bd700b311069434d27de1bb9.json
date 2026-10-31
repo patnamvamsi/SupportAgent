@@ -1,0 +1,1 @@
+{"latency_ms": 11547, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Card authorizations are failing because payment-service is timing out after 4 seconds while calling the external CardCo API.\",\n  \"confidence\": 0.58\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 641, "tokens_out": 568}

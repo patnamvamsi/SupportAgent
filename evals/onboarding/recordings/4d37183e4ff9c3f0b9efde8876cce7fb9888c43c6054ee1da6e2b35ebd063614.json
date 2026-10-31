@@ -1,0 +1,1 @@
+{"latency_ms": 4507, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Customer lookup/order search p99 latency has degraded from 200ms to 6s without a deployment, indicating a sustained latency regression.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 215}

@@ -1,7 +1,8 @@
-# A Spring service's calls to a third party fail or time out. Spring's HTTP
+# A Spring service's calls to a third party fail or time out: an outage or, as
+# often labelled, latency (network/*). Spring's HTTP
 # clients log the URL they called, so the provider is named in the evidence.
 id: runbook:jvm-upstream
-applies_when: {classification: network/outage}
+applies_when: {classification: network}
 budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
 steps:
   - id: outbound

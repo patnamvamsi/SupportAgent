@@ -1,0 +1,1 @@
+{"latency_ms": 5697, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P1\",\n  \"summary\": \"Payments gateway is returning 503s while payment-service logs show Hikari connection pool timeouts, indicating database connection saturation.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 661, "tokens_out": 304}

@@ -1,0 +1,1 @@
+{"latency_ms": 12166, "raw_text": "{\n  \"classification\": \"deploy/rollback\",\n  \"severity\": \"P1\",\n  \"summary\": \"Orders API is failing after a deployment because the new payment-service version throws a NullPointerException on /api/orders.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 581}

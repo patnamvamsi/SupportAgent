@@ -1,0 +1,1 @@
+{"latency_ms": 6484, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P3\",\n  \"summary\": \"A new starter reports being locked out of the payments portal and cannot access the service.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 630, "tokens_out": 310}

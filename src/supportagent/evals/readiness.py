@@ -160,14 +160,15 @@ def regressions(report: ReadinessReport, baseline: Mapping[str, str]) -> list[st
 # --- the service each incident hit, from the graph ----------------------------------------
 
 _SERVING = frozenset({"Service", "Job", "UI"})
+_FOLLOWED = frozenset({"uses", "reads", "writes", "runs_on"})
 
 
 def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
     """The catalog entry the graph implies for ``ci``: its stack, databases and namespace.
 
-    The stack is the node's technology plus that of what it ``uses`` and
-    ``runs_on`` (an Oracle database, a Kubernetes runtime): the packs a case
-    on it should use. A CI the graph doesn't know gets just its name.
+    The stack is the node's technology plus that of what it ``uses``, ``reads``,
+    ``writes`` and ``runs_on`` (an Oracle database, a Kubernetes runtime): the
+    packs a case on it should use. A CI the graph doesn't know gets just its name.
     """
     name = ci if ci[:1].isalnum() else f"ci-{ci}"
     node = next(
@@ -178,13 +179,19 @@ def service_entry(graph: SystemGraph, ci: str) -> dict[str, Any]:
         return entry
     stack = set(node.tech)
     databases: list[str] = []
+    part_of = {a: b for a, rel, b in graph.edges if rel == "part_of"}
     for src, relation, dst in sorted(graph.edges):
         target = graph.nodes.get(dst)
-        if src != node.id or target is None or relation not in ("uses", "runs_on"):
+        if src != node.id or target is None or relation not in _FOLLOWED:
             continue
         stack |= target.tech
-        if relation == "uses" and target.kind == "Database":
-            databases.append(target_name(dst))
+        # A schema it reads or writes names its database (the graph keeps the
+        # finer edge and drops ``uses database``).
+        database = dst if target.kind == "Database" else part_of.get(dst)
+        if relation != "runs_on" and database in graph.nodes:
+            stack |= graph.nodes[database].tech
+            if (name_ := target_name(database)) not in databases:
+                databases.append(name_)
         if relation == "runs_on" and "kubernetes" in target.tech:
             entry["k8s_namespace"] = target_name(dst).rsplit("/", 1)[-1]
             entry["k8s_selector"] = f"app={name}"

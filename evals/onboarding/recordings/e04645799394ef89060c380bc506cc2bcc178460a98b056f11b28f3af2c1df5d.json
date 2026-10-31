@@ -1,0 +1,1 @@
+{"latency_ms": 26651, "raw_text": "{\n  \"classification\": \"network/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Card capture operations are timing out and causing retries to pile up, suggesting a payment-processing path or upstream dependency is degrading.\",\n  \"confidence\": 0.55\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 1305}

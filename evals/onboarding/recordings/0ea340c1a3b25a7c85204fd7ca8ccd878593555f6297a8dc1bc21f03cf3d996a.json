@@ -1,0 +1,1 @@
+{"latency_ms": 7609, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"A newly released payments-gateway version is causing a 5xx spike by throwing NullPointerExceptions on /api/orders.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 371}

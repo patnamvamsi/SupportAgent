@@ -99,9 +99,21 @@ A request **unlocks** an incident class when it serves a capability the class's 
 - **Gates per class** come from `system.yaml` `readiness:`: at least 3 scenarios with evidence, the cause found in 75% of them, and no false cause. A class whose cause no evaluated pack can test is *untestable*. An incident with a cause but no evidence isn't replayed; it is counted.
 - **The bar** is the share of incident weight held by ready classes: 70% (decision 6).
 
-With the evaluated `oracle`, `java-spring` and `kubernetes` plugins, System A is ready on most of its history:
-- The portal's browser-side faults are untestable: `angular` is a skeleton.
-- Connection-pool exhaustion isn't ready. Half its tickets are logged against payments-gateway, whose logs only show its dependency's 503s, and the agent doesn't follow dependencies.
+System A, with the evaluated `oracle`, `java-spring` and `kubernetes` plugins:
+
+| Class | Share | Qwen (recorded) | Why not ready |
+|---|---|---|---|
+| upstream provider | 27% | ready, 5/5 | |
+| Oracle lock contention | 17% | not ready, 5/7 | two "captures timing out" tickets classified `network/latency` |
+| HikariCP exhaustion | 14% | not ready, 3/6 | half its tickets are logged against payments-gateway, whose logs only show its dependency's 503s; the agent doesn't follow dependencies |
+| JVM heap | 11% | ready, 5/5 | |
+| bad deploy | 10% | ready, 6/6 | |
+| tablespace full | 9% | ready, 4/4 | |
+| plan regression | 6% | ready, 4/4 | |
+| portal CORS or stale bundle | 4% | untestable | `angular` is a skeleton |
+| no cause | 2% | ready, 3/3 | |
+
+So the recorded triage model makes System A **65% ready, under the 70% bar**, with no false cause. With a classifier that's always right (`tests/unit/test_readiness.py`) it is 81%. The difference is the model's labels, not the knowledge.
 
 System B is untestable everywhere except its no-cause class, since none of its plugins is evaluated yet. `tests/unit/test_readiness.py` replays both systems with a stand-in that classifies every ticket correctly, so the knowledge and evidence are proven without a model. The lab replays the recorded triage model on top. Every replay must be recorded, and no class `readiness_baseline.json` has ready may stop being ready (`--write-readiness-baseline` accepts a new run).
 

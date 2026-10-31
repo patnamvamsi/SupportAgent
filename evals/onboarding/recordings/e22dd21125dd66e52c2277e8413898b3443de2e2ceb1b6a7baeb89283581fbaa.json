@@ -1,0 +1,1 @@
+{"latency_ms": 4730, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P1\",\n  \"summary\": \"orders-service pods are crash-looping with Java heap OutOfMemoryError, indicating a memory exhaustion issue.\",\n  \"confidence\": 0.98\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 209}

@@ -1,0 +1,1 @@
+{"latency_ms": 25752, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P3\",\n  \"summary\": \"A portal user is locked out and requesting a password reset to regain access.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 628, "tokens_out": 272}

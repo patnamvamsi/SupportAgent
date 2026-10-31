@@ -29,6 +29,7 @@ from supportagent.bootstrap import (
 )
 from supportagent.config.loader import load_config_offline
 from supportagent.domain.errors import ConfigError
+from supportagent.domain.graph import Edge, Node, SystemGraph
 from supportagent.domain.incident_map import GroundedReading, IncidentMap, build_map
 from supportagent.domain.model.readiness import ReadinessGates
 from supportagent.evals.lab import LabScore
@@ -104,6 +105,26 @@ def test_the_graph_gives_each_service_its_stack_databases_and_namespace() -> Non
     assert (entry["k8s_namespace"], entry["k8s_selector"]) == ("payments", "app=payment-service")
     assert service_entry(graph, "payments-portal")["stack"] == ["angular"]
     assert service_entry(graph, "unknown-ci") == {"name": "unknown-ci", "stack": []}
+
+
+def test_a_schema_the_service_reads_or_writes_names_its_database() -> None:
+    """The graph keeps ``writes schema:paydb.settlement`` and drops ``uses database:paydb``."""
+    graph = SystemGraph(
+        nodes={
+            "job:settlement-batch": Node("job:settlement-batch", "Job", {"java"}),
+            "schema:paydb.settlement": Node("schema:paydb.settlement", "Datastore", {"oracle"}),
+            "database:paydb": Node("database:paydb", "Database", {"oracle"}),
+        },
+        edges={
+            e.key: e
+            for e in (
+                Edge("job:settlement-batch", "writes", "schema:paydb.settlement"),
+                Edge("schema:paydb.settlement", "part_of", "database:paydb"),
+            )
+        },
+    )
+    entry = service_entry(graph, "settlement-batch")
+    assert entry["databases"] == ["paydb"] and entry["stack"] == ["java", "oracle"]
 
 
 def test_history_becomes_scenarios_and_incidents_without_evidence_are_counted() -> None:
