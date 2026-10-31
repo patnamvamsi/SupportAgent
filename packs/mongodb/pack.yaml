@@ -1,0 +1,14 @@
+# MongoDB under an application (ADR-0015 §2, ADR-0016): the mongodb plugin's
+# knowledge. mongodb.* comes from the plugin's MCP server (declared schemas);
+# the driver's pool errors come from the application's logs.
+id: mongodb
+version: 0.1.0
+description: MongoDB under an application (unindexed queries, the driver's pool, replica set elections).
+applies_to:
+  stack: [mongodb]
+plan_order: 10   # an unindexed query explains the pool it starves: check the database first
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [mongodb.slow_ops, mongodb.replset, logs.search]
+evals: evals/

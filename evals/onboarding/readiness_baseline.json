@@ -22,6 +22,17 @@
       "request-access": "ready",
       "ui-cors-or-stale-bundle": "untestable",
       "upstream-provider": "ready"
+    },
+    "shipment-tracking": {
+      "mongodb-connection-pool-exhausted": "ready",
+      "mongodb-missing-index": "ready",
+      "node-event-loop-blocked": "ready",
+      "node-heap-oom": "ready",
+      "rabbitmq-memory-alarm": "ready",
+      "rabbitmq-queue-backlog": "ready",
+      "recent-change-push": "ready",
+      "request-access": "ready",
+      "upstream-provider": "not_ready"
     }
   },
   "v": 1

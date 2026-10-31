@@ -1,0 +1,1 @@
+{"latency_ms": 5745, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"Customers are seeing stale tracking because the shipment-events queue has accumulated about 410k messages, indicating a messaging backlog.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 682, "tokens_out": 319}

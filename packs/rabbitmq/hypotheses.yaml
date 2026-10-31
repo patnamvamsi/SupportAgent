@@ -1,0 +1,5 @@
+# One hypothesis per rabbitmq plugin cause (`rabbitmq/<cause>` -> `rabbitmq_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: rabbitmq_queue_backlog
+  - id: rabbitmq_memory_alarm

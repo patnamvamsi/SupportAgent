@@ -443,6 +443,202 @@ SYSTEM_B = [
 ]
 
 
+# ADR-0016's proof: Node.js services on MongoDB and RabbitMQ.
+SYSTEM_C = [
+    IncidentClass(
+        "mongo-missing-index",
+        ["database/latency"],
+        "mongodb/missing_index",
+        7,
+        ["shipments-api"],
+        ["2", "3"],
+        [
+            "Shipment search slow",
+            "Shop order page slow to load shipments",
+            "shipments-api latency high",
+        ],
+        [
+            "Searching shipments by status takes {s} seconds; it used to be instant.",
+            "shipments-api p95 above {s}s; MongoDB slow query log full of shipments finds.",
+        ],
+        [
+            "COLLSCAN on shipments.status after the new status filter shipped; added a compound index on (status, updatedAt). Latency back to normal.",
+            "Profiler showed a collection scan on shipmentsdb.shipments for the carrier filter; index created, search fast again.",
+            "Slow finds on shipmentsdb (COLLSCAN, {s}s). Created the missing index; fix tracked in the problem record.",
+        ],
+        "Database",
+        problem="Queries on shipmentsdb.shipments without a supporting index",
+        words={"s": ["4", "6", "9", "12"]},
+    ),
+    IncidentClass(
+        "tracking-backlog",
+        ["messaging/backlog"],
+        "rabbitmq/queue_backlog",
+        6,
+        ["tracking-worker"],
+        ["2", "3"],
+        [
+            "Tracking updates delayed",
+            "Customers see stale tracking",
+            "shipment-events queue growing",
+        ],
+        [
+            "Tracking pages show statuses hours old; shipment-events queue depth {q}k.",
+            "Customers complain tracking has not moved since this morning.",
+        ],
+        [
+            "tracking-worker consumers crashed after a bad message; shipment-events reached {q}k with 0 consumers. Restarted the worker; backlog drained in 40 min.",
+            "Queue backlog on shipment-events ({q}k messages): the worker could not keep up after a carrier sent a burst. Scaled consumers to 8.",
+            "RabbitMQ shipment-events had no consumers for 3 hours; worker stuck on a poison message, moved it to the dead-letter queue.",
+        ],
+        "Software",
+        problem="tracking-worker falls behind or stops consuming shipment-events",
+        words={"q": ["120", "260", "410"]},
+    ),
+    IncidentClass(
+        "event-loop-blocked",
+        ["network/latency", "request/capacity"],
+        "node/event_loop_blocked",
+        5,
+        ["carrier-adapter"],
+        ["2", "3"],
+        ["Shipment booking timing out", "carrier-adapter timeouts", "Bookings slow at peak"],
+        [
+            "shipments-api calls to carrier-adapter time out after 10s; its calls to FastShip fail with ETIMEDOUT.",
+            "Booking a shipment takes 30s or fails; carrier-adapter CPU at 100% on one core.",
+        ],
+        [
+            "Event loop blocked by JSON.parse of a 60 MB carrier manifest; moved parsing to a worker thread. Timeouts stopped.",
+            "Event-loop lag of {s}s in carrier-adapter from synchronous zlib on large label PDFs; switched to the async API.",
+        ],
+        "Software",
+        problem="carrier-adapter blocks its event loop on large carrier payloads",
+        words={"s": ["2", "3", "5"]},
+    ),
+    IncidentClass(
+        "node-heap-oom",
+        ["app/memory"],
+        "node/heap_oom",
+        5,
+        ["tracking-worker"],
+        ["2", "3"],
+        ["tracking-worker restarting", "tracking-worker pods crash looping", "Tracking worker OOM"],
+        [
+            "tracking-worker pods restart every few minutes; logs end with FATAL ERROR: Reached heap limit.",
+            "CrashLoopBackOff on tracking-worker during the nightly reconciliation.",
+        ],
+        [
+            "JavaScript heap out of memory: the reconciliation loaded every open shipment into memory. Restarted; batching fix in the problem record.",
+            "V8 heap limit reached while building the daily timeline export; raised --max-old-space-size temporarily.",
+        ],
+        "Software",
+        problem="tracking-worker reconciliation loads unbounded result sets",
+    ),
+    IncidentClass(
+        "bad-deploy",
+        ["deploy/failure", "deploy/rollback"],
+        "recent_change_push",
+        5,
+        ["shipments-api", "notifications-service"],
+        ["2", "3"],
+        ["Errors after the {svc} release", "5xx spike after deploy", "{svc} failing since release"],
+        [
+            "5xx rate rose from 0.1% to 7% minutes after the {svc} release.",
+            "New {svc} version throws TypeError: Cannot read properties of undefined on startup.",
+        ],
+        [
+            "Caused by the {svc} release; rolled back with helm rollback and errors stopped.",
+            "Regression in the latest {svc} build; rolled back, fix in the next release.",
+        ],
+        "Software",
+        change="Deploy {svc} release",
+        words={"svc": ["shipments-api", "notifications-service"]},
+    ),
+    IncidentClass(
+        "carrier-outage",
+        ["network/outage"],
+        "upstream_provider",
+        5,
+        ["carrier-adapter"],
+        ["1", "2"],
+        ["Shipments cannot be booked", "FastShip bookings failing", "Carrier API errors"],
+        [
+            "carrier-adapter: every booking fails with status code 503 from api.fastship.example.",
+            "No labels since {t}; FastShip status page reports an outage.",
+        ],
+        [
+            "FastShip outage on their side (status page); recovered when they resolved it, no change on ours.",
+            "Upstream carrier FastShip returned 503s for 70 minutes; waited it out and replayed failed bookings.",
+        ],
+        "Network",
+    ),
+    IncidentClass(
+        "mongo-pool",
+        ["database/saturation"],
+        "mongodb/connection_pool_exhausted",
+        4,
+        ["shipments-api"],
+        ["2", "3"],
+        [
+            "shipments-api errors at peak",
+            "Database timeouts on shipments-api",
+            "Checkout shipping step failing",
+        ],
+        [
+            "shipments-api returns 500s at peak; logs show MongoWaitQueueTimeoutError.",
+            "Database calls time out after 10s during the evening peak.",
+        ],
+        [
+            "Driver connection pool exhausted (maxPoolSize 10) under peak load; raised it to 50 after checking the cluster's limits.",
+            "MongoWaitQueueTimeoutError: the pool was too small for the new traffic. Pool size raised; errors gone.",
+        ],
+        "Database",
+        problem="shipments-api MongoDB driver pool too small for peak traffic",
+    ),
+    IncidentClass(
+        "rabbit-memory-alarm",
+        ["messaging/backlog"],
+        "rabbitmq/memory_alarm",
+        3,
+        ["notifications-service"],
+        ["1", "2"],
+        [
+            "Customers not getting SMS updates",
+            "Notifications stopped",
+            "Publishers blocked on logistics-mq",
+        ],
+        [
+            "No SMS sent since {t}; shipments-api logs show its AMQP connection blocked.",
+            "Notifications stopped and publishing to logistics-mq hangs.",
+        ],
+        [
+            "logistics-mq hit its memory high watermark (memory alarm) and blocked all publishers; purged the dead-letter queue and raised the watermark.",
+            "RabbitMQ memory alarm on logistics-mq blocked connections; a stuck queue held 3 GB. Cleared it, publishers resumed.",
+        ],
+        "Software",
+    ),
+    IncidentClass(
+        "noise",
+        ["request/access"],
+        None,
+        3,
+        ["shipments-api"],
+        ["4"],
+        [
+            "Access to the carrier portal for a new starter",
+            "Reset password for the tracking console",
+            "Add user to LOG-L2",
+        ],
+        ["Please grant access.", "User locked out."],
+        ["Access granted.", "Password reset.", "Done."],
+        "Inquiry / Help",
+    ),
+]
+
+
+_GROUPS = {"system-a": "PAY-L2", "system-b": "DATA-PLATFORM", "system-c": "LOG-L2"}
+
+
 def _fill(text: str, rnd: random.Random, cls: IncidentClass, svc: str) -> str:
     values = {k: rnd.choice(v) for k, v in cls.words.items()}
     values.setdefault("svc", svc)
@@ -478,7 +674,7 @@ def generate(
             "priority": rnd.choice(cls.priorities),
             "cmdb_ci": ci,
             "category": cls.category,
-            "assignment_group": "PAY-L2" if system == "system-a" else "DATA-PLATFORM",
+            "assignment_group": _GROUPS.get(system, "DATA-PLATFORM"),
             "short_description": _fill(rnd.choice(cls.subjects), rnd, cls, svc),
             "description": _fill(rnd.choice(cls.bodies), rnd, cls, svc),
             "state": "Closed",
@@ -546,3 +742,4 @@ def generate(
 if __name__ == "__main__":
     generate("system-a", SYSTEM_A, "A", seed=15)
     generate("system-b", SYSTEM_B, "B", seed=16)
+    generate("system-c", SYSTEM_C, "C", seed=17)

@@ -165,7 +165,9 @@ _TEMPLATE = {"query": 'up{service="{{service}}"}', "service": "$service.name"}
 
 
 def test_every_capability_has_one_schema() -> None:
-    assert set(CAPABILITIES) == set(KNOWN_TOOL_SCHEMAS)
+    assert set(CAPABILITIES) <= set(KNOWN_TOOL_SCHEMAS)  # plus those plugins declare (ADR-0016)
+    for name in CAPABILITIES:
+        assert KNOWN_TOOL_SCHEMAS[name] is CAPABILITIES[name].result_schema
     assert CAPABILITIES["metrics.query"].literal_args == frozenset({"query"})
 
 

@@ -1,0 +1,52 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: mongo-election
+pack: mongodb
+split: tune
+description: The primary steps down during maintenance; writes fail until the driver finds the new one.
+incident:
+  subject: Orders failing to save
+  priority: '2'
+  body: For about a minute, saving orders failed with database errors.
+service:
+  name: orders-api
+  stack:
+  - nodejs
+  - express
+  - mongodb
+  databases:
+  - ordersdb
+world:
+  mongodb.replset:
+    result:
+      database: ordersdb
+      primary: rs0-1
+      members:
+      - name: rs0-0
+      - name: rs0-1
+      elections_last_hour: 1
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 3
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'MongoServerError: NotWritablePrimary'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'MongoServerError: NotWritablePrimary'
+        labels:
+          service: orders-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'MongoServerError: NotWritablePrimary'
+        labels:
+          service: orders-api
+truth:
+  classification: database/failure
+  severity: P2
+  root_cause: mongodb_primary_election
+  verdict: SUPPORTED
+  must_cite:
+  - mongodb.replset
+why: One election in the hour, and the writes failed with NotWritablePrimary while it ran.

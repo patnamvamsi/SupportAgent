@@ -1,0 +1,1 @@
+{"latency_ms": 10806, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P2\",\n  \"summary\": \"label-printer pods are restarting repeatedly during the evening batch, suggesting instability under load and likely resource exhaustion.\",\n  \"confidence\": 0.5\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 566}

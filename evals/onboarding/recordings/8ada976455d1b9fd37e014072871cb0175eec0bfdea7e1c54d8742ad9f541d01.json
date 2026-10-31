@@ -1,0 +1,1 @@
+{"latency_ms": 7823, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P2\",\n  \"summary\": \"tracking-worker pods are repeatedly restarting with fatal heap-limit errors, indicating an out-of-memory failure.\",\n  \"confidence\": 0.93\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 683, "tokens_out": 368}

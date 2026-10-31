@@ -1,0 +1,66 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml. ADR-0016: data only.
+# Its evidence is served by a RabbitMQ management MCP server (read-only tools).
+id: rabbitmq
+version: 0.1.0
+description: RabbitMQ brokers and their queues (backlogs, consumers, memory alarms).
+core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/rabbitmq/evals)
+provides:
+  pack: rabbitmq
+  labels:
+    - {id: messaging/backlog, description: "Messages pile up in a queue: consumers are down, too few or too slow, so work is delayed."}
+  causes:
+    - {id: rabbitmq/queue_backlog, description: "A queue's consumers are gone or slower than its publishers; messages pile up and the work they carry is late."}
+    - {id: rabbitmq/memory_alarm, description: "The broker hits its memory high watermark and blocks every publishing connection until memory falls."}
+  capabilities:
+    rabbitmq.queues:
+      description: Queues with their depth, consumers and rates, and the broker's alarms
+      result_schema:
+        type: object
+        required: [broker, queues, max_messages, alarms]
+        properties:
+          broker: {type: string}
+          queues:
+            type: array
+            items:
+              type: object
+              required: [name, messages, consumers, publish_rate, deliver_rate]
+              properties:
+                name: {type: string}
+                messages: {type: integer}
+                consumers: {type: integer}
+                publish_rate: {type: number}
+                deliver_rate: {type: number}
+          max_messages: {type: integer}
+          alarms: {type: array, items: {type: string}}
+  backends:
+    - {capability: "rabbitmq.*", mcp: {image: "ghcr.io/acme/rabbitmq-mcp:0.2", tools: [queues]}, access: rabbitmq_ro}
+  extractors:
+    - match: "**/.env.example"
+      format: env
+      rules:
+        - key: "^AMQP_URL$"
+          value: "amqps?://(?:[^@]*@)?(?P<name>[a-z0-9-]+)\\."
+          node: {id: "runtime:rabbitmq/{name}", kind: Runtime, tech: [rabbitmq]}
+          edge: uses
+    - match: "**/config/*.json"
+      format: json
+      rules:
+        - {key: "(?i)amqp\\.publish\\.\\w+$", value: "^(?P<name>[a-z0-9.-]+)$", node: {id: "topic:{name}", kind: Topic, tech: [rabbitmq]}, edge: publishes}
+        - {key: "(?i)amqp\\.consume\\.\\w+$", value: "^(?P<name>[a-z0-9.-]+)$", node: {id: "topic:{name}", kind: Topic, tech: [rabbitmq]}, edge: consumes}
+    - match: "cmdb:u_cmdb_ci_rabbitmq"
+      node: {id: "runtime:rabbitmq/{name}", kind: Runtime, tech: [rabbitmq]}
+requires:
+  rabbitmq_ro:
+    description: A management-API user tagged monitoring, with no vhost permissions.
+    grant: "Management user tag monitoring; no configure, publish or consume permission on any vhost"
+    target: Cluster
+    verify_can: [GET /api/queues]
+    verify_cannot: [publish a message, purge a queue, delete a queue]
+    find: {graph: Runtime, tech: rabbitmq}
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/package.json", contains: "\"amqplib\"", weight: 1.0}
+    - {cmdb_class: u_cmdb_ci_rabbitmq, weight: 1.0}
+    - {incidents: "RabbitMQ|AMQP|queue depth|unacked", min_share: 0.05, weight: 0.5}

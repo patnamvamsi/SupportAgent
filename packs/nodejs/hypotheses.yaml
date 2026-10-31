@@ -1,0 +1,5 @@
+# One hypothesis per nodejs plugin cause (`node/<cause>` -> `node_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: node_event_loop_blocked
+  - id: node_heap_oom

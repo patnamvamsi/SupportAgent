@@ -1,0 +1,1 @@
+{"latency_ms": 6356, "raw_text": "{\"classification\":\"messaging/backlog\",\"severity\":\"P3\",\"summary\":\"Order events are arriving a few seconds later than usual, suggesting mild event delivery latency or minor messaging backlog.\",\"confidence\":0.6}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 675, "tokens_out": 325}

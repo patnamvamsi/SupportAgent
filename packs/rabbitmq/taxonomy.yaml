@@ -1,0 +1,7 @@
+# The messaging label a broker-backed service needs (queue/backlog is the python pack's Celery label).
+version: 1.0.0
+labels:
+  - id: messaging/backlog
+    description: >-
+      Messages pile up in a broker queue (RabbitMQ): consumers are down, too few or
+      too slow, or publishers are blocked, so the work the messages carry is late.

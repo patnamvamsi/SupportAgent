@@ -1,0 +1,11 @@
+{
+  "mongo": {
+    "uri": "mongodb+srv://tracking_app@tracking-rs.acme.internal/trackingdb"
+  },
+  "amqp": {
+    "consume": {
+      "events": "shipment-events",
+      "scans": "carrier-scans"
+    }
+  }
+}

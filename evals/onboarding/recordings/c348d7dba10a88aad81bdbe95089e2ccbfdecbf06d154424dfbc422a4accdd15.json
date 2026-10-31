@@ -1,0 +1,1 @@
+{"latency_ms": 10054, "raw_text": "{\n  \"classification\": \"deploy/rollback\",\n  \"severity\": \"P1\",\n  \"summary\": \"Shipments-api 5xx errors rose sharply minutes after a release, indicating the new deployment likely caused the failure.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 687, "tokens_out": 534}

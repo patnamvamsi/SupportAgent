@@ -1,0 +1,11 @@
+{
+  "port": 8080,
+  "sms": {
+    "endpoint": "https://api.smsgo.example/v1/messages"
+  },
+  "amqp": {
+    "consume": {
+      "events": "shipment-events"
+    }
+  }
+}

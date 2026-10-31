@@ -1,0 +1,43 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: mongo-latency-no-cause
+pack: mongodb
+split: holdout
+description: Reports are slower; every query is indexed and fast.
+incident:
+  subject: Order reports slower
+  priority: '3'
+  body: The daily orders report takes 40 s instead of 30 s.
+service:
+  name: orders-api
+  stack:
+  - nodejs
+  - express
+  - mongodb
+  databases:
+  - ordersdb
+world:
+  mongodb.slow_ops:
+    result:
+      database: ordersdb
+      ops:
+      - ns: ordersdb.orders
+        op: aggregate
+        ms: 640.0
+        plan: IXSCAN
+      max_ms: 640.0
+      collscans: 0
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+truth:
+  classification: database/latency
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - mongodb_missing_index
+  - mongodb_connection_pool_exhausted
+why: 'Indexed 640 ms aggregations and no pool errors: no cause may be claimed.'

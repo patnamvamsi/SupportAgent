@@ -1,0 +1,1 @@
+{"latency_ms": 6152, "raw_text": "{\"classification\":\"messaging/backlog\",\"severity\":\"P1\",\"summary\":\"Customers are not receiving SMS updates because publishing to logistics-mq is hanging, causing notification delivery to stop or lag.\",\"confidence\":0.8}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 676, "tokens_out": 285}

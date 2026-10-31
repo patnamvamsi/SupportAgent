@@ -1,0 +1,59 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: node-upstream-provider
+pack: nodejs
+split: tune
+description: The carrier's API is down; every call returns 503.
+incident:
+  subject: Labels cannot be printed
+  priority: '1'
+  body: label-printer cannot get labels from the carrier; it started at 09:05.
+service:
+  name: label-printer
+  stack:
+  - nodejs
+  - express
+world:
+  metrics.query:
+    result:
+      query: max(nodejs_eventloop_lag_p99_seconds{service="label-printer"})
+      series:
+      - labels: {}
+        value: 0.03
+      count: 1
+      max_value: 0.03
+  logs.search:
+    result:
+      query: '{service="label-printer"}'
+      window_min: 60
+      count: 5
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: Request failed with status code 503 (api.fastship.example)
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:11:00Z'
+        line: Request failed with status code 503 (api.fastship.example)
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:12:00Z'
+        line: Request failed with status code 503 (api.fastship.example)
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:13:00Z'
+        line: Request failed with status code 503 (api.fastship.example)
+        labels:
+          service: label-printer
+      - ts: '2026-01-01T07:14:00Z'
+        line: Request failed with status code 503 (api.fastship.example)
+        labels:
+          service: label-printer
+truth:
+  classification: network/outage
+  severity: P1
+  root_cause: upstream_provider
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+  must_not_claim:
+  - node_event_loop_blocked
+why: The event loop is idle (30 ms); every failure is the carrier answering 503.

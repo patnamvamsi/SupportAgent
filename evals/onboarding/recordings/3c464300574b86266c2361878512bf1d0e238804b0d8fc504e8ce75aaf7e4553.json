@@ -1,0 +1,1 @@
+{"latency_ms": 5143, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"The shipment-events queue is growing and customer-facing tracking updates have not progressed since this morning.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 675, "tokens_out": 242}

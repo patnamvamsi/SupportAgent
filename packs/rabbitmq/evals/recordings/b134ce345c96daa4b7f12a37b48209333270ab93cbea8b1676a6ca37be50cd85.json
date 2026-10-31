@@ -1,0 +1,1 @@
+{"latency_ms": 7288, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P1\",\n  \"summary\": \"Order events have not been flowing since 13:20, with publishers reporting blocked connections, causing delayed or missing downstream event processing.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 681, "tokens_out": 367}

@@ -290,3 +290,23 @@ def test_system_b_has_no_evaluated_knowledge_yet() -> None:
     assert [c.cause for c in testable] == [None]  # only the no-cause class: it abstains
     assert not report.ready and report.false_causes == 0
     assert all("skeleton" in c.reasons[0] for c in report.classes if c.status == "untestable")
+
+
+def test_system_c_is_ready_from_plugins_that_are_only_data() -> None:
+    """ADR-0016: Node.js, MongoDB and RabbitMQ knowledge with no core code proves most classes."""
+    report = _report("system-c")
+    status = report.statuses()
+    assert report.false_causes == 0
+    for ready in (
+        "mongodb-missing-index",
+        "mongodb-connection-pool-exhausted",
+        "rabbitmq-queue-backlog",
+        "rabbitmq-memory-alarm",
+        "node-heap-oom",
+        "node-event-loop-blocked",
+        "recent-change-push",
+    ):
+        assert status[ready] == "ready", (ready, report.lines())
+    # Three of the five carrier outages left no evidence: too few to judge.
+    assert status["upstream-provider"] == "not_ready"
+    assert report.ready

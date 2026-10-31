@@ -1,0 +1,1 @@
+{"latency_ms": 5238, "raw_text": "{\n  \"classification\": \"batch/schedule\",\n  \"severity\": \"P4\",\n  \"summary\": \"The daily orders report is running slower than baseline, taking 40 seconds instead of 30 seconds.\",\n  \"confidence\": 0.62\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 259}

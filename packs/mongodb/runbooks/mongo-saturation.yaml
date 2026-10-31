@@ -1,0 +1,20 @@
+# A MongoDB-backed service runs out of connections. Long collection scans
+# hold them, so they are checked first, then the pool itself.
+id: runbook:mongo-saturation
+applies_when: {classification: database/saturation}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: collscan
+    hypothesis: mongodb_missing_index
+    tool: mongodb.slow_ops
+    args: {database: "$service.databases[0]"}
+    check: "result.collscans > 0 && double(result.max_ms) >= 1000.0"
+    stop_if: true
+  - id: pool
+    hypothesis: mongodb_connection_pool_exhausted
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "MongoWaitQueueTimeoutError|MongoPoolClearedError"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("MongoWaitQueueTimeoutError") || m.line.contains("MongoPoolClearedError"))) >= 3'

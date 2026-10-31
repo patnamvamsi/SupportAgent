@@ -1,0 +1,13 @@
+# A Node.js process runs out of memory: V8 says so before it dies.
+id: runbook:node-memory
+applies_when: {classification: app/memory}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: heap
+    hypothesis: node_heap_oom
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "JavaScript heap out of memory|Reached heap limit"'
+      service: "$service.name"
+      window_min: 120
+    check: 'result.matches.exists(m, m.line.contains("JavaScript heap out of memory") || m.line.contains("Reached heap limit"))'

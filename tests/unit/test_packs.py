@@ -285,8 +285,11 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
         "common",
         "java-spring",
         "kubernetes",
+        "mongodb",
+        "nodejs",
         "oracle",
         "python-postgres",
+        "rabbitmq",
         "spark",
         "snowflake",
     }

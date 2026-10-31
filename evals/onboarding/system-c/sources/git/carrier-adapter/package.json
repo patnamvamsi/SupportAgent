@@ -1,0 +1,14 @@
+{
+  "name": "carrier-adapter",
+  "version": "1.8.0",
+  "private": true,
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.7.2",
+    "amqplib": "^0.10.4"
+  }
+}

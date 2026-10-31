@@ -1,0 +1,1 @@
+{"latency_ms": 12307, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"tracking-worker is stuck in CrashLoopBackOff during the nightly reconciliation, indicating the scheduled batch worker is failing to run successfully.\",\n  \"confidence\": 0.62\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 677, "tokens_out": 579}

@@ -1,12 +1,12 @@
 # The onboarding lab (ADR-0015, WP-O7)
 
-Measures whether an instance pointed at a system understands it, before any real system is involved. There are two reference systems, built to differ in every way that matters:
+Measures whether an instance pointed at a system understands it, before any real system is involved. There are three reference systems, built to differ in every way that matters:
 
-| | `system-a`: Payments Platform | `system-b`: Customer Analytics |
-|---|---|---|
-| Stack | Java/Spring Boot services, Oracle 19c, an Angular UI, Kubernetes | Kafka (MSK), PySpark streaming and batch on EMR, Kafka Connect, Snowflake tasks, Airflow, a Streamlit app |
-| Sources | 10 Confluence pages, 18 repo files, a CMDB with 10 CIs and 11 relationships, 45 incidents | 9 pages, 14 repo files, 9 CIs and 6 relationships, 42 incidents |
-| Traps | the 2023 MySQL architecture, a retired service, a stale CMDB relationship, a page telling the AI to request `GRANT DBA` | the 2024 Redshift design, a draft page with wrong lineage, a stale CMDB relationship, a page telling the AI to request `ACCOUNTADMIN` |
+| | `system-a`: Payments Platform | `system-b`: Customer Analytics | `system-c`: Shipment Tracking (ADR-0016) |
+|---|---|---|---|
+| Stack | Java/Spring Boot services, Oracle 19c, an Angular UI, Kubernetes | Kafka (MSK), PySpark streaming and batch on EMR, Kafka Connect, Snowflake tasks, Airflow, a Streamlit app | Node.js (Express) services and a worker, MongoDB, RabbitMQ, Kubernetes |
+| Sources | 10 Confluence pages, 18 repo files, a CMDB with 10 CIs and 11 relationships, 45 incidents | 9 pages, 14 repo files, 9 CIs and 6 relationships, 42 incidents | 6 pages, 16 repo files, 9 CIs and 8 relationships, 43 incidents |
+| Traps | the 2023 MySQL architecture, a retired service, a stale CMDB relationship, a page telling the AI to request `GRANT DBA` | the 2024 Redshift design, a draft page with wrong lineage, a stale CMDB relationship, a page telling the AI to request `ACCOUNTADMIN` | the 2023 PHP monolith on MySQL, a retired CI, a draft with wrong lineage, a page telling the AI to request RabbitMQ `administrator` and MongoDB `root` |
 
 ## Layout
 
@@ -29,6 +29,16 @@ drift/<system>.yaml      the system some time later (a change set) and the diff 
 ```
 
 **Every truth fact cites the sources it can be derived from** (`confluence:<page_id>`, `git:<repo>/<path>`, `cmdb:<sys_id>`, `live:<key>`), and the lab checks that each reference resolves. The truth never asks for something the sources don't contain. `must_not` lists what a careless reader would take from a stale, wrong or injected source. `questions` lists conflicts a good onboarding raises for review instead of resolving silently.
+
+## System C: a new stack with no core code (ADR-0016)
+
+System C is the proof that a new stack needs only plugins. Its plugins, `nodejs`, `mongodb` and `rabbitmq`, are data:
+- **Declared capabilities** `mongodb.slow_ops`, `mongodb.replset` and `rabbitmq.queues`, served by MCP servers in a deployment;
+- **Declarative extractors** for `package.json`, `config/*.json` and `.env.example`;
+- **Two CMDB classes**;
+- **Three packs**, each evaluated on its own lab.
+
+They landed in a PR that changed nothing under `src/`. Every stage the lab enforces passes on System C, and its readiness is replayed from its own evidence.
 
 ## A real system has the same layout
 

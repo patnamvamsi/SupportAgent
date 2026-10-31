@@ -1,0 +1,10 @@
+# What read-only discovery returns once access is granted (ADR-0015 decision 5).
+# Keys are <capability>[@<target>].
+k8s.workloads:
+  cluster: prod-us2
+  namespace: logistics
+  deployments:
+  - shipments-api
+  - tracking-worker
+  - carrier-adapter
+  - notifications-service

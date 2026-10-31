@@ -51,3 +51,6 @@ supportagent eval onboarding                              # the lab; the plugins
 | airflow | DAG and task failures | `airflow_ro`: Viewer |
 | data-quality | freshness, volume, schema drift along lineage | none |
 | python-postgres | the evaluated python-postgres pack | none |
+| nodejs (evaluated, data only) | event loop, V8 heap, outbound HTTP | none: uses logs and metrics |
+| mongodb (evaluated, data only) | unindexed queries, the driver's pool, elections; served by a MongoDB MCP server | `mongodb_ro`: `clusterMonitor` and `read` on the database |
+| rabbitmq (evaluated, data only) | queue backlogs, missing consumers, memory alarms; served by a RabbitMQ MCP server | `rabbitmq_ro`: a management user tagged `monitoring`, no vhost permissions |

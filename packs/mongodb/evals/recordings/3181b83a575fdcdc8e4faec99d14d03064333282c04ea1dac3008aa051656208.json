@@ -1,0 +1,1 @@
+{"latency_ms": 7925, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P3\",\n  \"summary\": \"The daily orders report duration increased from 30 seconds to 40 seconds, indicating a query or report latency regression rather than a failure.\",\n  \"confidence\": 0.62\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 375}

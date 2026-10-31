@@ -1,0 +1,1 @@
+{"latency_ms": 9027, "raw_text": "{\n  \"classification\": \"messaging/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"Order event flow stopped since 13:20 with publishers reporting blocked connections, indicating a messaging pipeline block or backlog.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 681, "tokens_out": 484}

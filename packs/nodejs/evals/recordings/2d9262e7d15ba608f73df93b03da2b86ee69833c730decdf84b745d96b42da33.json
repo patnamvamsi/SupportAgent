@@ -1,0 +1,1 @@
+{"latency_ms": 8570, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P2\",\n  \"summary\": \"Label-printer calls are timing out and its outbound carrier calls are failing with ETIMEDOUT, indicating a network connectivity or upstream path issue.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 645, "tokens_out": 447}

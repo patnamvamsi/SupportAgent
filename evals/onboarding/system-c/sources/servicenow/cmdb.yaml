@@ -1,0 +1,72 @@
+# CMDB extract: CIs and relationships for business service Logistics.
+# tracker-monolith was retired in 2024 (Confluence 50002); its relationship stays.
+cis:
+- sys_id: ci-c-shp
+  name: shipments-api
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-c-trk
+  name: tracking-worker
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-c-car
+  name: carrier-adapter
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-c-ntf
+  name: notifications-service
+  sys_class_name: cmdb_ci_service_auto
+  install_status: Installed
+- sys_id: ci-c-mono
+  name: tracker-monolith
+  sys_class_name: cmdb_ci_appl
+  install_status: Retired
+- sys_id: ci-c-shpdb
+  name: SHIPMENTSDB
+  sys_class_name: u_cmdb_ci_mongodb_database
+  install_status: Installed
+- sys_id: ci-c-trkdb
+  name: TRACKINGDB
+  sys_class_name: u_cmdb_ci_mongodb_database
+  install_status: Installed
+- sys_id: ci-c-mq
+  name: logistics-mq
+  sys_class_name: u_cmdb_ci_rabbitmq
+  install_status: Installed
+- sys_id: ci-c-ns
+  name: prod-us2/logistics
+  sys_class_name: cmdb_ci_kubernetes_namespace
+  install_status: Installed
+relationships:
+- sys_id: rel-c-01
+  parent: shipments-api
+  type: Depends on::Used by
+  child: SHIPMENTSDB
+- sys_id: rel-c-02
+  parent: tracking-worker
+  type: Depends on::Used by
+  child: TRACKINGDB
+- sys_id: rel-c-03
+  parent: shipments-api
+  type: Depends on::Used by
+  child: carrier-adapter
+- sys_id: rel-c-04
+  parent: shipments-api
+  type: Depends on::Used by
+  child: logistics-mq
+- sys_id: rel-c-05
+  parent: tracking-worker
+  type: Depends on::Used by
+  child: logistics-mq
+- sys_id: rel-c-06
+  parent: tracker-monolith
+  type: Depends on::Used by
+  child: SHIPMENTSDB
+- sys_id: rel-c-07
+  parent: shipments-api
+  type: Runs on::Runs
+  child: prod-us2/logistics
+- sys_id: rel-c-08
+  parent: tracking-worker
+  type: Runs on::Runs
+  child: prod-us2/logistics

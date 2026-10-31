@@ -1,0 +1,40 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: node-latency-no-cause
+pack: nodejs
+split: holdout
+description: Slightly slower responses; no lag, no failing calls.
+incident:
+  subject: label-printer a bit slow
+  priority: '3'
+  body: Label generation takes about 1.5 s instead of 1 s since this morning.
+service:
+  name: label-printer
+  stack:
+  - nodejs
+  - express
+world:
+  metrics.query:
+    result:
+      query: max(nodejs_eventloop_lag_p99_seconds{service="label-printer"})
+      series:
+      - labels: {}
+        value: 0.06
+      count: 1
+      max_value: 0.06
+  logs.search:
+    result:
+      query: '{service="label-printer"}'
+      window_min: 60
+      count: 0
+      matches: []
+truth:
+  classification: network/latency
+  also_acceptable:
+  - request/capacity
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - node_event_loop_blocked
+  - upstream_provider
+why: 'A 60 ms lag and no failed calls: nothing explains it, so no cause may be claimed.'

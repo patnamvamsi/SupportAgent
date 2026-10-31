@@ -1,0 +1,1 @@
+{"latency_ms": 8436, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P2\",\n  \"summary\": \"The label-printer service is unable to retrieve labels from an upstream carrier dependency, causing label printing to fail.\",\n  \"confidence\": 0.58\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 643, "tokens_out": 441}

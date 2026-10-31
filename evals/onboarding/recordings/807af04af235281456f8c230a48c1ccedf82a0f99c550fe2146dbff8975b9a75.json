@@ -1,0 +1,1 @@
+{"latency_ms": 5183, "raw_text": "{\"classification\":\"request/access\",\"severity\":\"P1\",\"summary\":\"Every FastShip booking is failing with HTTP 503 from api.fastship.example, indicating the carrier API is unavailable to the adapter.\",\"confidence\":0.78}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 685, "tokens_out": 233}

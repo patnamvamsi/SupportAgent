@@ -1,0 +1,17 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  mongodb_missing_index:
+    tool: mongodb.slow_ops
+    args: {database: "$service.databases[0]"}
+    check: "result.collscans > 0 && double(result.max_ms) >= 1000.0"
+  mongodb_connection_pool_exhausted:
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "MongoWaitQueueTimeoutError|MongoPoolClearedError"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("MongoWaitQueueTimeoutError") || m.line.contains("MongoPoolClearedError"))) >= 3'
+  mongodb_primary_election:
+    tool: mongodb.replset
+    args: {database: "$service.databases[0]"}
+    check: "result.elections_last_hour > 0"

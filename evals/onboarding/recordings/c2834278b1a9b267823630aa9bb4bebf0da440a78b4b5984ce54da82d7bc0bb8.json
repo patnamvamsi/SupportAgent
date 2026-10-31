@@ -1,0 +1,1 @@
+{"latency_ms": 11188, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"A 5xx error rate spike from 0.1% to 7% occurred minutes after the notifications-service release, indicating a likely failed deployment.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 688, "tokens_out": 566}

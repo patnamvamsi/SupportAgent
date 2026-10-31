@@ -1,0 +1,1 @@
+{"latency_ms": 8424, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P2\",\"summary\":\"Shipments API search by status is taking about 12 seconds, a significant latency regression from prior instant behavior.\",\"confidence\":0.65}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 681, "tokens_out": 455}
