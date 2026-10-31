@@ -1,4 +1,5 @@
-"""The system's last readiness report (ADR-0015 §5, WP-O6b): saved, loaded, as a policy.
+"""Onboarding's per-tenant documents: the last readiness report (ADR-0015 §5, WP-O6b), as a
+policy, and the last ``onboard run``'s status (ADR-0017, WP-A4).
 
 ``onboard readiness`` saves it; the triage and RCA wiring read it as a
 :class:`~supportagent.domain.readiness.ReadinessPolicy`, and
@@ -34,47 +35,58 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
-class ReadinessStore:
+class TenantDocument:
+    """One JSON document per tenant in a ``(tenant_id, <column>, updated_ts)`` table."""
+
+    #: Set by each subclass: constants, never input.
+    table: str = ""
+    column: str = ""
+
     def __init__(self, *, uow: _UoW, clock: Clock, tenant_id: str) -> None:
         self._uow = uow
         self._clock = clock
         self._tenant = tenant_id
 
-    def save(self, report: Mapping[str, Any]) -> None:
-        values = {
-            "t": self._tenant,
-            "r": json.dumps(report, sort_keys=True),
-            "now": int(self._clock.now().timestamp()),
-        }
+    def _table(self) -> sa.TableClause:
+        return sa.table(
+            self.table, sa.column("tenant_id"), sa.column(self.column), sa.column("updated_ts")
+        )
+
+    def save(self, document: Mapping[str, Any]) -> None:
+        t = self._table()
+        body = json.dumps(document, sort_keys=True)
+        now = int(self._clock.now().timestamp())
         with self._uow:
             conn = self._uow.connection
             updated = conn.execute(
-                sa.text(
-                    "UPDATE onboarding_readiness SET report_json = :r, updated_ts = :now "
-                    "WHERE tenant_id = :t"
-                ),
-                values,
+                sa.update(t)
+                .where(t.c.tenant_id == self._tenant)
+                .values({self.column: body, "updated_ts": now})
             ).rowcount
             if not updated:
                 conn.execute(
-                    sa.text(
-                        "INSERT INTO onboarding_readiness (tenant_id, report_json, updated_ts) "
-                        "VALUES (:t, :r, :now)"
-                    ),
-                    values,
+                    sa.insert(t).values(
+                        {"tenant_id": self._tenant, self.column: body, "updated_ts": now}
+                    )
                 )
             self._uow.commit()
 
     def load(self) -> dict[str, Any] | None:
+        t = self._table()
         with self._uow:
             row = self._uow.connection.execute(
-                sa.text("SELECT report_json FROM onboarding_readiness WHERE tenant_id = :t"),
-                {"t": self._tenant},
+                sa.select(t.c[self.column]).where(t.c.tenant_id == self._tenant)
             ).first()
         if row is None:
             return None
-        report = json.loads(str(row[0]))
-        return report if isinstance(report, dict) else None
+        document = json.loads(str(row[0]))
+        return document if isinstance(document, dict) else None
+
+
+class ReadinessStore(TenantDocument):
+    """The system's last readiness report (WP-O6b)."""
+
+    table, column = "onboarding_readiness", "report_json"
 
     def policy(self) -> ReadinessPolicy | None:
         """``None`` until the system has a report: routing is then unchanged."""
@@ -82,11 +94,15 @@ class ReadinessStore:
         if report is None:
             return None
         classes = report.get("classes")
-        return (
-            ReadinessPolicy.of(c for c in classes if isinstance(c, dict))
-            if isinstance(classes, list)
-            else None
-        )
+        if not isinstance(classes, list):
+            return None
+        return ReadinessPolicy.of(c for c in classes if isinstance(c, dict))
 
 
-__all__ = ["ReadinessStore"]
+class OnboardingStatusStore(TenantDocument):
+    """The last ``onboard run``: its steps and what it waits on a person for (ADR-0017)."""
+
+    table, column = "onboarding_status", "status_json"
+
+
+__all__ = ["OnboardingStatusStore", "ReadinessStore", "TenantDocument"]

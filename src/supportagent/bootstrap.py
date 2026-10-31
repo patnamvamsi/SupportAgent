@@ -179,7 +179,7 @@ from supportagent.app.rca import (
     entail_variables,
     lite_route_ids,
 )
-from supportagent.app.readiness_store import ReadinessStore
+from supportagent.app.readiness_store import OnboardingStatusStore, ReadinessStore
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.request_review import RequestReview
 from supportagent.app.retention import RetentionService
@@ -2781,6 +2781,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def readiness() -> ReadinessStore:
         return ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
 
+    def onboarding_status() -> OnboardingStatusStore:
+        return OnboardingStatusStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -2793,6 +2796,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         graph_review=graph_review,
         request_review=request_review,
         readiness=readiness,
+        onboarding_status=onboarding_status,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -4246,6 +4250,8 @@ def _autopilot_status(
         status.bar = float(str(report.get("bar", 0.0)))
         status.needs.extend(_readiness_needs(report))
     Workspace(workspace).write_artifact(AUTOPILOT_STATE, status.as_dict())
+    document = status.as_dict() | {"at": clock.now().isoformat()}
+    OnboardingStatusStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).save(document)
     return status
 
 

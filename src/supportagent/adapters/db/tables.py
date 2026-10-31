@@ -490,6 +490,15 @@ onboarding_readiness = sa.Table(
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
 )
 
+# 0019 (WP-A4): the last onboarding run's steps and needs, one row per tenant.
+onboarding_status = sa.Table(
+    "onboarding_status",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("status_json", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

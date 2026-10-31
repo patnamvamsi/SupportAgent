@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from supportagent.adapters.db.uow import SqlUnitOfWork
+from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.adapters.fakes.servicenow import SyncASGITransport
 from supportagent.app.request_review import RequestReview
 from supportagent.bootstrap import (
@@ -27,7 +29,7 @@ from supportagent.bootstrap import (
 )
 from supportagent.domain.autopilot import Need, OnboardingStatus, StepRecord, digest, should_run
 from supportagent.entrypoints.cli.main import app
-from tests.unit.api_support import TENANT
+from tests.unit.api_support import ADA, TENANT, login, make_client
 from tests.unit.test_ingest import (
     _ENV,
     _fake_confluence,
@@ -144,3 +146,26 @@ def test_needs_are_ranked_by_the_weight_they_hold_back() -> None:
     assert [n.kind for n in status.ranked()] == ["access", "plugin", "review"]
     assert not status.ready
     assert any("Grant access" in line for line in status.lines())
+
+
+@pytest.fixture
+def oidc() -> FakeOIDC:
+    return FakeOIDC()
+
+
+@pytest.fixture
+def client(db: Any, clock: Any, ids: Any, master_key: bytes, oidc: FakeOIDC) -> TestClient:
+    return make_client(db, clock, ids, master_key, oidc)
+
+
+def test_the_overview_shows_the_run_and_what_is_needed(
+    tmp_path: Path, db: Any, clock: Any, client: TestClient, oidc: FakeOIDC
+) -> None:
+    login(client, oidc, ADA)
+    assert "Needed from you" not in client.get("/ui/onboarding").text  # not onboarded yet
+    _run(tmp_path, db, clock)
+    page = client.get("/ui/onboarding").text
+    assert "Not ready to support yet" in page and "Needed from you" in page
+    assert "Grant access:" in page and 'href="/ui/onboarding/requests"' in page
+    assert "check the model, then re-run" in page  # the blocked steps, as a need
+    assert '<li class="step blocked">' in page and "style=" not in page
