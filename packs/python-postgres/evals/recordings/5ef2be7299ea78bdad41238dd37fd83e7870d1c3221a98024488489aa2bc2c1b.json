@@ -1,0 +1,1 @@
+{"latency_ms": 6945, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P2\",\"summary\":\"Order creation requests are hanging for about 30 seconds and then failing with 504s, indicating degraded database write latency on the orders path.\",\"confidence\":0.68}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1015, "tokens_out": 330}

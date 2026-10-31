@@ -1,1 +1,0 @@
-{"latency_ms": 16030, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P4\",\n  \"summary\": \"checkout-api reported a brief error-rate breach above 1% that recovered within two minutes, with no further details provided.\",\n  \"confidence\": 0.3\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 347}

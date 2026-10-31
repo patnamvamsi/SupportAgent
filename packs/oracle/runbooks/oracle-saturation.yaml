@@ -1,7 +1,9 @@
 # Sessions pile up on an Oracle-backed service. A blocking chain is checked
 # first: it also exhausts the application's connection pool, so the pool's
 # timeouts are its symptom (the java-spring pack's step runs after this one).
-# A deadlock (ORA-00060) clears itself, so it is read from the application's logs.
+# database/saturation covers disk saturation too (the common label), so a full
+# tablespace is checked next. A deadlock (ORA-00060) clears itself, so it is
+# read from the application's logs.
 id: runbook:oracle-saturation
 applies_when: {classification: database/saturation}
 budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
@@ -11,6 +13,12 @@ steps:
     tool: oracle.locks
     args: {database: "$service.databases[0]"}
     check: "result.blocked > 0 && result.blockers.exists(b, double(b.wait_s) > 60.0)"
+    stop_if: true
+  - id: tablespace
+    hypothesis: oracle_tablespace_full
+    tool: oracle.tablespaces
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_used_pct) >= 97.0"
     stop_if: true
   - id: deadlocks
     hypothesis: oracle_lock_contention

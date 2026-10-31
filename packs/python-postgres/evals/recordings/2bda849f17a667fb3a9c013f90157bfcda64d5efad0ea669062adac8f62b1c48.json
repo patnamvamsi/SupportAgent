@@ -1,1 +1,0 @@
-{"latency_ms": 7736, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout is failing because outbound HTTPS calls to the payments service are not connecting, causing retries to exhaust.\",\n  \"confidence\": 0.75\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 397}

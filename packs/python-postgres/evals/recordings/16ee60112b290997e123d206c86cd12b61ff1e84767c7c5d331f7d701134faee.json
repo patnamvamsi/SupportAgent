@@ -1,0 +1,1 @@
+{"latency_ms": 7197, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"The checkout-api is reporting Gunicorn worker timeouts on /orders/history and elevated p95 latency after the 04:00 release.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1041, "tokens_out": 343}

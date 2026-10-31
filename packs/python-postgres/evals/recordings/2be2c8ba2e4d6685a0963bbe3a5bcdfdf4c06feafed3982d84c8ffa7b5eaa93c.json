@@ -1,1 +1,0 @@
-{"latency_ms": 9653, "raw_text": "{\"classification\":\"database/saturation\",\"severity\":\"P1\",\"summary\":\"checkout-api is failing with PostgreSQL FATAL: too many clients already, indicating database connection exhaustion.\",\"confidence\":0.95}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1012, "tokens_out": 482}

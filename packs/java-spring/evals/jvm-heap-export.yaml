@@ -35,7 +35,7 @@ world:
           service: orders-api
   metrics.query:
     result:
-      query: q
+      query: max(rate(jvm_gc_pause_seconds_sum{service="orders-api"}[5m]))
       series:
       - labels: {}
         value: 0.34

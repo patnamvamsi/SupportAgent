@@ -23,7 +23,7 @@ world:
       matches: []
   metrics.query:
     result:
-      query: q
+      query: max(rate(jvm_gc_pause_seconds_sum{service="orders-api"}[5m]))
       series:
       - labels: {}
         value: 0.72
@@ -32,6 +32,7 @@ world:
 truth:
   classification: app/memory
   also_acceptable:
+  - request/capacity
   - network/latency
   - database/latency
   severity: P3

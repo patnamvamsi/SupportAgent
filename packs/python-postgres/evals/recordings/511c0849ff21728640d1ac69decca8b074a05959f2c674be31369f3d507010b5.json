@@ -1,0 +1,1 @@
+{"latency_ms": 4366, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P3\",\"summary\":\"Sustained gradual slowdown in order_events queries with no recent deployments indicates a database latency regression.\",\"confidence\":0.92}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1015, "tokens_out": 199}

@@ -1,0 +1,1 @@
+{"latency_ms": 4770, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The catalog-api release is stuck because its new pods never become ready.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 637, "tokens_out": 230}

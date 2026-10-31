@@ -1,1 +1,0 @@
-{"latency_ms": 4527, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api is experiencing critical worker timeouts and 504 upstream request timeouts, causing request failures.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 998, "tokens_out": 260}

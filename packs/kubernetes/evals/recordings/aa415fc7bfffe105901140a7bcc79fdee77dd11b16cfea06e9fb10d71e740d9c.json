@@ -1,0 +1,1 @@
+{"latency_ms": 8231, "raw_text": "{\n  \"classification\": \"deploy/rollback\",\n  \"severity\": \"P2\",\n  \"summary\": \"catalog-api 5xx rate jumped from 0.1% to 8% minutes after the 07:46 release, indicating the deployment is the likely cause of the failure.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 653, "tokens_out": 399}

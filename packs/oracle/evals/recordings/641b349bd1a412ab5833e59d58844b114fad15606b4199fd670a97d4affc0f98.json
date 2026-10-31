@@ -1,0 +1,1 @@
+{"latency_ms": 6348, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P3\",\"summary\":\"Ledger month-end reports are taking longer than expected, indicating a query or service latency regression.\",\"confidence\":0.75}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 197}

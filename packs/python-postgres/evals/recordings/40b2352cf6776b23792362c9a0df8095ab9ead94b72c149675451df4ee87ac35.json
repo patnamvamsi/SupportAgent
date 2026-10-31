@@ -1,1 +1,0 @@
-{"latency_ms": 3614, "raw_text": "{\n  \"classification\": \"queue/backlog\",\n  \"severity\": \"P2\",\n  \"summary\": \"The billing Celery queue is growing and invoices are being delayed by about 40 minutes.\",\n  \"confidence\": 0.96\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1009, "tokens_out": 224}

@@ -19,4 +19,4 @@ steps:
     args:
       query: 'max(rate(jvm_gc_pause_seconds_sum{service="{{service}}"}[5m]))'
       service: "$service.name"
-    check: "double(result.max_value) > 0.5"
+    check: 'result.query.contains("jvm_gc_pause") && double(result.max_value) > 0.5'

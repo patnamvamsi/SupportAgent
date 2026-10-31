@@ -1,1 +1,0 @@
-{"latency_ms": 3735, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P2\",\n  \"summary\": \"checkout-api is rejecting requests with 429s due to rate limiting.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 993, "tokens_out": 206}

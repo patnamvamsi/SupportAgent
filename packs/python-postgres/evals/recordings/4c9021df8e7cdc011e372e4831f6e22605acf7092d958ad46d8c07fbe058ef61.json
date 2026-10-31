@@ -1,1 +1,0 @@
-{"latency_ms": 4367, "raw_text": "{\n  \"classification\": \"app/config\",\n  \"severity\": \"P1\",\n  \"summary\": \"checkout-api failed to start after a release due to a missing DATABASE_URL environment variable, causing an ImproperlyConfigured error and service downtime.\",\n  \"confidence\": 0.97\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 991, "tokens_out": 237}

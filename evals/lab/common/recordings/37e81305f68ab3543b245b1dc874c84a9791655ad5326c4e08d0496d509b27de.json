@@ -1,0 +1,1 @@
+{"latency_ms": 7796, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"Core database connection pool reached its limit shortly after the 09:10 release, indicating connection saturation.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 648, "tokens_out": 339}

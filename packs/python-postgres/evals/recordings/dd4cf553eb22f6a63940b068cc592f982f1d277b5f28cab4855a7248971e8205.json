@@ -1,1 +1,0 @@
-{"latency_ms": 5744, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P3\",\n  \"summary\": \"Event-related database queries are showing a gradual week-over-week latency increase without recent deployments or clear saturation signals.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1010, "tokens_out": 310}

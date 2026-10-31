@@ -1,1 +1,0 @@
-{"latency_ms": 12434, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P4\",\n  \"summary\": \"Checkout API reported a transient error-rate increase above 1% for two minutes that then recovered, with no detailed cause provided.\",\n  \"confidence\": 0.4\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 993, "tokens_out": 623}

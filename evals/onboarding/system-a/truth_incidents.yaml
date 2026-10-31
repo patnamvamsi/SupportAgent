@@ -3,6 +3,7 @@ incident_classes:
 - id: oracle-lock-contention
   labels:
   - database/saturation
+  - database/latency
   cause: oracle/lock_contention
   incidents:
   - INCA0009

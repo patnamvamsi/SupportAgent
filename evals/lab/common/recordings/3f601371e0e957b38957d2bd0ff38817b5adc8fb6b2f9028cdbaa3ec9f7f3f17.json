@@ -1,1 +1,0 @@
-{"latency_ms": 3133, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"Customers are unable to load the Orders page because the database is refusing connections.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 565, "tokens_out": 182}

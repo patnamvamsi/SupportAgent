@@ -1,0 +1,1 @@
+{"latency_ms": 3922, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"The orders page is timing out because the database is refusing connections, preventing customers from loading orders.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 211}

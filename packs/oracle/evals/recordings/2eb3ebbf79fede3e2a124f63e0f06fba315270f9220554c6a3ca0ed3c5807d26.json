@@ -1,0 +1,1 @@
+{"latency_ms": 4745, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"All ledger-api requests are failing with database connection errors, indicating the database is down or refusing connections.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 258}

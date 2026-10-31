@@ -45,7 +45,7 @@ world:
           service: checkout-api
   metrics.query:
     result:
-      query: q
+      query: max(tomcat_threads_busy_threads{service="checkout-api"} / tomcat_threads_config_max_threads{service="checkout-api"})
       series:
       - labels: {}
         value: 0.71

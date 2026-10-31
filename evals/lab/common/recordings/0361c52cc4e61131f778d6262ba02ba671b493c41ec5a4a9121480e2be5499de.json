@@ -1,1 +1,0 @@
-{"latency_ms": 5624, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P3\",\n  \"summary\": \"A brief core-db connection pool saturation alarm reached 95% and cleared, indicating transient pool pressure rather than an ongoing failure.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 563, "tokens_out": 289}

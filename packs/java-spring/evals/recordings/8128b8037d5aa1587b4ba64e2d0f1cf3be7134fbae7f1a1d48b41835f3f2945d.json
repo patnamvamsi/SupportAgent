@@ -1,0 +1,1 @@
+{"latency_ms": 12487, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P2\",\n  \"summary\": \"Checkout-api is returning intermittent 503 errors after ~30s waits, indicating request shedding or capacity degradation.\",\n  \"confidence\": 0.62\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 646, "tokens_out": 637}

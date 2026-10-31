@@ -1,0 +1,1 @@
+{"latency_ms": 7599, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"The statement batch failed at the write step due to ORA-01653, indicating tablespace or disk saturation on the database.\",\n  \"confidence\": 0.82\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 650, "tokens_out": 381}

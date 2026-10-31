@@ -1,0 +1,1 @@
+{"latency_ms": 4231, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P3\",\n  \"summary\": \"Month-end ledger reports are taking about 40 seconds instead of the usual 25 seconds, indicating a performance or query latency regression.\",\n  \"confidence\": 0.68\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 235}

@@ -1,0 +1,1 @@
+{"latency_ms": 5500, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout is unable to reach the payments service because DNS name resolution is failing, indicating a connectivity loss to an upstream dependency.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1007, "tokens_out": 262}

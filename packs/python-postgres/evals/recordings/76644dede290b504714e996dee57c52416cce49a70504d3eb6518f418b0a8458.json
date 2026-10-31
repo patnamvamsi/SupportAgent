@@ -1,0 +1,1 @@
+{"latency_ms": 7432, "raw_text": "{\n  \"classification\": \"app/worker_timeout\",\n  \"severity\": \"P1\",\n  \"summary\": \"Checkout-api is experiencing worker timeouts on /orders/history with elevated p95 latency after the 04:00 release.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1041, "tokens_out": 403}

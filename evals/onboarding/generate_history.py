@@ -45,7 +45,8 @@ class IncidentClass:
 SYSTEM_A = [
     IncidentClass(
         "oracle-lock-contention",
-        ["database/saturation"],
+        # Latency is acceptable too: the incident lab's pg-lock-contention is database/latency.
+        ["database/saturation", "database/latency"],
         "oracle/lock_contention",
         7,
         ["payment-service"],

@@ -1,0 +1,1 @@
+{"latency_ms": 4488, "raw_text": "{\"classification\":\"app/worker_timeout\",\"severity\":\"P1\",\"summary\":\"checkout-api is returning 504s with WORKER TIMEOUT logs, indicating web workers are timing out while serving requests.\",\"confidence\":0.85}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1019, "tokens_out": 278}

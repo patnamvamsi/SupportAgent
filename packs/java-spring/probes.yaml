@@ -20,10 +20,10 @@ probes:
     args:
       query: 'max(tomcat_threads_busy_threads{service="{{service}}"} / tomcat_threads_config_max_threads{service="{{service}}"})'
       service: "$service.name"
-    check: "double(result.max_value) >= 0.98"
+    check: 'result.query.contains("tomcat_threads") && double(result.max_value) >= 0.98'
   jvm_gc_pauses:
     tool: metrics.query
     args:
       query: 'max(rate(jvm_gc_pause_seconds_sum{service="{{service}}"}[5m]))'
       service: "$service.name"
-    check: "double(result.max_value) > 0.5"
+    check: 'result.query.contains("jvm_gc_pause") && double(result.max_value) > 0.5'

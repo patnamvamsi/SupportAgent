@@ -1,0 +1,1 @@
+{"latency_ms": 6985, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P1\",\n  \"summary\": \"Core DB connection pool saturated to 100% immediately after the 09:10 rollout, indicating connection exhaustion or load-related degradation.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 648, "tokens_out": 349}
