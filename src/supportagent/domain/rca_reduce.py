@@ -24,6 +24,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
+from supportagent.domain.readiness import NOT_READY_TAG
+
 Outcome = Literal["SUPPORTED", "CONSISTENT_UNCONFIRMED", "INCONCLUSIVE"]
 Verdict = Literal["supports", "contradicts", "unknown"]
 CHANGE_HYPOTHESIS = "recent_change_push"
@@ -85,8 +87,9 @@ class Claim:
 
     @property
     def sendable(self) -> bool:
-        """Eligible for any send: entailment said ``supports`` (§5.4)."""
-        return not (self.tags & {"speculation", "contradicted"})
+        """Eligible for any send: entailment said ``supports`` (§5.4), and its cause's
+        class is ready (ADR-0015 §5, ``not_ready``)."""
+        return not (self.tags & {"speculation", "contradicted", NOT_READY_TAG})
 
 
 def conclude(results: Sequence[StepResult]) -> list[Claim]:

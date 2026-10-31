@@ -11,6 +11,7 @@ from supportagent.app.comms import CommsPlans
 from supportagent.app.graph_review import GraphReview
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.queries import AdminQueries
+from supportagent.app.readiness_store import ReadinessStore
 from supportagent.app.replay import ReplayView
 from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SetupService
@@ -46,3 +47,5 @@ class ApiContext:
     #: ADR-0015 (WP-O3b): the system graph under review; ``None`` in tests that don't need it.
     graph_review: Callable[[], GraphReview] | None = None
     request_review: Callable[[], RequestReview] | None = None
+    #: WP-O6b: the system's last readiness report.
+    readiness: Callable[[], ReadinessStore] | None = None

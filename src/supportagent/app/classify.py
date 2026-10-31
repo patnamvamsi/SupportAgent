@@ -32,6 +32,7 @@ from supportagent.domain.model.case import Case
 from supportagent.domain.model.triage import TriageDecision, TriageResult
 from supportagent.domain.packs import PackScope
 from supportagent.domain.preclass import RuleSet
+from supportagent.domain.readiness import ReadinessPolicy
 from supportagent.domain.routing import RoutingTable
 from supportagent.domain.severity import (
     Severity,
@@ -52,6 +53,7 @@ _DecideReason = Literal[
     "no-paging-integration",
     "storm-member",
     "spend-breaker",
+    "class-not-ready",
     "routed",
 ]
 
@@ -70,6 +72,7 @@ class Classifier:
         taxonomy_labels: str = "",
         severity: SeverityStrategy | None = None,
         packs: PackScope | None = None,
+        readiness: ReadinessPolicy | None = None,
     ) -> None:
         self.rule_set = rule_set
         self.llm = llm
@@ -82,8 +85,10 @@ class Classifier:
         self.severity = severity if severity is not None else SourcePrioritySeverity()
         #: ADR-0011: per case, only the service's active packs' rules and labels.
         self.packs = packs
+        #: WP-O6b: once the system has a readiness report, only ready classes' labels route.
+        self.readiness = readiness
 
-    def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision:
+    def decide(self, evt: AlertEvent, case: Case, trace: TraceContext) -> TriageDecision:  # noqa: PLR0911 — one return per ARCH §4 branch
         # 1. unresolved-service: checked first, before the LLM is consulted.
         if case.service is None:
             return safe_default("unresolved-service")
@@ -154,7 +159,20 @@ class Classifier:
                 llm_suggestion=llmres,
             )
 
-        # 6. routed: first matching routing rule, else the default (generic).
+        # 6. class-not-ready (ADR-0015 §5): the system's history proved no class
+        #    with this label, so a person takes it, with the LLM result as a suggestion.
+        if self.readiness is not None and not self.readiness.routes(llmres.classification):
+            return safe_default(
+                "class-not-ready",
+                classification=llmres.classification,
+                severity=severity,
+                severity_origin=origin,
+                preclass_label=label,
+                calibrated_score=score,
+                llm_suggestion=llmres,
+            )
+
+        # 7. routed: first matching routing rule, else the default (generic).
         route = self.routing.lookup(llmres.classification, severity)
         return TriageDecision(
             outcome="routed",

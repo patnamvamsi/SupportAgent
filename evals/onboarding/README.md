@@ -18,10 +18,13 @@ system-x/
     servicenow/          cmdb.yaml, incidents.yaml, problems.yaml, changes.yaml
     git/<repo>/          manifests and config: pom.xml, application.yml, helm, SQL, DAGs, app code
     live/discovery.yaml  what read-only discovery returns once access is granted
+    evidence/<number>.yaml  what the read-only tools returned during a past incident (generated)
   truth.yaml             graph (nodes, edges, must_not, questions), plugins, requests
   truth_incidents.yaml   incident classes: members, labels, cause (generated)
 gates.yaml               per-stage floors, forbidden ceilings, enforced_stages
 generate_history.py      the seeded generator for servicenow/*.yaml and truth_incidents.yaml
+generate_evidence.py     the seeded generator for system-a's evidence (from the generated history)
+readiness_baseline.json  each class's accepted readiness; a ready class may not regress
 ```
 
 **Every truth fact cites the sources it can be derived from** (`confluence:<page_id>`, `git:<repo>/<path>`, `cmdb:<sys_id>`, `live:<key>`), and the lab checks that each reference resolves. The truth never asks for something the sources don't contain. `must_not` lists what a careless reader would take from a stale, wrong or injected source. `questions` lists conflicts a good onboarding raises for review instead of resolving silently.
@@ -87,6 +90,30 @@ A request **unlocks** an incident class when it serves a capability the class's 
 
 `supportagent onboard requests --workspace <dir>` saves the plan for review at `/ui/onboarding/requests` and writes `requests.json`. Approving a request records that a person will provide the credential. Binding it and running the contract's `verify_can` and `verify_cannot` probes is the plugin backend's job when it lands.
 
+## Readiness (WP-O6)
+
+`evals/readiness.py` replays the history, one incident class at a time, the way ADR-0015 §5 describes:
+
+- **Scenarios from history.** Each past incident in a class of the incident map becomes a lab scenario. It carries the ticket as it was opened and the service it hit, as the system graph knows it: the stack that selects the packs, its databases and its namespace. Its truth is what onboarding mapped: the class's label, and the hypothesis that tests its cause (`oracle/lock_contention` is tested by `oracle_lock_contention`). Its world is the evidence captured at the time (`sources/evidence/`).
+- **Replayed with the triage model.** The lab's real classifier and RCA run each scenario, since that model will support the system.
+- **Gates per class** come from `system.yaml` `readiness:`: at least 3 scenarios with evidence, the cause found in 75% of them, and no false cause. A class whose cause no evaluated pack can test is *untestable*. An incident with a cause but no evidence isn't replayed; it is counted.
+- **The bar** is the share of incident weight held by ready classes: 70% (decision 6).
+
+With the evaluated `oracle`, `java-spring` and `kubernetes` plugins, System A is ready on most of its history:
+- The portal's browser-side faults are untestable: `angular` is a skeleton.
+- Connection-pool exhaustion isn't ready. Half its tickets are logged against payments-gateway, whose logs only show its dependency's 503s, and the agent doesn't follow dependencies.
+
+System B is untestable everywhere except its no-cause class, since none of its plugins is evaluated yet. `tests/unit/test_readiness.py` replays both systems with a stand-in that classifies every ticket correctly, so the knowledge and evidence are proven without a model. The lab replays the recorded triage model on top. Every replay must be recorded, and no class `readiness_baseline.json` has ready may stop being ready (`--write-readiness-baseline` accepts a new run).
+
+`supportagent onboard readiness --workspace <dir>` does the same for a workspace, saves the report and writes `readiness.json`. From the next start:
+- triage routes only the labels of ready classes; any other case safe-defaults to a person (`class-not-ready`);
+- RCA never lets a claim for a cause whose class isn't ready be sent;
+- `/ui/onboarding/readiness` shows each class, its share, its top-1 and why it isn't ready.
+
+A system that has never been assessed routes as before.
+
+**Not done yet.** Calibration per class, shadow replay through the real pipeline, and capturing evidence from live tools for a workspace's past incidents. Until that last one lands, a real workspace has no evidence, and none of its classes can be ready.
+
 ## Changing the history
 
-Edit an incident class in `generate_history.py` and run it again. Never edit the generated YAML by hand: a test regenerates it and compares the files byte for byte.
+Edit an incident class in `generate_history.py` and run it again, then `generate_evidence.py`. Never edit the generated YAML by hand: a test regenerates both and compares the files byte for byte.

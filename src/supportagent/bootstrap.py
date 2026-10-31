@@ -169,6 +169,7 @@ from supportagent.app.rca import (
     entail_variables,
     lite_route_ids,
 )
+from supportagent.app.readiness_store import ReadinessStore
 from supportagent.app.replay import ReplayService, ReplayView
 from supportagent.app.request_review import RequestReview
 from supportagent.app.retention import RetentionService
@@ -197,7 +198,7 @@ from supportagent.config.schema import (
     Tools,
 )
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
-from supportagent.config.system_manifest import ConfluenceSpace, GitSource
+from supportagent.config.system_manifest import ConfluenceSpace, GitSource, SystemManifest
 from supportagent.domain.auto import AutoConditions
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
@@ -222,6 +223,7 @@ from supportagent.domain.model.calibration import (
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.knowledge import DocFrontMatter
+from supportagent.domain.model.plugin import cause_hypothesis
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.runbook import RcaBudget
@@ -240,6 +242,7 @@ from supportagent.domain.plugins import (
 )
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
+from supportagent.domain.readiness import ReadinessPolicy
 from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.sop import step_scope
@@ -283,9 +286,12 @@ from supportagent.evals.lab import (
     LabGates,
     LabOutcome,
     LabScenario,
+    WorldEntry,
     WorldTools,
+    check_shape,
     cited_tools,
     load_scenarios,
+    score_outcome,
 )
 from supportagent.evals.onboarding import (
     Inventory,
@@ -299,6 +305,7 @@ from supportagent.evals.onboarding import (
     Truth,
 )
 from supportagent.evals.quality import RecallReport
+from supportagent.evals.readiness import ReadinessReport, Replayed, assess, history_scenarios
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
@@ -579,14 +586,20 @@ def outbox_claim_lease_s(config: AppConfig, *, clock: Clock) -> int:
     return math.ceil(outbox_claim_budget_s(config, clock=clock)) + _LEASE_MARGIN_S
 
 
-def _build_classifier(
+def _build_classifier(  # noqa: PLR0913 — the ports plus the provider and readiness seams
     config: AppConfig,
     events: EventSink,
     ids: IdGenerator,
     clock: Clock,
     provider_override: LLMProvider | None = None,
+    *,
+    readiness: ReadinessPolicy | None = None,
 ) -> Classifier:
-    """The ARCH §4 classifier: shipped pre-classifier rules, LLM, calibration, routing."""
+    """The ARCH §4 classifier: shipped pre-classifier rules, LLM, calibration, routing.
+
+    WP-O6b: ``readiness`` (the system's last report, read at build) routes only
+    the labels of ready classes; ``None`` (not onboarded) routes as before.
+    """
     return Classifier(
         rule_set=_build_ruleset(config),
         llm=_build_llm(config, events, ids, clock, provider_override),
@@ -596,7 +609,15 @@ def _build_classifier(
         taxonomy_labels=_taxonomy_labels(config),
         severity=_severity_strategy(config),
         packs=_pack_scope(config),
+        readiness=readiness,
     )
+
+
+def _readiness_policy(
+    config: AppConfig, uow: SqlUnitOfWork, clock: Clock
+) -> ReadinessPolicy | None:
+    """WP-O6b: the routing policy of the system's last readiness report, if it has one."""
+    return ReadinessStore(uow=uow, clock=clock, tenant_id=config.tenant.id).policy()
 
 
 def _severity_strategy(config: AppConfig) -> SeverityStrategy:
@@ -646,7 +667,14 @@ def _build_live_triage(  # noqa: PLR0913 — config plus the injectable ports an
         ids=ids,
         events=events,
         case_repo=CaseRepo(uow),
-        classifier=_build_classifier(config, events, ids, clock, llm_provider),
+        classifier=_build_classifier(
+            config,
+            events,
+            ids,
+            clock,
+            llm_provider,
+            readiness=_readiness_policy(config, uow, clock),
+        ),
         gate=gate,
         catalog=catalog,
         tenant_constants=config.redaction.tenant_constants,
@@ -797,7 +825,14 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
         ids=ids,
         events=events,
         case_repo=CaseRepo(uow),
-        classifier=_build_classifier(config, events, ids, clock, llm_provider),
+        classifier=_build_classifier(
+            config,
+            events,
+            ids,
+            clock,
+            llm_provider,
+            readiness=_readiness_policy(config, uow, clock),
+        ),
         catalog=catalog,
         repo=ShadowRepo(uow),
         tenant_constants=config.redaction.tenant_constants,
@@ -1007,6 +1042,7 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         entail_budget_s=rca.entail_budget_s,
         docs=build_knowledge_index(config, transport=transport),
         doc_policy=doc_policy(config),
+        readiness=_readiness_policy(config, uow, clock),
     )
     rows = [*config.routing, *([config.default] if config.default else [])]
     catalog = _build_catalog(config)
@@ -2662,6 +2698,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def request_review() -> RequestReview:
         return RequestReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
 
+    def readiness() -> ReadinessStore:
+        return ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -2673,6 +2712,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         webhooks=webhooks,
         graph_review=graph_review,
         request_review=request_review,
+        readiness=readiness,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3247,6 +3287,38 @@ def build_onboarding_pipeline(config: AppConfig, *, live: bool) -> OnboardingPip
     return pipeline
 
 
+#: WP-O6b: each reference system's per-class readiness the lab must keep.
+READINESS_BASELINE = "readiness_baseline.json"
+
+
+def build_readiness_lab(config: AppConfig, *, live: bool) -> LabPipeline:
+    """The readiness replays: ``live`` calls the triage model and records into
+    ``evals/onboarding/recordings``; otherwise replay only."""
+    return build_lab_pipeline(
+        config, recordings=ONBOARDING_RECORDINGS, live=live, pack_id="readiness"
+    )
+
+
+def read_readiness_baseline(root: Path) -> dict[str, dict[str, str]]:
+    path = root / READINESS_BASELINE
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    systems = raw.get("systems", {}) if isinstance(raw, dict) else {}
+    return {str(k): {str(c): str(s) for c, s in v.items()} for k, v in systems.items()}
+
+
+def write_readiness_baseline(root: Path, reports: Sequence[ReadinessReport]) -> Path:
+    path = root / READINESS_BASELINE
+    body = {
+        "v": 1,
+        "model_id": reports[0].model_id if reports else None,
+        "systems": {r.system: r.statuses() for r in reports},
+    }
+    path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> GraphBuild:
     """The system graph of a workspace (or a reference system): structured, then prose."""
     snapshot = snapshot_from_sources(path)
@@ -3351,6 +3423,94 @@ def run_onboarding_pipeline(
         ],
     )
     return OnboardingRun(result, detections, built, incidents, gaps)
+
+
+# --- WP-O6b: readiness from the system's own history ---------------------------------------
+
+
+def load_evidence(path: Path) -> dict[str, dict[str, WorldEntry]]:
+    """``<path>/sources/evidence/*.yaml``: what the read-only tools returned per past incident.
+
+    Each world is validated like a lab scenario's: known tools, required fields.
+    """
+    directory = path / "sources" / "evidence"
+    out: dict[str, dict[str, WorldEntry]] = {}
+    for file in sorted(directory.glob("*.yaml")) if directory.is_dir() else []:
+        doc = load_yaml_document(file)
+        world: dict[str, WorldEntry] = {}
+        for tool, raw in (doc.get("world") or {}).items():
+            if tool not in KNOWN_TOOL_SCHEMAS:
+                raise ConfigError(f"{file}: evidence names unknown tool {tool!r}")  # noqa: TRY003
+            try:
+                entry = WorldEntry.model_validate(raw)
+            except ValidationError as exc:
+                raise ConfigError(f"{file}: {tool}: {exc}") from exc  # noqa: TRY003
+            if entry.result is not None:
+                check_shape(file, tool, entry.result, KNOWN_TOOL_SCHEMAS[tool])
+            world[str(tool)] = entry
+        out[str(doc.get("incident") or file.stem)] = world
+    return out
+
+
+def readiness_testable(
+    config: AppConfig, plugins: Sequence[LoadedPlugin]
+) -> Callable[[str], str | None]:
+    """``why_not(cause)``: ``None`` when an evaluated pack (or common) can test the cause."""
+    knowledge = build_rca_knowledge(config, KNOWN_TOOL_SCHEMAS)
+    tested = set(knowledge.probes) | {s.hypothesis for r, _ in knowledge.runbooks for s in r.steps}
+    owner = {c.id: p.manifest for p in plugins for c in p.manifest.provides.causes}
+
+    def why_not(cause: str) -> str | None:
+        plugin = owner.get(cause)
+        if plugin is not None and plugin.status != "evaluated":
+            return f"the {plugin.id} plugin is a skeleton: no knowledge of {cause} is evaluated"
+        if cause_hypothesis(cause) not in tested:
+            return f"no probe or runbook tests {cause}"
+        return None
+
+    return why_not
+
+
+def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
+    path: Path,
+    run: OnboardingRun,
+    lab: LabPipeline,
+    config: AppConfig,
+    *,
+    plugins: Sequence[LoadedPlugin] | None = None,
+    manifest: SystemManifest | None = None,
+) -> ReadinessReport:
+    """WP-O6b: replay each testable class's history in the lab and assess it."""
+    registry = plugins if plugins is not None else load_plugins()
+    system = manifest or load_system_manifest(path / "system.yaml", {}, need_secrets=False)
+    why_not = readiness_testable(config, registry)
+    scenarios, missing = history_scenarios(
+        run.incidents,
+        _past_incidents(path),
+        run.graph.graph,
+        load_evidence(path),
+        system=system.system.id,
+    )
+    causes = {c.id: c.cause for c in run.incidents.classes}
+    replayed: dict[str, list[Replayed]] = {}
+    for item in scenarios:
+        cause = causes.get(item.class_id)
+        if cause is not None and why_not(cause) is not None:
+            continue  # untestable: nothing to replay
+        outcome = lab.run(item.scenario, 0)
+        supported = outcome.supported if outcome.verdict == "SUPPORTED" else None
+        replayed.setdefault(item.class_id, []).append(
+            Replayed(item.incident, supported, score_outcome(item.scenario, outcome))
+        )
+    return assess(
+        run.incidents,
+        replayed,
+        missing,
+        testable=why_not,
+        gates=system.readiness,
+        system=system.system.id,
+        model_id=lab.model_id,
+    )
 
 
 def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
@@ -3503,6 +3663,49 @@ def onboard_incidents(
     mapped = build_incident_map(workspace, detect_plugins(workspace, plugins), plugins, pipeline)
     path = Workspace(workspace).write_artifact("incident_map.json", incident_map_document(mapped))
     return mapped, path
+
+
+def onboard_readiness(
+    config: AppConfig,
+    workspace: Path,
+    *,
+    provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+) -> tuple[ReadinessReport, Path]:
+    """``onboard readiness`` (WP-O6b): replay the history per class; save the report.
+
+    The graph and incident map come from ``onboard graph`` / ``onboard incidents``
+    (their answers are in ``<workspace>/recordings``). The replays use the
+    triage model, the one that will support the system, and are cached there too.
+    The report is saved for routing (triage and RCA read it at their next start)
+    and written as ``readiness.json``.
+    """
+
+    def onboarding_cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    def lab_cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(
+            inner, directory=workspace / "recordings", snapshot_id="readiness"
+        )
+
+    plugins = load_plugins()
+    pipeline = OnboardingPipeline(config, provider=provider, decorate=onboarding_cache)
+    run = run_onboarding_pipeline(workspace, plugins, pipeline)
+    lab = LabPipeline(config, provider=provider, decorate=lab_cache)
+    report = build_readiness(workspace, run, lab, config, plugins=plugins)
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        ReadinessStore(
+            uow=SqlUnitOfWork(db), clock=clock or SystemClock(), tenant_id=config.tenant.id
+        ).save(report.as_dict())
+    finally:
+        if own:
+            db.dispose()
+    path = Workspace(workspace).write_artifact("readiness.json", report.as_dict())
+    return report, path
 
 
 def onboard_requests(

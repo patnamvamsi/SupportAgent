@@ -74,3 +74,10 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
 
 /* WP-O5: a request's share of the incident weight it unlocks */
 meter.share { width: 6rem; vertical-align: middle; }
+/* WP-O6b: readiness. */
+meter.readiness { width: 100%; max-width: 28rem; height: 1.2rem; }
+.verdict { font-size: 1.25rem; margin: .25rem 0; }
+.card.ready { border-left: 4px solid var(--ok); }
+.card.not_ready { border-left: 4px solid var(--bad); }
+.card.untestable { border-left: 4px dashed var(--line); }
+.card .reasons { margin: .25rem 0; padding-left: 1.1rem; }

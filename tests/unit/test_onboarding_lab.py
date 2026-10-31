@@ -189,6 +189,26 @@ def test_the_history_regenerates_byte_for_byte(tmp_path: Path) -> None:
             ).read_text(), f"{system}/{rel}: re-run evals/onboarding/generate_history.py"
 
 
+def test_the_evidence_regenerates_byte_for_byte(tmp_path: Path) -> None:
+    """WP-O6b: what the tools returned per past incident is generated too, never hand-edited."""
+    spec = importlib.util.spec_from_file_location(
+        "generate_evidence", ONBOARDING_DIR / "generate_evidence.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    kept = module.generate(ONBOARDING_DIR / "system-a", out=tmp_path)
+    committed = ONBOARDING_DIR / "system-a" / "sources" / "evidence"
+    assert sorted(p.name for p in tmp_path.glob("*.yaml")) == sorted(
+        p.name for p in committed.glob("*.yaml")
+    )
+    assert kept == len(list(committed.glob("*.yaml")))
+    for path in committed.glob("*.yaml"):
+        assert (tmp_path / path.name).read_text() == path.read_text(), (
+            f"{path.name}: re-run evals/onboarding/generate_evidence.py"
+        )
+
+
 def test_the_cli_passes_and_fails_closed_on_a_broken_fixture(tmp_path: Path) -> None:
     runner = CliRunner()
     good = runner.invoke(app, ["eval", "onboarding"])
