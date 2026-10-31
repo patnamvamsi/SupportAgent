@@ -149,7 +149,7 @@ System B is untestable everywhere except its no-cause class, since none of its p
 
 A system that has never been assessed routes as before.
 
-**Not done yet.** Calibration per class, shadow replay through the real pipeline, and capturing evidence from live tools for a workspace's past incidents. Until that last one lands, a real workspace has no evidence, and none of its classes can be ready.
+**Calibration** is fitted from the replays (ADR-0017 WP-A5) and used by triage when it matches its model. **Not done yet:** shadow replay through the real pipeline, and capturing evidence from live tools for a workspace's past incidents. Until that last one lands, a real workspace has no evidence, and none of its classes can be ready.
 
 ## Drift (WP-O8)
 

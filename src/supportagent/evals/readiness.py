@@ -24,19 +24,26 @@ common pack, has a probe for its cause), has enough scenarios, meets top-1
 and has no false cause. The system is **ready to support** when its ready
 classes hold ``bar`` of the history's incident weight (decision 6: 70%).
 
-Calibration and shadow replay are not measured here yet; the report says so.
+The classifier's calibration is fitted from the replays (WP-A5); shadow replay
+isn't measured yet, and the report says so.
 Pure: the caller runs the scenarios and passes the scores.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from supportagent.domain.classification import prefix_match
 from supportagent.domain.gap_plan import target_name
 from supportagent.domain.graph import SystemGraph
 from supportagent.domain.incident_map import IncidentClass, IncidentMap, PastIncident
+from supportagent.domain.model.calibration import (
+    CalibrationCountRow,
+    CalibrationLabelRow,
+    CalibrationTable,
+)
 from supportagent.domain.model.plugin import cause_hypothesis
 from supportagent.domain.model.readiness import ReadinessGates
 from supportagent.evals.lab import LabScenario, LabScore, WorldEntry
@@ -83,7 +90,9 @@ class ReadinessReport:
     model_id: str
     bar: float
     classes: list[ClassReadiness] = field(default_factory=list)
-    not_measured: tuple[str, ...] = ("calibration", "shadow replay")
+    not_measured: tuple[str, ...] = ("shadow replay",)
+    #: WP-A5: the classifier's calibration fitted from these replays.
+    calibration: CalibrationTable | None = None
 
     @property
     def ready_share(self) -> float:
@@ -130,6 +139,7 @@ class ReadinessReport:
             "ready": self.ready,
             "false_causes": self.false_causes,
             "not_measured": list(self.not_measured),
+            "calibration": self.calibration.model_dump(mode="json") if self.calibration else None,
             "classes": [
                 {
                     "id": c.class_id,
@@ -295,6 +305,53 @@ class Replayed:
     incident: str
     supported: str | None
     score: LabScore
+    #: WP-A5: what the classifier said, and the pre-classifier's label (calibration).
+    predicted: str | None = None
+    preclass: str | None = None
+
+
+def fit_calibration(
+    replayed: Iterable[Replayed], *, model_id: str, system: str
+) -> CalibrationTable:
+    """ADR-0017 (WP-A5): the classifier's calibration, fitted from the system's own history.
+
+    One observation per replayed incident, keyed as the eval suites key them
+    (ADR-0002): the predicted label's ``agree`` row (the pre-classifier's label
+    matched) or ``abstain`` row (it had none); a conflict never routes, so it
+    isn't evidence. Correct means the label onboarding mapped (or an
+    acceptable one) matched. Graded ``holdout``: the history was never tuned on.
+    """
+    counts: dict[str, dict[str, list[int]]] = {}
+    for r in replayed:
+        if r.predicted is None:
+            continue
+        if r.preclass is None:
+            row = "abstain"
+        elif prefix_match(r.preclass, r.predicted):
+            row = "agree"
+        else:
+            continue
+        cell = counts.setdefault(r.predicted, {"agree": [0, 0], "abstain": [0, 0]})[row]
+        cell[0] += 1
+        cell[1] += int(r.score.classification_ok)
+    labels = {
+        label: CalibrationLabelRow(
+            agree=CalibrationCountRow(n=rows["agree"][0], correct=rows["agree"][1])
+            if rows["agree"][0]
+            else None,
+            abstain=CalibrationCountRow(n=rows["abstain"][0], correct=rows["abstain"][1])
+            if rows["abstain"][0]
+            else None,
+        )
+        for label, rows in sorted(counts.items())
+    }
+    return CalibrationTable(
+        version=1,
+        grade="holdout",
+        snapshot_id=f"history-{system}",
+        model_id=model_id,
+        labels=labels,
+    ).signed(f"readiness-{system}")
 
 
 def assess(  # noqa: PLR0913 — the run's inputs
@@ -385,6 +442,7 @@ __all__ = [
     "ReadinessReport",
     "Replayed",
     "assess",
+    "fit_calibration",
     "history_scenarios",
     "regressions",
     "service_entry",

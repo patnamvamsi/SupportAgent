@@ -336,7 +336,13 @@ from supportagent.evals.onboarding import (
     Truth,
 )
 from supportagent.evals.quality import RecallReport
-from supportagent.evals.readiness import ReadinessReport, Replayed, assess, history_scenarios
+from supportagent.evals.readiness import (
+    ReadinessReport,
+    Replayed,
+    assess,
+    fit_calibration,
+    history_scenarios,
+)
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
@@ -626,6 +632,7 @@ def _build_classifier(  # noqa: PLR0913 — the ports plus the provider and read
     provider_override: LLMProvider | None = None,
     *,
     readiness: ReadinessPolicy | None = None,
+    calibration: CalibrationTable | None = None,
 ) -> Classifier:
     """The ARCH §4 classifier: shipped pre-classifier rules, LLM, calibration, routing.
 
@@ -635,7 +642,7 @@ def _build_classifier(  # noqa: PLR0913 — the ports plus the provider and read
     return Classifier(
         rule_set=_build_ruleset(config),
         llm=_build_llm(config, events, ids, clock, provider_override),
-        calibration=_classifier_calibration(config),
+        calibration=calibration or _classifier_calibration(config),
         min_score=config.calibration.min_score,
         routing=_build_routing(config),
         taxonomy_labels=_taxonomy_labels(config),
@@ -643,6 +650,25 @@ def _build_classifier(  # noqa: PLR0913 — the ports plus the provider and read
         packs=_pack_scope(config),
         readiness=readiness,
     )
+
+
+def _fitted_calibration(
+    config: AppConfig, uow: SqlUnitOfWork, clock: Clock
+) -> CalibrationTable | None:
+    """ADR-0017 (WP-A5): the calibration fitted from the system's history, if it was
+    fitted with the model triage now uses; otherwise the configured artifact applies."""
+    report = ReadinessStore(uow=uow, clock=clock, tenant_id=config.tenant.id).load()
+    raw = report.get("calibration") if report else None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        table = CalibrationTable.model_validate(raw)
+    except ValidationError:
+        return None
+    configured = config.llm.slots[SlotName.CLASSIFY.value].model_id
+    if table.model_id != configured or table.signature != table.computed_signature():
+        return None
+    return table
 
 
 def _readiness_policy(
@@ -706,6 +732,7 @@ def _build_live_triage(  # noqa: PLR0913 — config plus the injectable ports an
             clock,
             llm_provider,
             readiness=_readiness_policy(config, uow, clock),
+            calibration=_fitted_calibration(config, uow, clock),
         ),
         gate=gate,
         catalog=catalog,
@@ -864,6 +891,7 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
             clock,
             llm_provider,
             readiness=_readiness_policy(config, uow, clock),
+            calibration=_fitted_calibration(config, uow, clock),
         ),
         catalog=catalog,
         repo=ShadowRepo(uow),
@@ -3616,9 +3644,15 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         outcome = lab.run(item.scenario, 0)
         supported = outcome.supported if outcome.verdict == "SUPPORTED" else None
         replayed.setdefault(item.class_id, []).append(
-            Replayed(item.incident, supported, score_outcome(item.scenario, outcome))
+            Replayed(
+                item.incident,
+                supported,
+                score_outcome(item.scenario, outcome),
+                predicted=outcome.classification,
+                preclass=outcome.preclass_label,
+            )
         )
-    return assess(
+    report = assess(
         run.incidents,
         replayed,
         missing,
@@ -3627,6 +3661,12 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         system=system.system.id,
         model_id=lab.model_id,
     )
+    report.calibration = fit_calibration(
+        (r for rows in replayed.values() for r in rows),
+        model_id=lab.model_id,
+        system=system.system.id,
+    )
+    return report
 
 
 # --- WP-O8: drift and re-onboarding --------------------------------------------------------

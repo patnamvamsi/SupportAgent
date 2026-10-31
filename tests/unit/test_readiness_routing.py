@@ -121,3 +121,56 @@ def test_the_readiness_page_shows_each_class_and_why(
     assert "Ready to support" in page and "<meter" in page and "style=" not in page
     assert "Can&#39;t be tested yet" in page and "angular plugin is a skeleton" in page
     assert "found the cause in 3 of 6" in page  # the pool class, held back by its gate
+
+
+def _replay(predicted: str, preclass: str | None, *, ok: bool) -> Any:
+    from supportagent.evals.lab import LabScore  # noqa: PLC0415
+    from supportagent.evals.readiness import Replayed  # noqa: PLC0415
+
+    score = LabScore("s", "tune", ok, True, True, True, False, False, True, None, 1, 0, ())
+    return Replayed("I", None, score, predicted=predicted, preclass=preclass)
+
+
+def test_calibration_is_fitted_from_the_replayed_history() -> None:
+    from supportagent.evals.readiness import fit_calibration  # noqa: PLC0415
+
+    table = fit_calibration(
+        [
+            _replay("database/saturation", None, ok=True),
+            _replay("database/saturation", None, ok=False),
+            _replay("database/saturation", "database/latency", ok=True),  # agrees (same domain)
+            _replay("app/memory", "network/outage", ok=True),  # a conflict: not evidence
+        ],
+        model_id="m",
+        system="s",
+    )
+    row = table.labels["database/saturation"]
+    assert row.abstain is not None and (row.abstain.n, row.abstain.correct) == (2, 1)
+    assert row.agree is not None and (row.agree.n, row.agree.correct) == (1, 1)
+    assert "app/memory" not in table.labels
+    assert table.grade == "holdout" and table.signature == table.computed_signature()
+
+
+def test_triage_uses_the_fitted_calibration_only_for_its_own_model(db: Any, clock: Any) -> None:
+    from supportagent.bootstrap import _fitted_calibration  # noqa: PLC0415
+    from supportagent.evals.readiness import fit_calibration  # noqa: PLC0415
+    from tests.unit.test_triage_service import _shadow_config  # noqa: PLC0415
+
+    config = _shadow_config()
+    config = config.model_copy(update={"tenant": config.tenant.model_copy(update={"id": TENANT})})
+    model = config.llm.slots["classify"].model_id
+    store = ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=TENANT)
+    uow = SqlUnitOfWork(db)
+    assert _fitted_calibration(config, uow, clock) is None  # never assessed: the artifact
+    fitted = fit_calibration([_replay("app/memory", None, ok=True)], model_id=model, system="s")
+    store.save({"classes": [], "calibration": fitted.model_dump(mode="json")})
+    got = _fitted_calibration(config, uow, clock)
+    assert got is not None and got.labels["app/memory"].abstain is not None
+    other = fit_calibration([_replay("app/memory", None, ok=True)], model_id="other", system="s")
+    store.save({"classes": [], "calibration": other.model_dump(mode="json")})
+    assert _fitted_calibration(config, uow, clock) is None  # fitted for another model: stale
+    tampered = fitted.model_dump(mode="json")
+    tampered["labels"]["app/memory"]["abstain"]["n"] = 100
+    tampered["labels"]["app/memory"]["abstain"]["correct"] = 100
+    store.save({"classes": [], "calibration": tampered})
+    assert _fitted_calibration(config, uow, clock) is None  # its counts were edited
