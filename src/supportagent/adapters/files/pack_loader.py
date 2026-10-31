@@ -11,6 +11,7 @@ schemas (``build_rca_knowledge``).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -32,8 +33,10 @@ def load_pack_set(
     hypotheses: Path,
     runbooks: Path,
     packs_dir: Path | None = None,
+    embedded: Sequence[tuple[str, Path]] = (),
 ) -> PackSet:
-    """``common`` from the legacy paths, plus every manifest under ``packs_dir``."""
+    """``common`` from the legacy paths, plus every manifest under ``packs_dir``, plus
+    ``embedded`` (ADR-0017): ``(pack id, directory)`` of packs inside their plugins."""
     classification = load_classification(taxonomy)
     hypothesis_taxonomy = load_hypotheses(hypotheses)
     rules_path = taxonomy.parent / "preclass_rules.yaml"
@@ -52,6 +55,7 @@ def load_pack_set(
     packs = [common]
     if packs_dir is not None and packs_dir.is_dir():
         packs.extend(_load_pack(path.parent) for path in sorted(packs_dir.glob(f"*/{MANIFEST}")))
+    packs.extend(_load_pack(directory, expected=pack_id) for pack_id, directory in embedded)
     return PackSet(
         packs=tuple(packs),
         taxonomy_version=classification.version,
@@ -60,15 +64,16 @@ def load_pack_set(
     )
 
 
-def _load_pack(directory: Path) -> Pack:
+def _load_pack(directory: Path, *, expected: str | None = None) -> Pack:
     path = directory / MANIFEST
     try:
         manifest = PackManifest.model_validate(load_yaml_file(path))
     except ValidationError as exc:
         raise ConfigError(f"{path}: {exc}") from exc  # noqa: TRY003
-    if manifest.id != directory.name:
+    where = f"its plugin's pack {expected!r}" if expected else f"its directory {directory.name!r}"
+    if manifest.id != (expected or directory.name):
         raise ConfigError(  # noqa: TRY003
-            f"{path}: id {manifest.id!r} must match its directory {directory.name!r}"
+            f"{path}: id {manifest.id!r} must match {where}"
         )
     labels = (
         load_classification(_file(directory, manifest.taxonomy)).labels if manifest.taxonomy else []

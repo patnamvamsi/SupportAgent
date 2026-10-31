@@ -6,11 +6,18 @@ manifest whose bytes changed since it was pinned doesn't load. That is the
 supply-chain floor for first-party plugins in this repo; signatures arrive
 with external catalogs. ``supportagent plugin index`` re-pins after a
 reviewed change.
+
+ADR-0017: a plugin can be one self-contained directory, its pack under
+``pack/``. Such a plugin's pin also carries ``tree_sha256``, the digest of
+every file in it, so a changed runbook doesn't load either. A **catalogue**
+of available plugins has the same layout and index; :func:`install_plugin`
+copies one in and pins it.
 """
 
 from __future__ import annotations
 
 import hashlib
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +40,28 @@ class LoadedPlugin:
 
 def manifest_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def tree_sha256(directory: Path) -> str | None:
+    """The digest of every file in a plugin beyond its manifest; ``None`` if there are none.
+
+    Recorded model answers (``recordings/``) are a cache, not knowledge: they're left out.
+    """
+    files = [
+        p
+        for p in sorted(directory.rglob("*"))
+        if p.is_file()
+        and p != directory / MANIFEST
+        and not {"__pycache__", "recordings"} & set(p.relative_to(directory).parts)
+    ]
+    if not files:
+        return None
+    h = hashlib.sha256()
+    for p in files:
+        h.update(p.relative_to(directory).as_posix().encode())
+        h.update(b"\x00")
+        h.update(hashlib.sha256(p.read_bytes()).digest())
+    return h.hexdigest()
 
 
 def load_manifest(directory: Path) -> PluginManifest:
@@ -81,17 +110,28 @@ def load_registry(root: Path) -> list[LoadedPlugin]:
                 f"plugin {plugin_id}: manifest changed since it was pinned "
                 "(review it, then `supportagent plugin index`)"
             )
+        if pin.get("tree_sha256", tree_sha256(directory) or "") != (tree_sha256(directory) or ""):
+            raise ConfigError(  # noqa: TRY003
+                f"plugin {plugin_id}: its files changed since it was pinned "
+                "(review them, then `supportagent plugin index`)"
+            )
         loaded.append(LoadedPlugin(manifest, directory, digest))
     return loaded
+
+
+def _pin_row(directory: Path) -> str:
+    manifest = load_manifest(directory)
+    digest = manifest_sha256(directory / MANIFEST)
+    tree = tree_sha256(directory)
+    extra = f", tree_sha256: {tree}" if tree is not None else ""
+    return f"  - {{id: {manifest.id}, version: {manifest.version}, sha256: {digest}{extra}}}"
 
 
 def write_index(root: Path) -> list[str]:
     """Pin every plugin under ``root`` as it is now; returns the ids pinned."""
     rows = []
     for directory in sorted(d for d in root.iterdir() if (d / MANIFEST).is_file()):
-        manifest = load_manifest(directory)
-        digest = manifest_sha256(directory / MANIFEST)
-        rows.append(f"  - {{id: {manifest.id}, version: {manifest.version}, sha256: {digest}}}")
+        rows.append(_pin_row(directory))
     header = (
         "# The plugin registry (ADR-0015 §2): each plugin pinned by version and the\n"
         "# sha256 of its manifest. Written by `supportagent plugin index` after review;\n"
@@ -101,4 +141,44 @@ def write_index(root: Path) -> list[str]:
     return [r.split("id: ", 1)[1].split(",", 1)[0] for r in rows]
 
 
-__all__ = ["INDEX", "MANIFEST", "LoadedPlugin", "load_manifest", "load_registry", "write_index"]
+__all__ = [
+    "INDEX",
+    "MANIFEST",
+    "LoadedPlugin",
+    "install_plugin",
+    "load_manifest",
+    "load_registry",
+    "pin_one",
+    "tree_sha256",
+    "write_index",
+]
+
+
+def pin_one(root: Path, plugin_id: str) -> None:
+    """Pin (or re-pin) one plugin, leaving every other pin as it was."""
+    index = load_yaml_file(root / INDEX)
+    entries = [
+        e for e in index.get("plugins") or [] if isinstance(e, dict) and e.get("id") != plugin_id
+    ]
+    rows = ["  - {" + ", ".join(f"{k}: {v}" for k, v in e.items()) + "}" for e in entries] + [
+        _pin_row(root / plugin_id)
+    ]
+    rows.sort()
+    header = (
+        "# The plugin registry (ADR-0015 §2): each plugin pinned by version and the\n"
+        "# sha256 of its manifest. Written by `supportagent plugin index` after review;\n"
+        "# a manifest that changes without re-pinning doesn't load.\n"
+    )
+    (root / INDEX).write_text(header + "plugins:\n" + "\n".join(rows) + "\n", encoding="utf-8")
+
+
+def install_plugin(catalog: LoadedPlugin, root: Path) -> Path:
+    """ADR-0017: copy a catalogue's (verified) plugin into ``root`` and pin it there."""
+    target = root / catalog.manifest.id
+    if target.exists():
+        raise ConfigError(f"plugin {catalog.manifest.id} is already installed")  # noqa: TRY003
+    shutil.copytree(
+        catalog.directory, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+    )
+    pin_one(root, catalog.manifest.id)
+    return target

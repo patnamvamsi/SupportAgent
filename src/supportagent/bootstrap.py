@@ -73,7 +73,14 @@ from supportagent.adapters.files.gates_loader import load_promotion_gate, load_q
 from supportagent.adapters.files.graph_extract import structured_facts
 from supportagent.adapters.files.knowledge_loader import load_markdown_source, split_front_matter
 from supportagent.adapters.files.pack_loader import load_pack_set
-from supportagent.adapters.files.plugin_loader import LoadedPlugin, load_registry, write_index
+from supportagent.adapters.files.plugin_loader import (
+    LoadedPlugin,
+    install_plugin,
+    load_manifest,
+    load_registry,
+    pin_one,
+    write_index,
+)
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
 from supportagent.adapters.files.taxonomy_loader import load_classification
 from supportagent.adapters.files.workspace import Workspace
@@ -190,6 +197,7 @@ from supportagent.config.loader import (
     load_master_key_default,
     load_system_manifest,
     load_system_manifest_default,
+    plugins_dir_override,
 )
 from supportagent.config.schema import (
     AppConfig,
@@ -304,6 +312,7 @@ from supportagent.evals.lab import (
     check_shape,
     cited_tools,
     load_scenarios,
+    run_lab,
     score_outcome,
 )
 from supportagent.evals.onboarding import (
@@ -423,6 +432,7 @@ def _pack_set(config: AppConfig) -> PackSet:
         hypotheses=Path(paths.hypotheses),
         runbooks=Path(paths.runbooks),
         packs_dir=Path(paths.packs) if paths.packs else None,
+        embedded=_embedded_packs(plugins_root(), _index_stamp(plugins_root())),
     )
 
 
@@ -983,10 +993,14 @@ def _worker_owner() -> str:
     return f"worker:{socket.gethostname()}:{os.getpid()}"
 
 
-@functools.cache
 def capability_catalog() -> Mapping[str, Capability]:
     """Every capability: the built-in tools' (WP-107) and the pinned plugins' (ADR-0016)."""
-    return merge_capabilities(load_plugins())
+    return _catalog_of(plugins_root())
+
+
+@functools.cache
+def _catalog_of(root: Path) -> Mapping[str, Capability]:
+    return merge_capabilities(load_plugins(root))
 
 
 def merge_capabilities(plugins: Sequence[LoadedPlugin]) -> dict[str, Capability]:
@@ -3161,15 +3175,46 @@ PLUGINS_DIR = next(
 )
 
 
-def load_plugins(root: Path = PLUGINS_DIR, *, packs_dir: Path | None = None) -> list[LoadedPlugin]:
-    """The pinned plugin registry; each plugin's pack, if any, must exist."""
-    plugins = load_registry(root)
+def plugins_root() -> Path:
+    """Where installed plugins live (ADR-0017): ``SUPPORTAGENT_PLUGINS_DIR`` if set (a
+    writable directory an instance installs into), else the shipped ``plugins/``."""
+    return plugins_dir_override() or PLUGINS_DIR
+
+
+def embedded_pack(plugin: LoadedPlugin) -> Path | None:
+    """A plugin's own pack (``<plugin>/pack``), when it carries one (ADR-0017)."""
+    directory = plugin.directory / "pack"
+    return directory if (directory / "pack.yaml").is_file() else None
+
+
+def _index_stamp(root: Path) -> tuple[int, int]:
+    """The index's identity: a re-pin (an install) changes it, so caches follow it."""
+    stat = (root / "index.yaml").stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+@functools.cache
+def _embedded_packs(root: Path, stamp: tuple[int, int]) -> tuple[tuple[str, Path], ...]:
+    """Packs that live inside their plugins (ADR-0017), per index version."""
+    return tuple(
+        (str(p.manifest.provides.pack), directory)
+        for p in load_plugins(root)
+        if p.manifest.provides.pack and (directory := embedded_pack(p)) is not None
+    )
+
+
+def load_plugins(root: Path | None = None, *, packs_dir: Path | None = None) -> list[LoadedPlugin]:
+    """The pinned plugin registry; each plugin's pack, if any, must exist (in the
+    plugin itself, or under ``packs/``)."""
+    plugins = load_registry(root if root is not None else plugins_root())
     packs = packs_dir if packs_dir is not None else _REPO_ROOT / "packs"
     for plugin in plugins:
         pack = plugin.manifest.provides.pack
-        if pack is not None and not (packs / pack / "pack.yaml").is_file():
+        if pack is None or embedded_pack(plugin) is not None:
+            continue
+        if not (packs / pack / "pack.yaml").is_file():
             raise ConfigError(  # noqa: TRY003
-                f"plugin {plugin.manifest.id}: pack {pack!r} is not under {packs}"
+                f"plugin {plugin.manifest.id}: pack {pack!r} is neither in it nor under {packs}"
             )
     return plugins
 
@@ -3650,9 +3695,9 @@ def onboard_drift(
     return findings, accepted, path
 
 
-def pin_plugins(root: Path = PLUGINS_DIR) -> list[str]:
+def pin_plugins(root: Path | None = None) -> list[str]:
     """``supportagent plugin index``: re-pin every plugin as it is now (after review)."""
-    return write_index(root)
+    return write_index(root if root is not None else plugins_root())
 
 
 # --- onboarding ingest (ADR-0015 P1, WP-O2) -------------------------------------------
@@ -4060,22 +4105,17 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
         if not (workspace / "sources").is_dir():
             return _autopilot_status(workspace, records, db, config, clock)
 
-        plugins = load_plugins()
-        sensed = digest(
-            _tree_digest(workspace / "sources"),
-            [("plugins", hashlib.sha256((PLUGINS_DIR / "index.yaml").read_bytes()).hexdigest())],
-        )
+        sensed = _sense_digest(workspace, config)
         if not skip("sense", sensed):
-            detections = detect_plugins(workspace, plugins)
-            chosen = detected_ids(detections)
-            Workspace(workspace).write_artifact(
-                "detections.json",
-                {
-                    "plugins": chosen,
-                    "why": {d.plugin: d.explain() for d in detections if d.detected},
-                },
+            detail, waiting = _sense(config, workspace, provider)
+            sensed = _sense_digest(workspace, config)  # an install changed the plugins
+            record(
+                "sense",
+                "blocked" if waiting else "done",
+                sensed,
+                detail,
+                "user" if waiting else None,
             )
-            record("sense", "done", sensed, f"plugins: {', '.join(chosen) or 'none'}")
 
         stages: list[tuple[Step, Callable[[], str]]] = [
             (
@@ -4163,6 +4203,7 @@ def _autopilot_status(
         system = load_system_manifest(manifest, {}, need_secrets=False).system.id
     status = OnboardingStatus(system=system, steps=[records[s] for s in STEPS if s in records])
     status.needs.extend(_step_needs(status.steps))
+    status.needs.extend(_catalogue_needs(workspace))
     review = GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).progress()
     pending = int(str(review["total"])) - int(str(review["reviewed"]))
     if pending:
@@ -4223,3 +4264,149 @@ def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
         elif c.get("no_evidence") and not c.get("scenarios"):
             out.append(Need("evidence", what, share, "capture its evidence"))
     return out
+
+
+# --- ADR-0017 (WP-A2): plugin catalogues and install ------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Installed:
+    plugin: str
+    #: ``evaluated`` when its lab passed here, else ``skeleton``.
+    status: str
+    detail: str
+
+
+def load_catalogs(config: AppConfig) -> list[LoadedPlugin]:
+    """Every plugin the configured catalogues offer (each verified against its own index)."""
+    out: list[LoadedPlugin] = []
+    for catalog in config.plugins.catalogs:
+        out.extend(load_registry(Path(catalog)))
+    return out
+
+
+def install_from_catalog(
+    config: AppConfig,
+    plugin_id: str,
+    *,
+    provider: LLMProvider | None = None,
+    root: Path | None = None,
+) -> Installed:
+    """``plugin install``: copy a catalogue plugin in, pin it, then prove it on its own lab.
+
+    Its pack's lab runs with this instance's model (answers cached with the
+    pack). If it fails the lab's gates here, the plugin is installed as a
+    ``skeleton``: it can be detected and request access, but its classes
+    can't be ready (ADR-0015 §2).
+    """
+    target_root = root if root is not None else plugins_root()
+    offered = {p.manifest.id: p for p in load_catalogs(config)}
+    if plugin_id not in offered:
+        raise ConfigError(f"no configured catalogue offers {plugin_id!r}")  # noqa: TRY003
+    directory = install_plugin(offered[plugin_id], target_root)
+    _catalog_of.cache_clear()
+    manifest = load_manifest(directory)
+    pack = manifest.provides.pack
+    if pack is None or not (directory / "pack" / "evals").is_dir():
+        return _settle(directory, target_root, "skeleton", "no lab to prove it on")
+    scenarios, gates, evals = load_lab(config, pack)
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=evals / "recordings", snapshot_id=f"lab-{pack}")
+
+    pipeline = LabPipeline(config, provider=provider, decorate=cache)
+    report = run_lab(
+        scenarios, pipeline, pack=pack, mode="install", model_id=pipeline.model_id, gates=gates
+    )
+    passed = sum(s.passed for s in report.scores)
+    detail = f"its lab here: {passed}/{len(report.scores)} passed, " + (
+        "gates met"
+        if report.passed
+        else "gates not met: " + "; ".join(g.detail for g in report.gates if not g.ok)
+    )
+    return _settle(directory, target_root, "evaluated" if report.passed else "skeleton", detail)
+
+
+def _settle(directory: Path, root: Path, status: str, detail: str) -> Installed:
+    """Record the status the lab earned in the installed manifest, and re-pin it."""
+    path = directory / "plugin.yaml"
+    text = path.read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines() if not line.startswith("status:")]
+    at = next(i for i, line in enumerate(lines) if line.startswith("core_api:")) + 1
+    lines.insert(at, f"status: {status}   # ADR-0017: earned by its lab on this instance")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    pin_one(root, directory.name)
+    _catalog_of.cache_clear()
+    return Installed(directory.name, status, detail)
+
+
+def _sense_digest(workspace: Path, config: AppConfig) -> str:
+    """What sensing reads: the sources, the installed plugins and every catalogue."""
+    indexes = [
+        plugins_root() / "index.yaml",
+        *(Path(c) / "index.yaml" for c in config.plugins.catalogs),
+    ]
+    return digest(
+        _tree_digest(workspace / "sources"),
+        [(str(i), hashlib.sha256(i.read_bytes()).hexdigest()) for i in indexes if i.is_file()],
+    )
+
+
+def _sense(
+    config: AppConfig, workspace: Path, provider: LLMProvider | None
+) -> tuple[str, list[str]]:
+    """Detect over the installed plugins and every catalogue; install what may be.
+
+    Returns the step's detail, and the catalogue plugins waiting for approval.
+    """
+    installed = {p.manifest.id for p in load_plugins()}
+    offered = [p for p in load_catalogs(config) if p.manifest.id not in installed]
+    found = [d for d in detect_plugins(workspace, offered) if d.detected] if offered else []
+    publisher = {p.manifest.id: p.manifest.publisher for p in offered}
+    done: list[str] = []
+    waiting: list[str] = []
+    for d in found:
+        if config.plugins.auto_install == "first-party" and publisher[d.plugin] == "first-party":
+            result = install_from_catalog(config, d.plugin, provider=provider)
+            done.append(f"{result.plugin} ({result.status}: {result.detail})")
+        else:
+            waiting.append(d.plugin)
+    detections = detect_plugins(workspace, load_plugins())
+    chosen = detected_ids(detections)
+    Workspace(workspace).write_artifact(
+        "detections.json",
+        {
+            "plugins": chosen,
+            "why": {d.plugin: d.explain() for d in detections if d.detected},
+            "available": [
+                {"plugin": d.plugin, "why": d.explain(), "publisher": publisher[d.plugin]}
+                for d in found
+                if d.plugin in waiting
+            ],
+        },
+    )
+    parts = [f"plugins: {', '.join(chosen) or 'none'}"]
+    if done:
+        parts.append(f"installed {', '.join(done)}")
+    if waiting:
+        parts.append(f"{len(waiting)} in a catalogue awaiting approval: {', '.join(waiting)}")
+    return "; ".join(parts), waiting
+
+
+def _catalogue_needs(workspace: Path) -> list[Need]:
+    """Detected plugins a catalogue offers that aren't installed yet: approve each one."""
+    path = workspace / "detections.json"
+    if not path.is_file():
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    installed = {p.manifest.id for p in load_plugins()}
+    return [
+        Need(
+            "plugin",
+            f"install {a['plugin']} ({a['publisher']}) from the catalogue: {a['why']}",
+            0.0,
+            f"supportagent plugin install {a['plugin']}",
+        )
+        for a in raw.get("available", [])
+        if isinstance(a, dict) and a.get("plugin") not in installed
+    ]

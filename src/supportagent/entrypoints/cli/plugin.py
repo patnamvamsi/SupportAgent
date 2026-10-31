@@ -18,9 +18,9 @@ import typer
 from supportagent.adapters.files.plugin_loader import LoadedPlugin
 from supportagent.bootstrap import (
     AUTOPILOT_STATE,
-    PLUGINS_DIR,
     detect_plugins,
     ingest_system,
+    install_from_catalog,
     load_plugins,
     onboard_drift,
     onboard_graph,
@@ -36,10 +36,12 @@ from supportagent.domain.errors import ConfigError, ExternalServiceError
 plugin_app = typer.Typer(help="The plugin registry (ADR-0015).", no_args_is_help=True)
 onboard_app = typer.Typer(help="Onboarding a system (ADR-0015).", no_args_is_help=True)
 
-_ROOT = typer.Option(PLUGINS_DIR, "--root", help="The plugin registry directory.")
+_ROOT = typer.Option(
+    None, "--root", help="The plugin registry directory (default: the installed plugins)."
+)
 
 
-def _registry(root: Path) -> list[LoadedPlugin]:
+def _registry(root: Path | None) -> list[LoadedPlugin]:
     try:
         return load_plugins(root)
     except ConfigError as exc:
@@ -48,7 +50,7 @@ def _registry(root: Path) -> list[LoadedPlugin]:
 
 
 @plugin_app.command("list")
-def list_plugins(root: Path = _ROOT) -> None:
+def list_plugins(root: Path | None = _ROOT) -> None:
     """Every pinned plugin: version, status, what it provides, the access it needs."""
     for plugin in _registry(root):
         m = plugin.manifest
@@ -62,7 +64,9 @@ def list_plugins(root: Path = _ROOT) -> None:
 
 
 @plugin_app.command("show")
-def show(plugin_id: str = typer.Argument(..., help="The plugin id."), root: Path = _ROOT) -> None:
+def show(
+    plugin_id: str = typer.Argument(..., help="The plugin id."), root: Path | None = _ROOT
+) -> None:
     """One plugin's manifest in full: capabilities, backends, access contracts, detectors."""
     found = [p for p in _registry(root) if p.manifest.id == plugin_id]
     if not found:
@@ -91,14 +95,14 @@ def show(plugin_id: str = typer.Argument(..., help="The plugin id."), root: Path
 
 
 @plugin_app.command("validate")
-def validate(root: Path = _ROOT) -> None:
+def validate(root: Path | None = _ROOT) -> None:
     """Load the registry as the app does: manifests valid, pinned, packs present."""
     plugins = _registry(root)
     typer.echo(f"{len(plugins)} plugin(s) valid and pinned")
 
 
 @plugin_app.command("index")
-def index(root: Path = _ROOT) -> None:
+def index(root: Path | None = _ROOT) -> None:
     """Re-pin every plugin (version and manifest sha256) after a reviewed change."""
     try:
         pinned = pin_plugins(root)
@@ -108,10 +112,33 @@ def index(root: Path = _ROOT) -> None:
     typer.echo(f"pinned {len(pinned)} plugin(s): {', '.join(pinned)}")
 
 
+@plugin_app.command("install")
+def install(
+    plugin_id: str = typer.Argument(
+        ..., help="The plugin to install, from a configured catalogue."
+    ),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (catalogues, the model)."
+    ),
+) -> None:
+    """Install a plugin from a catalogue (ADR-0017), pin it, and prove it on its own lab here.
+
+    A plugin that fails its lab here is installed as a skeleton: onboarding can
+    detect it and ask for its access, but its incident classes can't be ready.
+    """
+    try:
+        result = install_from_catalog(load_config_default(config), plugin_id)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"installed {result.plugin} as {result.status}: {result.detail}")
+    typer.echo("re-run `supportagent onboard run` to use it")
+
+
 @onboard_app.command("detect")
 def onboard_detect(
     system: Path = typer.Argument(..., help="A system directory (system.yaml + sources/)."),  # noqa: B008
-    root: Path = _ROOT,
+    root: Path | None = _ROOT,
     show_all: bool = typer.Option(False, "--all", help="Also list plugins that weren't detected."),
 ) -> None:
     """Which plugins the system needs, and the evidence for each."""
