@@ -89,11 +89,15 @@ Beyond "a plugin matches", the sense step reports what **nothing** covers. Each 
 
 ### 5. Calibration fitted per system
 
-The calibrate step fits per-system thresholds from the replayed history:
-- the classifier's per-label calibration table (agree and abstain rows, ADR-0002) from the readiness replays' classifications;
-- per-class readiness gates within the ADR-0003 bounds. A class can't be gated below `min_scenarios`, and the false-cause gate stays at zero.
+The readiness replays are the system's own history, run through the real classifier. Each one is an observation for the classifier's calibration table (ADR-0002):
+- the predicted label's `agree` row if the pre-classifier's label matched it, or its `abstain` row if there was none (a conflict never routes, so it isn't evidence);
+- *correct* when the label matched the one onboarding mapped.
 
-They're written to the workspace and the database. Routing uses them from the next start, like the readiness report.
+The table is graded `holdout`, since the history was never tuned on, and signed. It's saved with the readiness report. Triage and shadow use it from their next start, **only if it was fitted with the model they are configured with** and its counts are untouched. Otherwise the configured calibration artifact applies.
+
+A short history gives low Wilson lower bounds, so most labels stay under `calibration.min_score` and go to a person. That's the honest answer for thin evidence.
+
+**Per-class readiness gates stay declared policy** in `system.yaml` `readiness:` (defaults 3 scenarios, 75% top-1, no false cause, bar 70%). They say how much evidence to require, which isn't something to fit to the evidence.
 
 ## Delivery
 
@@ -103,7 +107,7 @@ They're written to the workspace and the database. Routing uses them from the ne
 | WP-A2 (*delivered*: `plugins.catalogs`, `plugin install`, embedded packs and `tree_sha256`; git catalogues are a follow-up) | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
 | WP-A3 (*delivered*: `domain/gaps.py`, the `gaps` step, `onboard gaps`, `plugin new`, the `lines` format) | Sensing the unknown (§3) with scaffolds | A fixture with a Go service and an unmapped CMDB class reports both gaps, with evidence |
 | WP-A4 (*delivered*: migration 0019, the top of `/ui/onboarding`) | The status page: what's needed, ranked by weight | `/ui/onboarding` shows one ranked list; acting on an item clears it on the next run |
-| WP-A5 | Calibration fitted per system | The calibration table and gates are fitted from replay, and routing uses them |
+| WP-A5 (*delivered*: `fit_calibration`, triage prefers a table fitted with its own model) | Calibration fitted per system | The calibration table and gates are fitted from replay, and routing uses them |
 
 ## Consequences
 

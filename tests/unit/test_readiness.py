@@ -260,7 +260,7 @@ def test_each_gate_keeps_a_class_from_being_ready() -> None:
         report, {"oracle-lock-contention": "ready", "oracle-tablespace-full": "ready"}
     ) == ["oracle-lock-contention"]
     as_json = report.as_dict()
-    assert as_json["ready"] is False and as_json["not_measured"] == ["calibration", "shadow replay"]
+    assert as_json["ready"] is False and as_json["not_measured"] == ["shadow replay"]
 
 
 def test_system_a_knowledge_and_evidence_make_most_of_its_history_ready() -> None:
