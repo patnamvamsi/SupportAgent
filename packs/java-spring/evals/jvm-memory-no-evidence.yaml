@@ -1,0 +1,40 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: jvm-memory-no-evidence
+pack: java-spring
+split: holdout
+description: A memory alert fires at 85% but nothing fails, and GC is quiet.
+incident:
+  subject: orders-api memory alert
+  priority: '3'
+  body: Memory usage alert fired at 85% for orders-api.
+service:
+  name: orders-api
+  stack:
+  - java
+  - spring-boot
+  repos:
+  - github:acme/orders
+world:
+  logs.search:
+    result:
+      query: '{service="orders-api"}'
+      window_min: 60
+      count: 0
+      matches: []
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.04
+      count: 1
+      max_value: 0.04
+truth:
+  classification: app/memory
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - jvm_heap_exhaustion
+  - jvm_gc_pauses
+why: 'A high-water mark is not exhaustion: no OutOfMemoryError and 4% GC time.'

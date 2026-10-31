@@ -1,0 +1,22 @@
+# One probe per pack hypothesis (ARCH §5): what to read and what must hold.
+# Thresholds are provisional.
+probes:
+  oracle_lock_contention:
+    tool: oracle.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.wait_s) > 60.0)"
+  oracle_tablespace_full:
+    tool: oracle.tablespaces
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_used_pct) >= 97.0"
+  oracle_plan_regression:
+    tool: oracle.top_sql
+    args: {database: "$service.databases[0]"}
+    check: "result.statements.exists(s, s.plan_changed && double(s.slowdown) >= 5.0)"
+  oracle_listener_down:
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ORA-12541|ORA-12514|ORA-12170|ORA-03113"'
+      service: "$service.name"
+      window_min: 60
+    check: 'result.matches.exists(m, m.line.contains("ORA-12541") || m.line.contains("ORA-12514") || m.line.contains("ORA-12170") || m.line.contains("ORA-03113"))'

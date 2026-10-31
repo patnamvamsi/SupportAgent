@@ -1,0 +1,7 @@
+# One hypothesis per oracle plugin cause (`oracle/<cause>` -> `oracle_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: oracle_lock_contention
+  - id: oracle_tablespace_full
+  - id: oracle_plan_regression
+  - id: oracle_listener_down

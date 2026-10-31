@@ -81,6 +81,10 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 #     databases:
 #       orders: {dsn_env: PG_ORDERS_RO}   # a role with pg_monitor only
 #     statement_timeout_ms: 5000
+#   oracle:                          # WP-O6a: the oracle plugin's oracle_ro account per database
+#     databases:                     # (install python-oracledb in the image)
+#       paydb: {dsn_env: PAYDB_RO}     # ro_user/password@host:1521/service
+#     call_timeout_ms: 5000
 #   prometheus: {base_url: "http://prometheus:9090"}
 #   loki: {base_url: "http://loki:3100"}   # BL-050: logs.search (token_env, org_id optional)
 #   kubernetes: {api_url: "https://k8s.internal:6443", token_env: K8S_RO_TOKEN}   # get/list pods, replicasets

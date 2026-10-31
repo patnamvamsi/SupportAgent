@@ -1,11 +1,11 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: java-spring
-version: 0.1.0
+version: 0.2.0
 description: Java services on Spring Boot (JVM heap and GC, thread and connection pools, Spring errors).
 core_api: ">=1.0,<2"
+status: evaluated   # WP-O6a: its pack passes its lab (packs/java-spring/evals)
 provides:
-  labels:   # WP-O4: what the incident map can call a problem
-    - {id: app/memory, description: "The service runs out of memory: OutOfMemoryError, OOMKilled pods, restarts as heap fills."}
+  pack: java-spring   # WP-O6a: hypotheses, probes, runbooks and its lab (packs/java-spring)
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: jvm/heap_exhaustion, description: "The JVM heap fills up (java.lang.OutOfMemoryError, GC overhead limit exceeded) and the service restarts."}
     - {id: jvm/connection_pool_exhaustion, description: "The service's database connection pool (HikariCP) has no free connections; requests wait and time out."}

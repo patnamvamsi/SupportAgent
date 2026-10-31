@@ -3,15 +3,15 @@
 # a manifest that changes without re-pinning doesn't load.
 plugins:
   - {id: airflow, version: 0.1.0, sha256: ad35629833492f7baa5bc578b008f74e2bcb682151e9373eb6d847d7eb7e4774}
-  - {id: angular, version: 0.1.0, sha256: e598fb0ab8b21cc376e586cb8c0482c912316c0031853d63c7200d1d0ba28b1b}
+  - {id: angular, version: 0.1.0, sha256: 1ccc924dc33d967964991e7cc5f7ac3ab87c3f1be04f509332252f73ba683b39}
   - {id: data-quality, version: 0.1.0, sha256: a8fcbd04eaed0aa22d63266ed7030f4341c22005c82ed38e0ada55958c9eaaa2}
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
-  - {id: java-spring, version: 0.1.0, sha256: 32cc5dfa995458656e0233a10c2055506849c4cce27b6b285759d9bf8887e3e1}
+  - {id: java-spring, version: 0.2.0, sha256: 954a8342a4d76df33711412aaab3ef8b9df1a203236cbfd9482ee83191adf503}
   - {id: kafka, version: 0.1.0, sha256: b01ba0adeefaa672c124d439d0cd953e3683463012cc7de5ff2f28d9391162af}
-  - {id: kubernetes, version: 0.1.0, sha256: 99f5fc6156131b1106a301b75084d3dd060a77702c3a19dbdf82ca8635633e4d}
-  - {id: oracle, version: 0.1.0, sha256: ec3177f6ec7275d204f8d03971cbf8ec7f974125dd023b0ed047d41df661b43b}
+  - {id: kubernetes, version: 0.2.0, sha256: 9dc1ec19846d817c309310a97a2e52e55ffd3ec88f2e1e9a77163a38d4ca3310}
+  - {id: oracle, version: 0.2.0, sha256: 3675140400d81f70c2db49f101e7f256ad245d319d5bff5d096e948ed583c26c}
   - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}
   - {id: snowflake, version: 0.1.0, sha256: 7241c7cd1d0eb86e376bb51166aba0b2441d134f595a6c885e40c11f1ba9b3f7}
   - {id: spark, version: 0.1.0, sha256: 86e48d615740096ceada0319f806347ce2156c541278f099c2060ff5ff45bfce}
-  - {id: streamlit, version: 0.1.0, sha256: 7366d3a02fa8a779a9329cd267db4a0cff45e2f260d65d989448d0bdaa0eb80c}
+  - {id: streamlit, version: 0.1.0, sha256: 11ea2cc09762bb34c86ecd3ed999e2600729f1479a4a80c2e176b7591b2846be}

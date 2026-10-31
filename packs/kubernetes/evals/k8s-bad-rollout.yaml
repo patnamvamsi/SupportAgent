@@ -1,0 +1,66 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: k8s-bad-rollout
+pack: kubernetes
+split: tune
+description: A release went out 14 minutes before the errors; its pods are healthy.
+incident:
+  subject: Errors after the catalog-api deploy
+  priority: '2'
+  body: 5xx rate went from 0.1% to 8% minutes after the 07:46 release of catalog-api.
+service:
+  name: catalog-api
+  stack:
+  - java
+  - spring-boot
+  - kubernetes
+  k8s_namespace: shop
+  k8s_selector: app=catalog-api
+  repos:
+  - github:acme/catalog
+world:
+  changes.recent:
+    result:
+      window_min: 180
+      changes:
+      - source: kubernetes
+        kind: rollout
+        ref: catalog-api-7d9f8c
+        at: '2026-01-01T07:46:00Z'
+        minutes_ago: 14
+        actor: deploy-bot
+        environment: prod
+      count: 1
+  k8s.pod_status:
+    result:
+      namespace: shop
+      selector: app=catalog-api
+      pods:
+      - name: catalog-api-7d9f8c-a1
+        phase: Running
+        ready: true
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: null
+      - name: catalog-api-7d9f8c-b2
+        phase: Running
+        ready: true
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: null
+      restarts_total: 0
+      oomkilled: 0
+      not_ready: 0
+truth:
+  classification: deploy/failure
+  also_acceptable:
+  - deploy/rollback
+  severity: P2
+  root_cause: recent_change_push
+  verdict: SUPPORTED
+  must_cite:
+  - changes.recent
+  must_not_claim:
+  - k8s_image_pull_failure
+why: The rollout 14 minutes earlier is the only change; its pods run, so the fault is in what it shipped.

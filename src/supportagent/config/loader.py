@@ -107,7 +107,7 @@ def load_config_offline(path: Path) -> AppConfig:
     for hook in raw.get("webhooks") or []:
         if isinstance(hook, dict) and isinstance(hook.get("secret_env"), str):
             env[hook["secret_env"]] = placeholder
-    for db in _postgres_databases(raw).values():
+    for db in _read_only_databases(raw):
         if isinstance(db, dict) and isinstance(db.get("dsn_env"), str):
             env[db["dsn_env"]] = placeholder
     for server in _mcp_servers(raw).values():
@@ -197,8 +197,8 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
     for hook in resolved.get("webhooks") or []:
         if isinstance(hook, dict) and "secret_env" in hook:
             hook["secret"] = _resolve_variable(hook.pop("secret_env"), "secret_env", env)
-    # WP-M04: each read-only Postgres connection carries its own ``dsn_env``.
-    for db in _postgres_databases(resolved).values():
+    # WP-M04, WP-O6a: each read-only Postgres or Oracle connection carries its own ``dsn_env``.
+    for db in _read_only_databases(resolved):
         if isinstance(db, dict) and "dsn_env" in db:
             db["dsn"] = _resolve_variable(db.pop("dsn_env"), "dsn_env", env)
     # WP-M06: each MCP server carries its own ``token_env``.
@@ -262,10 +262,14 @@ def _mcp_servers(raw: dict[str, Any]) -> dict[str, Any]:
     return node if node is not None else {}
 
 
-def _postgres_databases(raw: dict[str, Any]) -> dict[str, Any]:
-    node = _section(raw, ("tools", "postgres"))
-    databases = node.get("databases") if node is not None else None
-    return databases if isinstance(databases, dict) else {}
+def _read_only_databases(raw: dict[str, Any]) -> list[Any]:
+    """WP-M04, WP-O6a: every ``tools.postgres`` and ``tools.oracle`` connection."""
+    out: list[Any] = []
+    for tool in ("postgres", "oracle"):
+        node = _section(raw, ("tools", tool))
+        databases = node.get("databases") if node is not None else None
+        out.extend(databases.values() if isinstance(databases, dict) else ())
+    return out
 
 
 def _section(resolved: dict[str, Any], section: tuple[str, ...]) -> dict[str, Any] | None:

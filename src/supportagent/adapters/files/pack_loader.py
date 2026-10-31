@@ -98,6 +98,7 @@ def _load_pack(directory: Path) -> Pack:
             for slot, rel in manifest.prompts.items()
         },
         placeholder=manifest.placeholder,
+        plan_order=manifest.plan_order,
         evals=str(_dir(directory, manifest.evals)) if manifest.evals else None,
         doc_spaces=tuple(manifest.knowledge.spaces) if manifest.knowledge else (),
     )

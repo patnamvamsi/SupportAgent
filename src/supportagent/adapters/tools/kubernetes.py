@@ -39,6 +39,10 @@ SCHEMA: Mapping[str, object] = {
                     "ready": {"type": "boolean"},
                     "restarts": {"type": "integer"},
                     "last_termination": {"type": ["string", "null"]},
+                    #: WP-O6a: why the pod itself stopped (``Evicted``) and why a
+                    #: container can't start (``ImagePullBackOff``, ``CrashLoopBackOff``).
+                    "reason": {"type": ["string", "null"]},
+                    "waiting": {"type": ["string", "null"]},
                 },
             },
         },
@@ -90,6 +94,15 @@ class PodStatusTool:
                 if isinstance(c, dict)
             ]
             last = next((r for r in reasons if r), None)
+            waiting = next(
+                (
+                    w
+                    for c in containers
+                    if isinstance(c, dict)
+                    and (w := ((c.get("state") or {}).get("waiting") or {}).get("reason"))
+                ),
+                None,
+            )
             oom += sum(1 for r in reasons if r == "OOMKilled")
             pods.append(
                 {
@@ -99,6 +112,8 @@ class PodStatusTool:
                     and all(bool(c.get("ready")) for c in containers if isinstance(c, dict)),
                     "restarts": restarts,
                     "last_termination": last,
+                    "reason": status.get("reason") or None,
+                    "waiting": waiting,
                 }
             )
         return ToolResult(

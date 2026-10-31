@@ -1,0 +1,26 @@
+# Queries on an Oracle-backed service got slow. A statement on a new, slower
+# plan is checked before lock waits. Deadlocks (ORA-00060) clear themselves,
+# so they are read from the application's logs.
+id: runbook:oracle-latency
+applies_when: {classification: database/latency}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: plan-change
+    hypothesis: oracle_plan_regression
+    tool: oracle.top_sql
+    args: {database: "$service.databases[0]"}
+    check: "result.statements.exists(s, s.plan_changed && double(s.slowdown) >= 5.0)"
+    stop_if: true
+  - id: lock-waits
+    hypothesis: oracle_lock_contention
+    tool: oracle.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.wait_s) > 60.0)"
+  - id: deadlocks
+    hypothesis: oracle_lock_contention
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ORA-00060"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("ORA-00060"))) >= 3'

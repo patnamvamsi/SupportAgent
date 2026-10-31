@@ -1,0 +1,55 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-tablespace-full
+pack: oracle
+split: tune
+description: 'The nightly statement batch fails writing: its tablespace can''t extend (ORA-01653).'
+incident:
+  subject: Statement batch failed
+  priority: '2'
+  body: 'statement-batch failed at the write step: ORA-01653: unable to extend table STATEMENTS.STATEMENT_LINES.'
+service:
+  name: statement-batch
+  stack:
+  - java
+  - spring-boot
+  - spring-batch
+  - oracle
+  databases:
+  - ledgerdb
+world:
+  oracle.tablespaces:
+    result:
+      database: ledgerdb
+      tablespaces:
+      - name: STATEMENTS_DATA
+        used_pct: 100.0
+      - name: LEDGER_DATA
+        used_pct: 64.2
+      - name: USERS
+        used_pct: 12.5
+      max_used_pct: 100.0
+  oracle.locks:
+    result:
+      database: ledgerdb
+      blocked: 0
+      blockers: []
+  logs.search:
+    result:
+      query: '{service="statement-batch"}'
+      window_min: 60
+      count: 1
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'ORA-01653: unable to extend table STATEMENTS.STATEMENT_LINES by 1024 in tablespace STATEMENTS_DATA'
+        labels:
+          service: statement-batch
+truth:
+  classification: batch/failure
+  also_acceptable:
+  - database/failure
+  severity: P2
+  root_cause: oracle_tablespace_full
+  verdict: SUPPORTED
+  must_cite:
+  - oracle.tablespaces
+why: STATEMENTS_DATA is at 100% of its maximum size; the write that fails is the first one past it.

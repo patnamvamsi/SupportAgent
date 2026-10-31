@@ -1,0 +1,11 @@
+# A batch job on Oracle failed. Batches write in bulk, so a full tablespace
+# is the first database cause to rule out.
+id: runbook:oracle-batch
+applies_when: {classification: batch/failure}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: tablespace
+    hypothesis: oracle_tablespace_full
+    tool: oracle.tablespaces
+    args: {database: "$service.databases[0]"}
+    check: "double(result.max_used_pct) >= 97.0"

@@ -1,0 +1,10 @@
+# One probe per pack hypothesis (ARCH §5).
+probes:
+  k8s_node_pressure:
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.pods.exists(p, p.reason == 'Evicted')"
+  k8s_image_pull_failure:
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.pods.exists(p, p.waiting == 'ImagePullBackOff' || p.waiting == 'ErrImagePull')"

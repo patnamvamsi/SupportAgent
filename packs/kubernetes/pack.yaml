@@ -1,0 +1,15 @@
+# Workloads on Kubernetes (ADR-0015 §2, WP-O6a): the kubernetes plugin's
+# knowledge. Rollouts come from changes.recent, pods from k8s.pod_status.
+id: kubernetes
+version: 0.1.0
+description: Workloads on Kubernetes (bad rollouts, image pulls, evictions).
+applies_to:
+  stack: [kubernetes]
+plan_order: 30
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools:
+  - k8s.pod_status
+  - changes.recent
+evals: evals/

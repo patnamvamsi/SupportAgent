@@ -1,0 +1,11 @@
+# One hypothesis per java-spring plugin cause (`jvm/<cause>` -> `jvm_<cause>`).
+# A pool starved by a database lock wait is the lock's symptom: the database
+# pack's check runs first (plan_order) and stops the plan when it holds.
+version: 1.0.0
+hypotheses:
+  - id: jvm_heap_exhaustion
+    excludes: [jvm_gc_pauses]
+  - id: jvm_connection_pool_exhaustion
+  - id: jvm_thread_pool_exhaustion
+  - id: jvm_gc_pauses
+    excludes: [jvm_heap_exhaustion]

@@ -1,0 +1,57 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: jvm-upstream-timeouts
+pack: java-spring
+split: tune
+description: The card acquirer is degraded; every authorisation call times out.
+incident:
+  subject: Card authorisations failing
+  priority: '1'
+  body: 'auth-service: authorisations failing since 09:10; the acquirer''s status page shows degraded.'
+service:
+  name: auth-service
+  stack:
+  - java
+  - spring-boot
+world:
+  logs.search:
+    result:
+      query: '{service="auth-service"}'
+      window_min: 60
+      count: 5
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'I/O error on POST request for "https://api.acquirer.example/v2/auth": Read timed out'
+        labels:
+          service: auth-service
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'I/O error on POST request for "https://api.acquirer.example/v2/auth": Read timed out'
+        labels:
+          service: auth-service
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'I/O error on POST request for "https://api.acquirer.example/v2/auth": Read timed out'
+        labels:
+          service: auth-service
+      - ts: '2026-01-01T07:13:00Z'
+        line: 'I/O error on POST request for "https://api.acquirer.example/v2/auth": Read timed out'
+        labels:
+          service: auth-service
+      - ts: '2026-01-01T07:14:00Z'
+        line: 'I/O error on POST request for "https://api.acquirer.example/v2/auth": Read timed out'
+        labels:
+          service: auth-service
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.22
+      count: 1
+      max_value: 0.22
+truth:
+  classification: network/outage
+  severity: P1
+  root_cause: upstream_provider
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+why: Every failing call is the same outbound POST to the acquirer timing out.

@@ -57,7 +57,7 @@ def test_pack_python_postgres_validates() -> None:
         packs_dir=_REPO / "packs",
     )
     pack = packs.get(_PACK)
-    assert len(pack.labels) == 5 and len(pack.hypotheses) == 13 and len(pack.runbook_ids) == 10
+    assert len(pack.labels) == 3 and len(pack.hypotheses) == 13 and len(pack.runbook_ids) == 10
     knowledge = build_rca_knowledge(_config(), registered=_all_tools())
     assert {r.id for r, _ in knowledge.runbooks} >= set(pack.runbook_ids)
 

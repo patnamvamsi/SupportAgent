@@ -4,8 +4,6 @@ version: 0.1.0
 description: Angular single-page apps (stale bundles, CORS, API errors seen from the UI).
 core_api: ">=1.0,<2"
 provides:
-  labels:   # WP-O4: what the incident map can call a problem
-    - {id: app/config, description: "The application misbehaves because of configuration: a bad setting, origin list or environment value, often after a change."}
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: ui/cors_or_stale_bundle, description: "The browser can't load the UI or its data: a CORS rule blocks the API, or a cached bundle references files that no longer exist."}
     - {id: ui/api_contract_break, description: "The UI calls an API whose response or contract changed and fails to render it."}

@@ -1,0 +1,17 @@
+# Java services on Spring Boot (ADR-0015 §2, WP-O6a): the java-spring plugin's
+# knowledge. Its checks read the service's logs (logs.search), JVM metrics
+# (metrics.query) and pods (k8s.pod_status); it brings no tool of its own.
+id: java-spring
+version: 0.1.0
+description: Java services on Spring Boot (heap and GC, HikariCP and thread pools, outbound HTTP calls).
+applies_to:
+  stack: [java, spring-boot]
+plan_order: 50
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools:
+  - logs.search
+  - metrics.query
+  - k8s.pod_status
+evals: evals/

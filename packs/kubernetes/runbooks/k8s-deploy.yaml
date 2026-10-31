@@ -1,0 +1,18 @@
+# A deploy went wrong. Pods that can't pull their image are checked first (the
+# rollout is then the trigger, not the fault); otherwise a rollout in the last
+# hour is the change to blame.
+id: runbook:k8s-deploy
+applies_when: {classification: deploy}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: image-pull
+    hypothesis: k8s_image_pull_failure
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.pods.exists(p, p.waiting == 'ImagePullBackOff' || p.waiting == 'ErrImagePull')"
+    stop_if: true
+  - id: rollout
+    hypothesis: recent_change_push
+    tool: changes.recent
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector", window_min: 180}
+    check: "result.changes.exists(c, c.minutes_ago <= 60)"

@@ -1,0 +1,90 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-deadlock-retries
+pack: oracle
+split: tune
+description: Two retries update the same rows in opposite order; Oracle kills one each time (ORA-00060).
+incident:
+  subject: Transfers failing with ORA-00060
+  priority: '2'
+  body: 'transfer requests fail intermittently; logs show ORA-00060: deadlock detected while waiting for resource.'
+service:
+  name: ledger-api
+  stack:
+  - java
+  - spring-boot
+  - oracle
+  databases:
+  - ledgerdb
+  repos:
+  - github:acme/ledger
+world:
+  oracle.locks:
+    result:
+      database: ledgerdb
+      blocked: 0
+      blockers: []
+  oracle.tablespaces:
+    result:
+      database: ledgerdb
+      tablespaces:
+      - name: LEDGER_DATA
+        used_pct: 61.0
+      - name: USERS
+        used_pct: 12.5
+      max_used_pct: 61.0
+  logs.search:
+    result:
+      query: '{service="ledger-api"}'
+      window_min: 60
+      count: 5
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'ORA-00060: deadlock detected while waiting for resource'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'ORA-00060: deadlock detected while waiting for resource'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'ORA-00060: deadlock detected while waiting for resource'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:13:00Z'
+        line: 'ORA-00060: deadlock detected while waiting for resource'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:14:00Z'
+        line: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+        labels:
+          service: ledger-api
+  oracle.top_sql:
+    result:
+      database: ledgerdb
+      statements:
+      - sql_id: 2x7mfk1pq9d0c
+        plans: 1
+        mean_ms: 38.0
+        previous_mean_ms: null
+        plan_changed: false
+        slowdown: 1.0
+      max_slowdown: 1.0
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.31
+      count: 1
+      max_value: 0.31
+truth:
+  classification: database/failure
+  also_acceptable:
+  - database/saturation
+  - database/latency
+  severity: P2
+  root_cause: oracle_lock_contention
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+why: 'A deadlock clears itself before anyone looks: no blocking chain remains, only the ORA-00060 lines it left.'

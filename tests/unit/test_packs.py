@@ -281,13 +281,21 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
     """A service no evaluated pack selects sees exactly the common files; packs only add."""
     config = _repo_config()
     packs = _pack_set(config)
-    assert {p.id for p in packs.packs} == {"common", "python-postgres", "spark", "snowflake"}
+    assert {p.id for p in packs.packs} == {
+        "common",
+        "java-spring",
+        "kubernetes",
+        "oracle",
+        "python-postgres",
+        "spark",
+        "snowflake",
+    }
     legacy = load_pack_set(
         taxonomy=Path(config.paths.taxonomy),
         hypotheses=Path(config.paths.hypotheses),
         runbooks=Path(config.paths.runbooks),
     )
-    for stack in ([], ["java"], ["spark"]):  # no evaluated pack matches: exactly common
+    for stack in ([], ["golang"], ["spark"]):  # no evaluated pack matches: exactly common
         active = packs.active(stack)
         assert labels_text(packs.taxonomy(active).labels) == labels_text(legacy.taxonomy().labels)
         assert packs.rule_set(active) == legacy.rule_set()

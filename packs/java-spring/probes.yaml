@@ -1,0 +1,29 @@
+# One probe per pack hypothesis (ARCH §5). Log patterns are the JVM's and
+# HikariCP's own messages; thresholds are provisional.
+probes:
+  jvm_heap_exhaustion:
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "java.lang.OutOfMemoryError|GC overhead limit exceeded"'
+      service: "$service.name"
+      window_min: 120
+    check: 'result.matches.exists(m, m.line.contains("java.lang.OutOfMemoryError") || m.line.contains("GC overhead limit exceeded"))'
+  jvm_connection_pool_exhaustion:
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "HikariPool-[0-9]+ - Connection is not available"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("Connection is not available"))) >= 3'
+  jvm_thread_pool_exhaustion:
+    tool: metrics.query
+    args:
+      query: 'max(tomcat_threads_busy_threads{service="{{service}}"} / tomcat_threads_config_max_threads{service="{{service}}"})'
+      service: "$service.name"
+    check: "double(result.max_value) >= 0.98"
+  jvm_gc_pauses:
+    tool: metrics.query
+    args:
+      query: 'max(rate(jvm_gc_pause_seconds_sum{service="{{service}}"}[5m]))'
+      service: "$service.name"
+    check: "double(result.max_value) > 0.5"

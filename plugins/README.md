@@ -22,7 +22,11 @@ One model for everything pluggable. A plugin is `plugins/<id>/plugin.yaml` and c
 
 **Pinned.** `plugins/index.yaml` records each plugin's version and the sha256 of its manifest. A manifest that changes without being re-pinned doesn't load, and neither does a plugin directory the index doesn't list. After reviewing a change, run `supportagent plugin index`. Signatures come with external catalogs.
 
-**Status.** `skeleton` means the plugin's contracts and detectors exist, so it can be detected and requested, but its knowledge hasn't been evaluated. Its incident classes can't leave shadow mode. A plugin becomes `evaluated` once its pack passes its lab gates.
+**Status.** `skeleton` means the plugin's contracts and detectors exist, so it can be detected and requested, but its knowledge hasn't been evaluated. Its incident classes can't leave shadow mode. A plugin becomes `evaluated` once its pack passes its lab gates. `oracle`, `java-spring`, `kubernetes` (WP-O6a) and `python-postgres` are evaluated.
+
+**Causes are tested by hypotheses.** A cause `oracle/lock_contention` is tested by the pack hypothesis `oracle_lock_contention` (the `/` becomes `_`); a built-in cause such as `recent_change_push` is a common hypothesis already. An evaluated plugin has a hypothesis, with a probe, for every cause it declares (`tests/unit/test_plugin_packs.py`).
+
+**Backends.** `oracle.*` is first-party (`adapters/tools/oracle.py`): fixed `SELECT`s over the views `oracle_ro` grants, each in a read-only transaction that is rolled back. A deployment configures `tools.oracle.databases.<name>.dsn_env` and installs `python-oracledb` itself; it is not a core dependency. `k8s.pod_status` and `changes.recent` were first-party already.
 
 ```bash
 supportagent plugin list
@@ -34,10 +38,10 @@ supportagent eval onboarding                              # the lab; the plugins
 
 | Plugin | For | Access it asks for |
 |---|---|---|
-| java-spring | Spring Boot services: JVM, pools, Spring errors | none: uses logs and metrics |
-| oracle | locks, tablespaces, ORA- errors, plans | `oracle_ro`: `SELECT` on the `V$`/`DBA_HIST` views |
+| java-spring (evaluated) | Spring Boot services: JVM, pools, Spring errors | none: uses logs and metrics |
+| oracle (evaluated) | locks, tablespaces, ORA- errors, plans | `oracle_ro`: `SELECT` on the `V$`/`DBA_HIST` views |
 | angular | stale bundles, CORS, UI-side API errors | none |
-| kubernetes | pods, restarts, OOMKills, rollouts | `k8s_ro`: get/list/watch in one namespace |
+| kubernetes (evaluated) | pods, restarts, OOMKills, rollouts | `k8s_ro`: get/list/watch in one namespace |
 | grafana | logs (Loki) and metrics (Prometheus) through mcp-grafana | `grafana_ro`: Viewer |
 | github | deploys and merges as evidence | `github_ro`: a read-only fine-grained token |
 | kafka | consumer lag, topics, Kafka Connect | `kafka_ro`: DESCRIBE ACLs |

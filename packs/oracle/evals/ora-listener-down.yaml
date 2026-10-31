@@ -1,0 +1,64 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: ora-listener-down
+pack: oracle
+split: tune
+description: The database listener is down after host maintenance; nothing can connect.
+incident:
+  subject: ledger-api cannot reach its database
+  priority: '1'
+  body: All ledger-api requests fail since 06:40 with database connection errors.
+service:
+  name: ledger-api
+  stack:
+  - java
+  - spring-boot
+  - oracle
+  databases:
+  - ledgerdb
+  repos:
+  - github:acme/ledger
+world:
+  oracle.tablespaces:
+    error: 'oracle ledgerdb: OperationalError'
+  oracle.locks:
+    error: 'oracle ledgerdb: OperationalError'
+  logs.search:
+    result:
+      query: '{service="ledger-api"}'
+      window_min: 60
+      count: 4
+      matches:
+      - ts: '2026-01-01T07:10:00Z'
+        line: 'java.sql.SQLRecoverableException: IO Error: ORA-12541: TNS:no listener'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:11:00Z'
+        line: 'java.sql.SQLRecoverableException: IO Error: ORA-12541: TNS:no listener'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:12:00Z'
+        line: 'java.sql.SQLRecoverableException: IO Error: ORA-12541: TNS:no listener'
+        labels:
+          service: ledger-api
+      - ts: '2026-01-01T07:13:00Z'
+        line: 'java.sql.SQLRecoverableException: IO Error: ORA-12541: TNS:no listener'
+        labels:
+          service: ledger-api
+  metrics.query:
+    result:
+      query: q
+      series:
+      - labels: {}
+        value: 0.05
+      count: 1
+      max_value: 0.05
+truth:
+  classification: database/failure
+  also_acceptable:
+  - network/outage
+  severity: P1
+  root_cause: oracle_listener_down
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+why: Every connection attempt ends in ORA-12541, and the read-only tools can't connect either.

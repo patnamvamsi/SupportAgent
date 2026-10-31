@@ -1,0 +1,19 @@
+# Oracle Database under an application (ADR-0015 §2, WP-O6a): the oracle
+# plugin's knowledge. Its checks read the oracle.* tools (oracle_ro, read-only)
+# and the application's own logs for the ORA- errors a transient fault leaves.
+id: oracle
+version: 0.1.0
+description: Oracle Database under an application (row locks and deadlocks, full tablespaces, plan regressions).
+applies_to:
+  stack: [oracle]
+plan_order: 10   # a database cause explains the application's symptoms: check it first
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools:
+  - oracle.sessions
+  - oracle.locks
+  - oracle.top_sql
+  - oracle.tablespaces
+  - logs.search
+evals: evals/

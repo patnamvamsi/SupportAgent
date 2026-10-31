@@ -1,0 +1,66 @@
+# Lab scenario (ADR-0011 §5, WP-O6a). Edit only with a `why` note.
+id: k8s-image-pull
+pack: kubernetes
+split: tune
+description: The release names an image tag that was never pushed; new pods can't start.
+incident:
+  subject: catalog-api release stuck
+  priority: '2'
+  body: 'The catalog-api release is stuck: its new pods never become ready.'
+service:
+  name: catalog-api
+  stack:
+  - java
+  - spring-boot
+  - kubernetes
+  k8s_namespace: shop
+  k8s_selector: app=catalog-api
+  repos:
+  - github:acme/catalog
+world:
+  changes.recent:
+    result:
+      window_min: 180
+      changes:
+      - source: kubernetes
+        kind: rollout
+        ref: catalog-api-8e01aa
+        at: '2026-01-01T07:54:00Z'
+        minutes_ago: 6
+        actor: deploy-bot
+        environment: prod
+      count: 1
+  k8s.pod_status:
+    result:
+      namespace: shop
+      selector: app=catalog-api
+      pods:
+      - name: catalog-api-8e01aa-x1
+        phase: Pending
+        ready: false
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: ImagePullBackOff
+      - name: catalog-api-7d9f8c-a1
+        phase: Running
+        ready: true
+        restarts: 0
+        last_termination: null
+        reason: null
+        waiting: null
+      restarts_total: 0
+      oomkilled: 0
+      not_ready: 1
+truth:
+  classification: deploy/failure
+  also_acceptable:
+  - deploy/rollback
+  severity: P2
+  root_cause: k8s_image_pull_failure
+  verdict: SUPPORTED
+  must_cite:
+  - k8s.pod_status
+  must_not_claim:
+  - recent_change_push
+why: 'The new pod waits in ImagePullBackOff: the image is the fault; the rollout only triggered it.'

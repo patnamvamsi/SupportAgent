@@ -57,6 +57,10 @@ class PackManifest(DomainModel):
     preclass: str | None = None
     runbooks: str | None = None
     probes: str | None = None
+    #: WP-O6a: when several stack packs' runbooks match a case, their steps run
+    #: lowest first. A database pack goes before an application pack: a lock
+    #: wait explains the pool timeouts it causes, not the other way round.
+    plan_order: int = Field(default=50, ge=0, le=100)
     #: Tool capabilities the pack uses; an unknown one is reported as unbound.
     tools: list[str] = Field(default_factory=list)
     prompts: dict[SlotName, str] = Field(default_factory=dict)

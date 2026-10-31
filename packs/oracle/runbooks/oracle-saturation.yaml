@@ -1,0 +1,23 @@
+# Sessions pile up on an Oracle-backed service. A blocking chain is checked
+# first: it also exhausts the application's connection pool, so the pool's
+# timeouts are its symptom (the java-spring pack's step runs after this one).
+# A deadlock (ORA-00060) clears itself, so it is read from the application's logs.
+id: runbook:oracle-saturation
+applies_when: {classification: database/saturation}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: blocking-chain
+    hypothesis: oracle_lock_contention
+    tool: oracle.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.wait_s) > 60.0)"
+    stop_if: true
+  - id: deadlocks
+    hypothesis: oracle_lock_contention
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "ORA-00060"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("ORA-00060"))) >= 3'
+    stop_if: true

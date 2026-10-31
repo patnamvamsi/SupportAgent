@@ -136,6 +136,7 @@ from supportagent.adapters.tools.logs import LogsTool
 from supportagent.adapters.tools.loki import LokiSearchTool
 from supportagent.adapters.tools.mcp import McpBoundTool, McpHttpClient, verify_server
 from supportagent.adapters.tools.oncall import OnCallTool
+from supportagent.adapters.tools.oracle import ORACLE_TOOLS, OracledbReader
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
 from supportagent.app.approvals import ApprovalService
@@ -1976,7 +1977,7 @@ def _pack_tools(
     clock: Clock,
     transport: httpx.BaseTransport | None,
 ) -> list[Tool]:
-    """WP-M04: the python-postgres pack's tools, each registered when configured."""
+    """WP-M04, WP-O6a: the packs' and plugins' tools, each registered when configured."""
     tools: list[Tool] = []
     if cfg.postgres:  # WP-M04
         reader = PsycopgReader(
@@ -1984,6 +1985,12 @@ def _pack_tools(
             statement_timeout_ms=cfg.postgres.statement_timeout_ms,
         )
         tools.extend(tool_cls(reader=reader) for tool_cls in POSTGRES_TOOLS)
+    if cfg.oracle:  # WP-O6a: the oracle plugin's first-party backend
+        ora = OracledbReader(
+            {name: db.dsn.get_secret_value() for name, db in cfg.oracle.databases.items()},
+            call_timeout_ms=cfg.oracle.call_timeout_ms,
+        )
+        tools.extend(tool_cls(reader=ora) for tool_cls in ORACLE_TOOLS)
     if cfg.prometheus:
         auth = (
             {"Authorization": f"Bearer {cfg.prometheus.token.get_secret_value()}"}

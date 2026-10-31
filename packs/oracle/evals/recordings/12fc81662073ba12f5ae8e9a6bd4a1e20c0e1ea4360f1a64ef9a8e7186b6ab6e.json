@@ -1,0 +1,1 @@
+{"latency_ms": 8694, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"POST /postings has sustained p99 latency above 25s, causing gateway timeouts and retry buildup.\",\n  \"confidence\": 0.64\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 652, "tokens_out": 453}

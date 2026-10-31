@@ -210,6 +210,16 @@ class CauseSpec(DomainModel):
     id: str = Field(pattern=r"^[a-z0-9_]+(/[a-z0-9_]+)?$")
     description: str = Field(min_length=1)
 
+    @property
+    def hypothesis(self) -> str:
+        """WP-O6a: the pack hypothesis that tests it (``oracle/lock_contention`` ->
+        ``oracle_lock_contention``; a built-in cause is a common hypothesis already)."""
+        return cause_hypothesis(self.id)
+
+
+def cause_hypothesis(cause: str) -> str:
+    return cause.replace("/", "_")
+
 
 class Provides(DomainModel):
     pack: str | None = Field(default=None, pattern=_ID)
@@ -296,4 +306,5 @@ __all__ = [
     "Provides",
     "Signal",
     "TargetFinder",
+    "cause_hypothesis",
 ]

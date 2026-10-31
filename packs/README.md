@@ -5,7 +5,10 @@ A skill pack is one technology stack's failure knowledge (ADR-0011 §1). A catal
 | Pack | Status |
 |---|---|
 | `common` | Built from `taxonomy/` and `runbooks/` (no manifest). Always active. |
-| `python-postgres` | 5 labels, 13 hypotheses, 8 preclass rules, 10 runbooks, 21 lab scenarios (5 held out). Its tools ship with WP-M04. |
+| `python-postgres` | 3 labels (`app/memory` and `app/config` moved to common in WP-O6a), 13 hypotheses, 8 preclass rules, 10 runbooks, 21 lab scenarios (5 held out). Its tools ship with WP-M04. |
+| `oracle` | WP-O6a, the oracle plugin's: 4 hypotheses, 4 runbooks over the read-only `oracle.*` tools and the application's ORA- log lines, 6 lab scenarios (1 held out). |
+| `java-spring` | WP-O6a: 4 hypotheses (heap, HikariCP, threads, GC), 3 runbooks over logs and JVM metrics, 5 lab scenarios (1 held out). |
+| `kubernetes` | WP-O6a: image pulls, evictions and bad rollouts, 3 lab scenarios (1 held out). |
 | `spark`, `snowflake` | Placeholders: loaded and reported, never selected. |
 
 ## Manifest
@@ -32,6 +35,10 @@ Every file is optional and relative to the pack directory. Label, hypothesis and
 ## Precedence
 
 When a stack pack and `common` both have a runbook for a case's label, the stack pack's runbook is used. A pack adds labels, rules and hypotheses to `common`'s; it never replaces them.
+
+When several stack packs have one (a Spring service on Oracle and `database/saturation`), their steps merge into one plan in `plan_order`, lowest first (WP-O6a). A database pack goes first (`oracle`: 10), then the runtime (`kubernetes`: 30), then the application (`java-spring`, default 50). A blocking chain in the database explains the pool timeouts it causes in the application, so its check, which stops the plan when it holds, has to run first.
+
+Log checks read the lines, not the count: `size(result.matches.filter(m, m.line.contains("ORA-00060"))) >= 3`. The backend's query already filters, but a check that names what it needs stays right when two steps read the same logs.
 
 ## Knowledge vs model
 

@@ -1,0 +1,15 @@
+# A Spring service's connection pool is exhausted (HikariCP). On a database
+# pack's service this runs after that pack's checks (plan_order): a blocking
+# chain there would explain these timeouts.
+id: runbook:jvm-saturation
+applies_when: {classification: database/saturation}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: hikari
+    hypothesis: jvm_connection_pool_exhaustion
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"} |~ "HikariPool-[0-9]+ - Connection is not available"'
+      service: "$service.name"
+      window_min: 60
+    check: 'size(result.matches.filter(m, m.line.contains("Connection is not available"))) >= 3'
