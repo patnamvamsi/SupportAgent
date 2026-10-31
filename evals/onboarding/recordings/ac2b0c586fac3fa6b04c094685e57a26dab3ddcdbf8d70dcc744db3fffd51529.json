@@ -1,0 +1,1 @@
+{"latency_ms": 27515, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The nightly settlement batch failed at the write step with ORA-01653, unable to extend SETTLEMENT.SETTLEMENT_LINES, so settlement did not complete.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 657, "tokens_out": 1241}

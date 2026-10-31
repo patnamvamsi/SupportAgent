@@ -16,6 +16,7 @@ import re
 from pydantic import Field, SecretStr, field_validator
 
 from supportagent.domain.model.base import DomainModel
+from supportagent.domain.model.readiness import ReadinessGates
 
 _ID = r"^[a-z0-9][a-z0-9-]{1,62}$"
 
@@ -91,6 +92,8 @@ class SystemManifest(DomainModel):
     #: Read-only production access granted so far (filled by WP-O5).
     access: list[dict[str, object]] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
+    #: WP-O6b: the readiness bar and per-class gates for this system.
+    readiness: ReadinessGates = Field(default_factory=ReadinessGates)
 
 
 __all__ = [

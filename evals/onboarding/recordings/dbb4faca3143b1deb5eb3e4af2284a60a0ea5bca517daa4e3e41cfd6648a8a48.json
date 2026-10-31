@@ -1,0 +1,1 @@
+{"latency_ms": 4895, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"Intermittent checkout API failures are associated with a saturated Hikari database connection pool at 40/40 pending connections.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 641, "tokens_out": 237}

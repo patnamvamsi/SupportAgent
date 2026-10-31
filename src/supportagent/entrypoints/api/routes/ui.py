@@ -519,7 +519,30 @@ def _requests(ctx: ApiContext) -> RequestReview:
 def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
     def build(user: SessionUser) -> Response:
         asks = _requests(ctx).progress() if ctx.request_review is not None else None
-        return _render(request, ctx, "onboarding.html", user, p=_review(ctx).progress(), asks=asks)
+        ready = ctx.readiness().load() if ctx.readiness is not None else None
+        return _render(
+            request,
+            ctx,
+            "onboarding.html",
+            user,
+            p=_review(ctx).progress(),
+            asks=asks,
+            ready=ready,
+        )
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.get("/ui/onboarding/readiness")
+def onboarding_readiness(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """WP-O6b: which incident classes the history proved, and why the others aren't ready."""
+
+    def build(user: SessionUser) -> Response:
+        if ctx.readiness is None:
+            raise NotFound("readiness is not configured")  # noqa: TRY003
+        return _render(
+            request, ctx, "onboarding_readiness.html", user, report=ctx.readiness().load()
+        )
 
     return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
 

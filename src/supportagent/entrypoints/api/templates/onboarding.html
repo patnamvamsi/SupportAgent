@@ -4,7 +4,8 @@
 <h1>What SupportAgent understands about this system</h1>
 {% if not p.total %}
 <p class="muted">No graph yet. Build one from a workspace: <code>supportagent onboard graph --workspace &lt;dir&gt;</code>.</p>
-{% if asks and (asks.open or asks.approved or asks.declined) %}<p class="actions"><a class="button" href="/ui/onboarding/requests">{{ asks.open }} access request{{ "s" if asks.open != 1 }} to decide</a></p>{% endif %}
+<p class="actions">{% if asks and (asks.open or asks.approved or asks.declined) %}<a class="button" href="/ui/onboarding/requests">{{ asks.open }} access request{{ "s" if asks.open != 1 }} to decide</a>{% endif %}
+  {% if ready %}<a class="button" href="/ui/onboarding/readiness">{{ "Ready" if ready.ready else "Not ready" }}: {{ (ready.ready_share * 100) | round | int }}% of incident weight proven</a>{% endif %}</p>
 {% else %}
 <p>You've reviewed <strong>{{ p.reviewed }} of {{ p.total }}</strong> facts ({{ (p.share * 100) | round | int }}%):
   <span class="ok">{{ p.confirmed }} confirmed</span>, <span class="bad">{{ p.rejected }} rejected</span>.</p>
@@ -13,6 +14,7 @@
 <p class="actions">
   <a class="button primary" href="/ui/onboarding/graph?status=proposed#cards">Review the graph →</a>
   {% if asks and (asks.open or asks.approved or asks.declined) %}<a class="button" href="/ui/onboarding/requests">{{ asks.open }} access request{{ "s" if asks.open != 1 }} to decide</a>{% endif %}
+  {% if ready %}<a class="button" href="/ui/onboarding/readiness">{{ "Ready" if ready.ready else "Not ready" }}: {{ (ready.ready_share * 100) | round | int }}% of incident weight proven</a>{% endif %}
   {% if p.open_questions %}<a class="button" href="/ui/onboarding/questions">{{ p.open_questions }} question{{ "s" if p.open_questions != 1 }} to settle</a>{% endif %}
 </p>
 

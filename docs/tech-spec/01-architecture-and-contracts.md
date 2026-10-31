@@ -274,7 +274,9 @@ class TriageDecision(BaseModel):             # what Loop A decided, persisted on
                     "unconfirmed-high-severity", "unresolved-service",
                     "no-paging-integration",   # ADR-0006 (ARCH §14)
                     "storm-member",            # ADR-0007 (ARCH §4.3)
-                    "spend-breaker", "routed"]
+                    "spend-breaker",
+                    "class-not-ready",         # ADR-0015 §5 (WP-O6b): no ready class has the label
+                    "routed"]
     classification: str | None
     severity: Severity | None
     preclass_label: str | None

@@ -1,0 +1,1 @@
+{"latency_ms": 8999, "raw_text": "{\n  \"classification\": \"network/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Card capture requests are experiencing elevated p99 latency above 20 seconds since 17:05, with many requests timing out at the gateway.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 649, "tokens_out": 438}

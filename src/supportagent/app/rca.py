@@ -68,6 +68,7 @@ from supportagent.domain.rca_reduce import (
     order_by_prior,
     reduce,
 )
+from supportagent.domain.readiness import NOT_READY_TAG, ReadinessPolicy
 from supportagent.domain.slots import SlotName
 from supportagent.domain.sop import MAX_SOP_STEPS, SopMatch, unique_steps
 from supportagent.domain.trace import TraceContext
@@ -349,8 +350,11 @@ class RcaService:
         entail_budget_s: float = 20.0,
         docs: KnowledgeSearch | None = None,
         doc_policy: DocPolicy | None = None,
+        readiness: ReadinessPolicy | None = None,
     ) -> None:
         self._kb = knowledge
+        #: WP-O6b: a claim for a cause whose class isn't ready is never sendable.
+        self._readiness = readiness
         self._docs = docs
         self._doc_policy = doc_policy or DocPolicy()
         self._tools = tools
@@ -414,6 +418,10 @@ class RcaService:
         )
         claims = conclude(results)
         self._entail(claims, evidence, budget, trace)
+        unproven = self._unproven(evidence)
+        for claim in claims:
+            if any(c in unproven for c in claim.cites):
+                claim.tags.add(NOT_READY_TAG)
         ran = {e.step.hypothesis for e in evidence if e.step.ran}
         supported = next(
             (e.step.hypothesis for e in evidence if e.step.step_id == reduction.supported_by),
@@ -439,12 +447,20 @@ class RcaService:
             guidance=_guidance_refs(hits, suggested),
             sop_steps=(
                 self._sop_steps(case, kb, supported)
-                if reduction.outcome == "SUPPORTED" and supported is not None
+                if reduction.outcome == "SUPPORTED"
+                and supported is not None
+                and (self._readiness is None or self._readiness.proven(supported))
                 else []
             ),
         )
         self._decision(trace, case, artifact.outcome, artifact.reason)
         return artifact
+
+    def _unproven(self, evidence: Sequence[Evidence]) -> set[str]:
+        """The step ids whose hypothesis belongs to a class that isn't ready."""
+        if self._readiness is None:
+            return set()
+        return {e.step.step_id for e in evidence if not self._readiness.proven(e.step.hypothesis)}
 
     def _sop_steps(self, case: RcaCase, kb: Knowledge, hypothesis: str) -> list[SopMatch]:
         """ADR-0014: steps of in-scope, fresh SOPs for the cause the tools supported."""

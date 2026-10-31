@@ -1,0 +1,1 @@
+{"latency_ms": 7827, "raw_text": "{\n  \"classification\": \"app/memory\",\n  \"severity\": \"P1\",\n  \"summary\": \"orders-service pods are crash-looping with Java heap space OutOfMemoryError and GC overhead limit exceeded, indicating memory exhaustion.\",\n  \"confidence\": 0.97\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 643, "tokens_out": 362}

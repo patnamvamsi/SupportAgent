@@ -1,0 +1,1 @@
+{"latency_ms": 5077, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The nightly settlement batch job failed and did not produce the expected SETTLE file for the bank.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 225}

@@ -173,7 +173,7 @@ def load_scenarios(
             if name not in tool_schemas:
                 raise ConfigError(f"{path}: world names unknown tool {name!r}")  # noqa: TRY003
             if entry.result is not None:
-                _check_shape(path, name, entry.result, tool_schemas[name])
+                check_shape(path, name, entry.result, tool_schemas[name])
         out.append(scenario)
     ids = [s.id for s in out]
     if len(ids) != len(set(ids)):
@@ -181,7 +181,7 @@ def load_scenarios(
     return out
 
 
-def _check_shape(
+def check_shape(
     path: Path, tool: str, result: Mapping[str, Any], schema: Mapping[str, object]
 ) -> None:
     """The world result carries every property the tool's schema requires."""
@@ -639,6 +639,7 @@ __all__ = [
     "WorldEntry",
     "WorldTools",
     "baseline_of",
+    "check_shape",
     "cited_tools",
     "evaluate",
     "load_scenarios",

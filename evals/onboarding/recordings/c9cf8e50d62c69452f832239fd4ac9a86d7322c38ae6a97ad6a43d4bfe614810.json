@@ -1,0 +1,1 @@
+{"latency_ms": 12484, "raw_text": "{\"hypotheses\": [\"upstream_provider\", \"dependency_failure\", \"jvm_connection_pool_exhaustion\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 282, "tokens_out": 569}

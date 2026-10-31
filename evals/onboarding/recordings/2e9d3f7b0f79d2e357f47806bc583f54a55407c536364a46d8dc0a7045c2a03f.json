@@ -1,0 +1,1 @@
+{"latency_ms": 9073, "raw_text": "{\n  \"classification\": \"database/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"Payment capture transactions are failing with Oracle ORA-00060 deadlock errors, leaving payments stuck in CAPTURING and causing retries to pile up.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 646, "tokens_out": 416}

@@ -1,0 +1,28 @@
+{
+  "model_id": "qwen/qwen3.8-27b",
+  "systems": {
+    "customer-analytics": {
+      "data-late-upstream": "untestable",
+      "data-schema-drift": "untestable",
+      "kafka-consumer-lag": "untestable",
+      "request-access": "not_ready",
+      "snowflake-credit-quota": "untestable",
+      "snowflake-task-failure": "untestable",
+      "snowflake-warehouse-queuing": "untestable",
+      "spark-executor-oom": "untestable",
+      "streamlit-app-crash": "untestable"
+    },
+    "payments-platform": {
+      "jvm-connection-pool-exhaustion": "not_ready",
+      "jvm-heap-exhaustion": "ready",
+      "oracle-lock-contention": "not_ready",
+      "oracle-plan-regression": "ready",
+      "oracle-tablespace-full": "ready",
+      "recent-change-push": "ready",
+      "request-access": "ready",
+      "ui-cors-or-stale-bundle": "untestable",
+      "upstream-provider": "ready"
+    }
+  },
+  "v": 1
+}

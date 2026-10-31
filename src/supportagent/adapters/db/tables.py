@@ -481,6 +481,15 @@ onboarding_requests = sa.Table(
     ),
 )
 
+# 0018 (WP-O6b): the system's last readiness report, one row per tenant.
+onboarding_readiness = sa.Table(
+    "onboarding_readiness",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("report_json", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

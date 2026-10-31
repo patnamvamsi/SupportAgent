@@ -1,6 +1,7 @@
 # Writes or connections to Oracle fail. A full tablespace (ORA-01653/01654)
-# is checked before an unreachable listener, then deadlocks (ORA-00060), which
-# fail the losing transaction and leave only the application's log lines.
+# is checked first, then a blocking chain (writes behind it time out), then an
+# unreachable listener, then deadlocks (ORA-00060), which fail the losing
+# transaction and leave only the application's log lines.
 id: runbook:oracle-failure
 applies_when: {classification: database/failure}
 budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
@@ -10,6 +11,12 @@ steps:
     tool: oracle.tablespaces
     args: {database: "$service.databases[0]"}
     check: "double(result.max_used_pct) >= 97.0"
+    stop_if: true
+  - id: blocking-chain
+    hypothesis: oracle_lock_contention
+    tool: oracle.locks
+    args: {database: "$service.databases[0]"}
+    check: "result.blocked > 0 && result.blockers.exists(b, double(b.wait_s) > 60.0)"
     stop_if: true
   - id: listener
     hypothesis: oracle_listener_down

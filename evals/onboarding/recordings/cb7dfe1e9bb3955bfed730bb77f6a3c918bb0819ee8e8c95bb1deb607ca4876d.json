@@ -1,0 +1,1 @@
+{"latency_ms": 15584, "raw_text": "{\n  \"classification\": \"network/outage\",\n  \"severity\": \"P1\",\n  \"summary\": \"CardCo authorisations are timing out and success rate has fallen to 12%, consistent with an upstream CardCo degradation or connectivity issue.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 639, "tokens_out": 449}

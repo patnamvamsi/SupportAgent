@@ -57,6 +57,7 @@ access:            # read-only production access, handed over as it's granted
   - {kind: oracle, name: paydb, dsn_env: PAYDB_RO}
   - {kind: grafana, url: https://grafana.acme.internal, token_env: GRAFANA_RO}
 budget: {llm_tokens: 20000000, wall_clock: 6h}   # reading everything has a cost
+readiness: {bar: 0.70, min_scenarios: 3, min_top1: 0.75, max_false_causes: 0}   # WP-O6b, the defaults
 ```
 
 The pipeline runs as a resumable job: `supportagent onboard`, with `/ui/onboarding` showing each phase. Every phase writes artifacts, and a person reviews them before the dependent phases run.
@@ -203,7 +204,7 @@ B's lineage edges carry the most value: "the dashboard is stale" is solved by wa
 | WP-O3 (*delivered*: `domain/graph.py`, prose extraction with source checks; the lab enforces the graph stage; WP-O3b: the review at `/ui/onboarding` and `supportagent onboard graph`) | **The system graph.** Schema, provenance and review state; deterministic and plugin extractors; LLM extraction with source checks; the review UI. | Graph precision ≥ 0.9 and recall ≥ 0.8 on the fixtures. |
 | WP-O4 (*delivered*: `domain/incident_map.py`, `onboard incidents`, plugin `labels`/`causes`; the lab enforces the incidents stage) | **The incident map.** Clustering, taxonomy mapping, cause mining, weighting. | Clusters match the labelled classes. |
 | WP-O5 (*delivered*: `domain/gap_plan.py`, `onboard requests`, `/ui/onboarding/requests`; the lab enforces the requests stage. Verification at provision lands with each plugin's first backend) | **The gap plan and requests.** Scoring, requests with contracts, the UI, CLI and API; verification at provision. | The right requests at least privilege; zero manual edits from grant to bound. |
-| WP-O6 (*in progress*. WP-O6a: the first plugin knowledge and backend: `packs/oracle` with the read-only `oracle.*` tools, `packs/java-spring` and `packs/kubernetes`, each `evaluated` on its own lab; `app/memory` and `app/config` move to common) | **Readiness.** Scenarios from history, shadow replay, per-class gates, routing by readiness. | A readiness report on both fixtures; classes that aren't ready safe-default. |
+| WP-O6 (*delivered*, except calibration, shadow replay and live evidence capture. WP-O6a: the first plugin knowledge and backend: `packs/oracle` with the read-only `oracle.*` tools, `packs/java-spring` and `packs/kubernetes`, each `evaluated` on its own lab; `app/memory` and `app/config` move to common. WP-O6b: `evals/readiness.py`, `onboard readiness`, `/ui/onboarding/readiness`; triage safe-defaults labels with no ready class (`class-not-ready`), and claims for unproven causes are never sent) | **Readiness.** Scenarios from history, shadow replay, per-class gates, routing by readiness. | A readiness report on both fixtures; classes that aren't ready safe-default. |
 | WP-O8 | **Drift and re-onboarding.** | A changed fixture produces the right diff. |
 
 A real system is the final test. The partner's ServiceNow and Confluence (BL-037) replace the fixtures' optimistic ground truth, as they do for the lab.

@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block title %}Readiness{% endblock %}
+{% block content %}
+<h1>Is SupportAgent ready to support this system?</h1>
+{% if not report %}
+<p class="muted">No readiness report yet: run <code>supportagent onboard readiness --workspace &lt;dir&gt;</code>. Until then, triage routes as it is configured.</p>
+{% else %}
+{% set share = report.ready_share %}
+<p class="verdict {{ 'ok' if report.ready else 'bad' }}"><strong>{{ "Ready to support" if report.ready else "Not ready to support yet" }}</strong></p>
+<p>The incident classes this system's own history proved hold <strong>{{ (share * 100) | round | int }}%</strong> of its incident weight; the bar is {{ (report.bar * 100) | round | int }}%.</p>
+<meter class="readiness" min="0" max="1" low="{{ report.bar }}" optimum="1" value="{{ share }}">{{ (share * 100) | round | int }}%</meter>
+<p class="muted">Cases in a ready class route as configured. Every other case goes to a person (safe default), and a cause from a class that isn't ready is never sent, even when the evidence supports it.{% if report.false_causes %} <span class="bad">{{ report.false_causes }} past incident{{ "s" if report.false_causes != 1 }} got a wrong cause.</span>{% endif %}</p>
+
+{% for c in report.classes %}
+<article class="card {{ c.status }}">
+  <h2>{{ c.cause or "No cause (requests and noise)" }}
+    <span class="badge">{{ {"ready": "Ready", "not_ready": "Not ready", "untestable": "Can't be tested yet"}[c.status] }}</span></h2>
+  <p class="meta"><meter class="share" min="0" max="1" value="{{ c.share }}">{{ (c.share * 100) | round | int }}%</meter>
+    {{ (c.share * 100) | round(1) }}% of incident weight{% if c.label %} · labelled <code>{{ c.label }}</code>{% endif %}{% if c.p1 %} · {{ c.p1 }} P1{{ "s" if c.p1 != 1 }}{% endif %}</p>
+  {% if c.scenarios %}
+  <p>{{ "Claimed no cause" if not c.cause else "Found the cause" }} in <strong>{{ c.correct }} of {{ c.scenarios }}</strong> past incidents replayed.</p>
+  {% endif %}
+  {% if c.reasons %}<ul class="reasons">{% for r in c.reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+  {% if c.false_causes %}<p class="bad">Wrong cause: {% for f in c.false_causes %}<code>{{ f[0] }}</code> claimed <code>{{ f[1] }}</code>{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+  {% if c.no_evidence %}<p class="muted">{{ c.no_evidence | length }} incident{{ "s" if c.no_evidence | length != 1 }} had no evidence captured, so {{ "they weren't" if c.no_evidence | length != 1 else "it wasn't" }} replayed: {{ c.no_evidence | join(", ") }}.</p>{% endif %}
+  {% if c.outcomes %}
+  <details><summary>Each incident</summary>
+    <ul>{% for o in c.outcomes %}<li class="{{ 'ok' if o.passed else 'bad' }}">{{ "✓" if o.passed else "✗" }} <code>{{ o.incident }}</code>: {{ o.supported or "no cause claimed" }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</article>
+{% endfor %}
+<p class="muted">Measured with <code>{{ report.model_id }}</code>. Not measured yet: {{ report.not_measured | join(", ") }}.</p>
+{% endif %}
+{% endblock %}

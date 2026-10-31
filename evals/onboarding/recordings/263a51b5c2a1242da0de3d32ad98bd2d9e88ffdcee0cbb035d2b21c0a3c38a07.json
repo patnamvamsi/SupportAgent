@@ -1,0 +1,1 @@
+{"latency_ms": 6040, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"The newly deployed payment-service is failing on /api/orders with NullPointerException errors immediately after the payments-gateway release.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 638, "tokens_out": 290}

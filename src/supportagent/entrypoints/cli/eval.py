@@ -23,6 +23,8 @@ from supportagent.bootstrap import (
     build_entail_pipeline,
     build_lab_pipeline,
     build_onboarding_pipeline,
+    build_readiness,
+    build_readiness_lab,
     create_snapshot,
     detector_recall,
     eval_config,
@@ -33,10 +35,12 @@ from supportagent.bootstrap import (
     load_plugins,
     load_reference_system,
     quality_gates,
+    read_readiness_baseline,
     reference_system_dirs,
     run_onboarding_pipeline,
     split_problems,
     wall_clock,
+    write_readiness_baseline,
 )
 from supportagent.config.loader import load_config_default, load_config_offline
 from supportagent.config.schema import AppConfig
@@ -54,6 +58,7 @@ from supportagent.evals.lab import (
 )
 from supportagent.evals.onboarding import STAGES, evaluate, null, oracle, score, stage_passes
 from supportagent.evals.quality import baseline_from, run_quality, write_quality_report
+from supportagent.evals.readiness import ReadinessReport, regressions
 
 app = typer.Typer(help="Eval suites (04 §8).", no_args_is_help=True)
 
@@ -362,6 +367,9 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
     config: Path = typer.Option(  # noqa: B008
         Path("evals/lab/lab.yaml"), "--config", help="Config whose model reads the docs."
     ),
+    write_readiness: bool = typer.Option(
+        False, "--write-readiness-baseline", help="Accept this run's readiness as the baseline."
+    ),
 ) -> None:
     """The onboarding lab (ADR-0015): the fixtures, the scorer, and the pipeline built so far.
 
@@ -372,7 +380,10 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
       result fails every stage;
     - the **pipeline** (the onboarding stages built so far, from the system's
       sources) passes the gates of every stage in ``gates.yaml``
-      ``enforced_stages``.
+      ``enforced_stages``;
+    - **readiness** (WP-O6b): each class's history replayed with the triage
+      model. Every replay must be recorded, and no class the baseline
+      (``readiness_baseline.json``) had ready may stop being ready.
 
     Exit 0 when all of that holds, 1 otherwise, 2 for an unreadable fixture.
     """
@@ -386,6 +397,9 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
         typer.echo(f"config error: {exc}", err=True)
         raise typer.Exit(2) from exc
     graph = build_onboarding_pipeline(cfg, live=live)
+    replays = build_readiness_lab(cfg, live=live)
+    accepted = read_readiness_baseline(root)
+    readiness_reports: list[ReadinessReport] = []
     failed = False
     report: list[dict[str, object]] = []
     for path, system in zip(dirs, systems, strict=True):
@@ -399,11 +413,18 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
         pipeline_gates = [
             g for g in evaluate(pipeline_scores, gates) if g.stage in gates.enforced_stages
         ]
+        misses = replays.caching.misses if replays.caching is not None else 0
+        readiness = build_readiness(path, run, replays, cfg, plugins=plugins)
+        readiness_reports.append(readiness)
+        unrecorded = 0 if live or replays.caching is None else replays.caching.misses - misses
+        lost = regressions(readiness, accepted.get(readiness.system, {}))
         ok = (
             not problems
             and all(g.ok for g in oracle_gates)
             and len(null_bites) == len(STAGES)
             and all(g.ok for g in pipeline_gates)
+            and not unrecorded
+            and (write_readiness or not lost)
         )
         failed |= not ok
         weights = system.class_weights()
@@ -431,6 +452,7 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
                     for d in detections
                 ],
                 "incident_classes": weights,
+                "readiness": readiness.as_dict() | {"regressions": lost, "unrecorded": unrecorded},
                 "graph": {
                     "nodes": len(built.graph.nodes),
                     "edges": len(built.graph.edges),
@@ -508,6 +530,17 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
         if "plugins" in gates.enforced_stages:
             chosen = [d.plugin for d in detections if d.detected]
             typer.echo(f"      detected plugins: {', '.join(chosen) or 'none'}")
+        for line in readiness.lines():
+            typer.echo(f"      {line}")
+        if unrecorded:
+            typer.echo(
+                f"      readiness: {unrecorded} unrecorded replay call(s): re-record with --live"
+            )
+        for lost_class in [] if write_readiness else lost:
+            typer.echo(f"      readiness regressed: {lost_class} was ready in the baseline")
+    if write_readiness:
+        path = write_readiness_baseline(root, readiness_reports)
+        typer.echo(f"wrote {path}")
     if as_json:
         out = {"systems": report, "enforced_stages": gates.enforced_stages}
         typer.echo(json.dumps(out, indent=2))

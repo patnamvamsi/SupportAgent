@@ -22,6 +22,7 @@ from supportagent.bootstrap import (
     load_plugins,
     onboard_graph,
     onboard_incidents,
+    onboard_readiness,
     onboard_requests,
     pin_plugins,
 )
@@ -230,3 +231,21 @@ def onboard_requests_command(
     for g in plan.gaps:
         typer.echo(f"  gap: {g.class_id} ({g.share:.0%}): {g.why}")
     typer.echo(f"wrote {path}; decide at /ui/onboarding/requests")
+
+
+@onboard_app.command("readiness")
+def onboard_readiness_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, triage model)."
+    ),
+) -> None:
+    """Replay the history per incident class; save which classes are ready (readiness.json)."""
+    try:
+        report, path = onboard_readiness(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for line in report.lines():
+        typer.echo(line)
+    typer.echo(f"wrote {path}; triage routes only ready classes from its next start")

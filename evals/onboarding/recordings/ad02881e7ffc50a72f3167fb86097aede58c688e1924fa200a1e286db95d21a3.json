@@ -1,0 +1,1 @@
+{"latency_ms": 19485, "raw_text": "{\n  \"classification\": \"database/latency\",\n  \"severity\": \"P2\",\n  \"summary\": \"Card capture requests are experiencing sustained elevated p99 latency with gateway timeouts since 17:40.\",\n  \"confidence\": 0.55\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 649, "tokens_out": 990}

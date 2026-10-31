@@ -111,6 +111,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # approvals → policy_grants → proposals).
 _RESET_ORDER: tuple[str, ...] = (
     "onboarding_requests",
+    "onboarding_readiness",
     "graph_facts",
     "graph_questions",
     # 0014 (BL-031): the last doctor report.
