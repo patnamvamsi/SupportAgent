@@ -80,6 +80,7 @@ from supportagent.adapters.files.plugin_loader import (
     load_manifest,
     load_registry,
     pin_one,
+    set_disabled,
     write_index,
 )
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
@@ -659,6 +660,8 @@ def _fitted_calibration(
 ) -> CalibrationTable | None:
     """ADR-0017 (WP-A5): the calibration fitted from the system's history, if it was
     fitted with the model triage now uses; otherwise the configured artifact applies."""
+    if config.onboarding.calibration == "artifact":
+        return None  # the switch: score with the configured artifact
     report = ReadinessStore(uow=uow, clock=clock, tenant_id=config.tenant.id).load()
     raw = report.get("calibration") if report else None
     if not isinstance(raw, dict):
@@ -677,6 +680,8 @@ def _readiness_policy(
     config: AppConfig, uow: SqlUnitOfWork, clock: Clock
 ) -> ReadinessPolicy | None:
     """WP-O6b: the routing policy of the system's last readiness report, if it has one."""
+    if config.onboarding.routing == "report":
+        return None  # the switch: readiness is measured, not enforced
     return ReadinessStore(uow=uow, clock=clock, tenant_id=config.tenant.id).policy()
 
 
@@ -3728,6 +3733,7 @@ def onboard_drift(
     *,
     accept: bool = False,
     provider: LLMProvider | None = None,
+    record: Recorder | None = None,
 ) -> tuple[list[Finding], bool, Path]:
     """``onboard drift``: re-run onboarding (P1 to P4) and diff it with the accepted snapshot.
 
@@ -3749,6 +3755,17 @@ def onboard_drift(
         diff(Snapshot.of(json.loads(previous.read_text(encoding="utf-8"))), now) if compared else []
     )
     accepted = accept or not compared
+    if record is not None and findings:
+        record(
+            "drift_found",
+            "onboarding",
+            {
+                "findings": len(findings),
+                "accepted": accepted,
+                "kinds": sorted({f.kind for f in findings}),
+                "first": [f"{f.kind} {f.subject}" for f in findings[:10]],
+            },
+        )
     if accepted:
         space.write_artifact(SNAPSHOT_ARTIFACT, now.as_dict())
     path = space.write_artifact(
@@ -4709,3 +4726,55 @@ def install_and_record(config: AppConfig, plugin_id: str) -> Installed:
         )
     finally:
         engine.dispose()
+
+
+def toggle_plugin(config: AppConfig, plugin_id: str, *, disabled: bool) -> None:
+    """``plugin disable`` / ``enable``: out of detection and packs, or back; audited."""
+    set_disabled(plugins_root(), plugin_id, disabled=disabled)
+    _catalog_of.cache_clear()
+    engine = make_engine(config.database.url.get_secret_value())
+    try:
+        _recorder(config, engine, None, SystemClock())(
+            "plugin_disabled" if disabled else "plugin_enabled", "operator", {"plugin": plugin_id}
+        )
+    finally:
+        engine.dispose()
+
+
+def onboard_cycle(  # noqa: PLR0913 — the inputs and the seams
+    config: AppConfig,
+    manifest_path: Path,
+    workspace: Path,
+    *,
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    provider: LLMProvider | None = None,
+) -> tuple[OnboardingStatus, list[Finding]]:
+    """``onboard watch``'s one cycle: ``onboard run``, then drift against the accepted snapshot.
+
+    Drift findings go to the audit trail; the snapshot isn't accepted here: a
+    person does that once they've dealt with them (``onboard drift --accept``).
+    """
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    clock = SystemClock()
+    try:
+        status = onboard_run(
+            config,
+            manifest_path,
+            workspace,
+            provider=provider,
+            engine=db,
+            clock=clock,
+            master_key=master_key,
+        )
+        findings, _, _ = onboard_drift(
+            config,
+            workspace,
+            provider=provider,
+            record=_recorder(config, db, master_key, clock),
+        )
+    finally:
+        if own:
+            db.dispose()
+    return status, findings

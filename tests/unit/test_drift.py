@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -166,8 +167,14 @@ def test_onboard_drift_accepts_the_first_run_then_reports_and_accepts_a_change(
     (later / "onboarding_snapshot.json").write_text(
         (workspace / "onboarding_snapshot.json").read_text(), encoding="utf-8"
     )
-    findings, accepted, path = onboard_drift(cfg, later, provider=offline)
+    recorded: list[tuple[str, str, Any]] = []
+    findings, accepted, path = onboard_drift(
+        cfg, later, provider=offline, record=lambda *event: recorded.append(event)
+    )
     keys = {f.key for f in findings}
+    assert (
+        recorded and recorded[0][0] == "drift_found" and recorded[0][2]["findings"] == len(findings)
+    )
     assert ("plugin_added", "kafka") in keys and not accepted
     assert ("node_renamed", "service:customer-service -> service:customer-profile") in keys
     assert '"accepted": false' in path.read_text()

@@ -83,7 +83,13 @@ Add event kinds, written to the append-only event log like every other decision 
 - **Readiness freshness:** the report's age, whether the plugins, model or history changed since it was made, and drift findings not yet accepted.
 - **Calibration in use:** whether triage scores with the fitted table or the configured artifact, and why (model mismatch, edited counts).
 
-### 2.3 Control: switches
+### 2.3 Control: switches (*delivered*, WP-A6b)
+
+Delivered:
+- `onboarding.routing` and `onboarding.calibration`;
+- `plugin disable` / `enable`, kept in the index and audited;
+- `onboard watch --every-hours N` (`--once` for cron) instead of a worker job. A cycle calls the model and can take minutes, so it runs as its own process and never stalls triage. Drift findings are audited (`drift_found`) and shown on the onboarding page.
+
 
 | Setting | Default | What it does |
 |---|---|---|

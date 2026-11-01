@@ -633,6 +633,18 @@ class PluginsConfig(DomainModel):
     auto_install: Literal["none", "first-party"] = "none"
 
 
+class OnboardingConfig(DomainModel):
+    """ADR-0017 (WP-A6): switches for what onboarding's results change at runtime.
+
+    ``routing: report`` keeps readiness measured but stops it gating triage and
+    holding back claims (a first week, or an incident). ``calibration: artifact``
+    ignores the table fitted from the system's history.
+    """
+
+    routing: Literal["enforce", "report"] = "enforce"
+    calibration: Literal["fitted", "artifact"] = "fitted"
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -667,6 +679,8 @@ class AppConfig(DomainModel):
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     #: ADR-0017: plugin catalogues and install.
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    #: ADR-0017 (WP-A6): runtime switches for readiness routing and calibration.
+    onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:
