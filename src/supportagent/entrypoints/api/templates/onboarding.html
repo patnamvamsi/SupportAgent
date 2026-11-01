@@ -52,4 +52,21 @@
   {% endfor %}</tbody>
 </table></div>
 {% endif %}
+{% if activity %}
+<h2>Recent activity</h2>
+<p class="muted">Every onboarding decision, from the audit trail (the event log): steps, installs, access and graph decisions, readiness, calibration, drift.</p>
+<div class="table-wrap"><table class="activity">
+  <thead><tr><th>When (UTC)</th><th>What</th><th>Who</th><th>Detail</th></tr></thead>
+  <tbody>{% for a in activity %}
+  <tr><td>{{ a.at }}</td><td>{{ a.action | replace("_", " ") }}</td><td>{{ a.actor }}</td>
+    <td>{% if a.action == "step" %}{{ a.step }}: {{ a.state }}{% if a.on %} on {{ a.on }}{% endif %}
+      {% elif a.action == "access_decided" %}{{ a.request }}: {{ a.decision }}
+      {% elif a.action == "graph_decided" %}{% if a.question %}question settled (option {{ a.choice }}){% else %}{{ a.facts }} fact(s) {{ a.decision }}{% endif %}
+      {% elif a.action == "plugin_installed" %}{{ a.plugin }} {{ a.version }} as {{ a.status }}
+      {% elif a.action == "readiness_assessed" %}{{ "ready" if a.ready else "not ready" }}: {{ ((a.ready_share_bp or 0) / 100) | round | int }}% of the weight proven
+      {% elif a.action == "calibration_fitted" %}{{ a.labels }} label(s) from {{ a.observations }} replays, {{ "in use" if a.in_use else "not in use (another model)" }}
+      {% else %}{{ a.action }}{% endif %}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
 {% endblock %}

@@ -522,6 +522,7 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
         asks = _requests(ctx).progress() if ctx.request_review is not None else None
         ready = ctx.readiness().load() if ctx.readiness is not None else None
         run = ctx.onboarding_status().load() if ctx.onboarding_status is not None else None
+        activity = ctx.onboarding_history() if ctx.onboarding_history is not None else []
         return _render(
             request,
             ctx,
@@ -532,6 +533,7 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
             ready=ready,
             run=run,
             need_labels=NEED_LABELS,
+            activity=activity,
         )
 
     return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)

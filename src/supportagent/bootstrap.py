@@ -165,6 +165,8 @@ from supportagent.app.incident_map import IncidentsAnswer, map_incidents
 from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
 from supportagent.app.lifecycle import LifecycleService
 from supportagent.app.memory import CaseMemory
+from supportagent.app.onboarding_audit import OnboardingAudit
+from supportagent.app.onboarding_audit import history as audit_history
 from supportagent.app.outbox import OutboxExecutor, OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.rca import (
@@ -2800,11 +2802,26 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
             semantics=semantics or ServiceNowSemantics(),
         )
 
+    def _audited() -> tuple[SqlUnitOfWork, OnboardingAudit]:
+        """One unit of work for a review and its audit event: both commit or neither."""
+        uow = SqlUnitOfWork(engine)
+        audit = OnboardingAudit(
+            events=_event_sink(uow, master_key, clock), ids=ids, clock=clock, tenant_id=tenant_id
+        )
+        return uow, audit
+
     def graph_review() -> GraphReview:
-        return GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+        uow, audit = _audited()
+        return GraphReview(uow=uow, clock=clock, tenant_id=tenant_id, audit=audit)
 
     def request_review() -> RequestReview:
-        return RequestReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+        uow, audit = _audited()
+        return RequestReview(uow=uow, clock=clock, tenant_id=tenant_id, audit=audit)
+
+    def onboarding_history() -> list[dict[str, object]]:
+        uow = SqlUnitOfWork(engine)
+        with uow:
+            return audit_history(_event_sink(uow, master_key, clock), tenant_id)
 
     def readiness() -> ReadinessStore:
         return ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
@@ -2825,6 +2842,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         request_review=request_review,
         readiness=readiness,
         onboarding_status=onboarding_status,
+        onboarding_history=onboarding_history,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3900,13 +3918,14 @@ def onboard_incidents(
     return mapped, path
 
 
-def onboard_readiness(
+def onboard_readiness(  # noqa: PLR0913 — the config, the workspace and the seams
     config: AppConfig,
     workspace: Path,
     *,
     provider: LLMProvider | None = None,
     engine: Engine | None = None,
     clock: Clock | None = None,
+    master_key: bytes | None = None,
 ) -> tuple[ReadinessReport, Path]:
     """``onboard readiness`` (WP-O6b): replay the history per class; save the report.
 
@@ -3932,10 +3951,39 @@ def onboard_readiness(
     report = build_readiness(workspace, run, lab, config, plugins=plugins)
     own = engine is None
     db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    clock = clock or SystemClock()
     try:
-        ReadinessStore(
-            uow=SqlUnitOfWork(db), clock=clock or SystemClock(), tenant_id=config.tenant.id
-        ).save(report.as_dict())
+        ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=config.tenant.id).save(
+            report.as_dict()
+        )
+        record = _recorder(config, db, master_key, clock)
+        record(
+            "readiness_assessed",
+            "onboarding",
+            {
+                "ready": report.ready,
+                "ready_share": report.ready_share,
+                "model": report.model_id,
+                "classes": {c.class_id: c.status for c in report.classes},
+            },
+        )
+        if report.calibration is not None:
+            in_use = (
+                report.calibration.model_id == config.llm.slots[SlotName.CLASSIFY.value].model_id
+            )
+            record(
+                "calibration_fitted",
+                "onboarding",
+                {
+                    "labels": len(report.calibration.labels),
+                    "observations": sum(
+                        (r.agree.n if r.agree else 0) + (r.abstain.n if r.abstain else 0)
+                        for r in report.calibration.labels.values()
+                    ),
+                    "model": report.calibration.model_id,
+                    "in_use": in_use,
+                },
+            )
     finally:
         if own:
             db.dispose()
@@ -4109,6 +4157,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
     clock: Clock | None = None,
     transports: IngestTransports = IngestTransports(),  # noqa: B008 — frozen, immutable
     env: Mapping[str, str] | None = None,
+    master_key: bytes | None = None,
 ) -> OnboardingStatus:
     """``onboard run`` (ADR-0017): every onboarding step, resumable; writes ``onboarding.json``.
 
@@ -4124,8 +4173,15 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
     records: dict[str, StepRecord] = {}
     now = clock.now().isoformat()
 
+    audit = _recorder(config, db, master_key, clock)
+
     def record(step: Step, state: State, inputs: str, detail: str, on: str | None = None) -> None:
         records[step] = StepRecord(step, state, inputs, detail, now, on)
+        audit(
+            "step",
+            "onboarding",
+            {"step": step, "state": state, "on": on, "detail": detail[:300]},
+        )
 
     def skip(step: Step, inputs: str) -> bool:
         if should_run(previous.get(step), inputs):
@@ -4160,7 +4216,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 
         sensed = _sense_digest(workspace, config)
         if not skip("sense", sensed):
-            detail, waiting = _sense(config, workspace, provider)
+            detail, waiting = _sense(config, workspace, provider, audit)
             sensed = _sense_digest(workspace, config)  # an install changed the plugins
             record(
                 "sense",
@@ -4194,9 +4250,14 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
             (
                 "readiness",
                 lambda: _readiness_detail(
-                    onboard_readiness(config, workspace, provider=provider, engine=db, clock=clock)[
-                        0
-                    ]
+                    onboard_readiness(
+                        config,
+                        workspace,
+                        provider=provider,
+                        engine=db,
+                        clock=clock,
+                        master_key=master_key,
+                    )[0]
                 ),
             ),
             ("gaps", lambda: _gaps_detail(onboard_gaps(config, workspace, provider=provider))),
@@ -4342,12 +4403,14 @@ def load_catalogs(config: AppConfig) -> list[LoadedPlugin]:
     return out
 
 
-def install_from_catalog(
+def install_from_catalog(  # noqa: PLR0913 — the plugin, the seams and who installs it
     config: AppConfig,
     plugin_id: str,
     *,
     provider: LLMProvider | None = None,
     root: Path | None = None,
+    record: Recorder | None = None,
+    actor: str = "operator",
 ) -> Installed:
     """``plugin install``: copy a catalogue plugin in, pin it, then prove it on its own lab.
 
@@ -4365,7 +4428,14 @@ def install_from_catalog(
     manifest = load_manifest(directory)
     pack = manifest.provides.pack
     if pack is None or not (directory / "pack" / "evals").is_dir():
-        return _settle(directory, target_root, "skeleton", "no lab to prove it on")
+        result = _settle(directory, target_root, "skeleton", "no lab to prove it on")
+        if record is not None:
+            record(
+                "plugin_installed",
+                actor,
+                {"plugin": result.plugin, "version": manifest.version, "status": result.status},
+            )
+        return result
     scenarios, gates, evals = load_lab(config, pack)
 
     def cache(inner: LLMProvider) -> LLMProvider:
@@ -4381,7 +4451,20 @@ def install_from_catalog(
         if report.passed
         else "gates not met: " + "; ".join(g.detail for g in report.gates if not g.ok)
     )
-    return _settle(directory, target_root, "evaluated" if report.passed else "skeleton", detail)
+    result = _settle(directory, target_root, "evaluated" if report.passed else "skeleton", detail)
+    if record is not None:
+        record(
+            "plugin_installed",
+            actor,
+            {
+                "plugin": result.plugin,
+                "version": manifest.version,
+                "publisher": manifest.publisher,
+                "status": result.status,
+                "lab": detail,
+            },
+        )
+    return result
 
 
 def _settle(directory: Path, root: Path, status: str, detail: str) -> Installed:
@@ -4410,7 +4493,10 @@ def _sense_digest(workspace: Path, config: AppConfig) -> str:
 
 
 def _sense(
-    config: AppConfig, workspace: Path, provider: LLMProvider | None
+    config: AppConfig,
+    workspace: Path,
+    provider: LLMProvider | None,
+    record: Recorder | None = None,
 ) -> tuple[str, list[str]]:
     """Detect over the installed plugins and every catalogue; install what may be.
 
@@ -4424,7 +4510,9 @@ def _sense(
     waiting: list[str] = []
     for d in found:
         if config.plugins.auto_install == "first-party" and publisher[d.plugin] == "first-party":
-            result = install_from_catalog(config, d.plugin, provider=provider)
+            result = install_from_catalog(
+                config, d.plugin, provider=provider, record=record, actor="auto"
+            )
             done.append(f"{result.plugin} ({result.status}: {result.detail})")
         else:
             waiting.append(d.plugin)
@@ -4583,3 +4671,41 @@ def scaffold_plugin(plugin_id: str, manifest: str, out: Path) -> Path:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     load_manifest(target)  # it must load as written
     return path
+
+
+# --- ADR-0017 (WP-A6): onboarding's audit trail ---------------------------------------------
+
+Recorder = Callable[[str, str, Mapping[str, object]], None]
+
+
+def _recorder(
+    config: AppConfig, engine: Engine, master_key: bytes | None, clock: Clock
+) -> Recorder:
+    """``record(action, actor, detail)``: one ``onboarding`` event, committed on its own."""
+
+    def record(action: str, actor: str, detail: Mapping[str, object]) -> None:
+        uow = SqlUnitOfWork(engine)
+        with uow:
+            OnboardingAudit(
+                events=_event_sink(uow, master_key, clock),
+                ids=UlidIdGenerator(),
+                clock=clock,
+                tenant_id=config.tenant.id,
+            ).record(action, actor=actor, detail=detail)  # type: ignore[arg-type]
+            uow.commit()
+
+    return record
+
+
+def install_and_record(config: AppConfig, plugin_id: str) -> Installed:
+    """``plugin install``: install from a catalogue, with the install in the audit trail."""
+    engine = make_engine(config.database.url.get_secret_value())
+    try:
+        return install_from_catalog(
+            config,
+            plugin_id,
+            record=_recorder(config, engine, None, SystemClock()),
+            actor="operator",
+        )
+    finally:
+        engine.dispose()

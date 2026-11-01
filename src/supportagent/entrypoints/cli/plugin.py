@@ -20,7 +20,7 @@ from supportagent.bootstrap import (
     AUTOPILOT_STATE,
     detect_plugins,
     ingest_system,
-    install_from_catalog,
+    install_and_record,
     load_plugins,
     onboard_drift,
     onboard_gaps,
@@ -129,7 +129,7 @@ def install(
     detect it and ask for its access, but its incident classes can't be ready.
     """
     try:
-        result = install_from_catalog(load_config_default(config), plugin_id)
+        result = install_and_record(load_config_default(config), plugin_id)
     except ConfigError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc

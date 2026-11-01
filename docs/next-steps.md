@@ -59,7 +59,10 @@ That run, not the fixtures, decides what comes after.
 
 The onboarding work ships its outputs: the status page, readiness, gaps and drift. It ships almost none of the operational instrumentation the rest of the product has. Nothing it adds emits events, `doctor` checks none of it, and its policies have no switches. Before a real system relies on it:
 
-### 2.1 Observe: events and an audit trail
+### 2.1 Observe: events and an audit trail (*delivered*, WP-A6a)
+
+Delivered as one new event kind, `onboarding`, whose `payload.action` names the event (the log goes from 20 kinds to 21, migration 0020). Access and graph decisions are written in the same transaction as the decision. The onboarding page shows the recent activity. `drift_found` and `plugin_disabled` land with the switches (2.3).
+
 
 Add event kinds, written to the append-only event log like every other decision (INV-03), and shown on the case or onboarding timeline:
 

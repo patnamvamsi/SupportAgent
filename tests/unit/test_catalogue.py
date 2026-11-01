@@ -35,6 +35,9 @@ from tests.unit.test_triage_service import _shadow_config
 
 pytestmark = pytest.mark.unit
 
+#: The test master key (tests/conftest.py's ``master_key`` fixture uses the same bytes).
+_MASTER_KEY = b"test" * 8
+
 _MOVED = ("nodejs", "mongodb", "rabbitmq")
 _SYSTEM = ONBOARDING_DIR / "system-c"
 
@@ -113,6 +116,7 @@ def _run(world: dict[str, Path], auto: str, db: Any, clock: Any) -> Any:
         clock=clock,
         transports=_transports(),
         env=_ENV,
+        master_key=_MASTER_KEY,
     )
 
 
