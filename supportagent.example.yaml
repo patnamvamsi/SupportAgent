@@ -129,3 +129,4 @@ retention:
 # onboarding:                        # ADR-0017 (WP-A6): what onboarding's results change at runtime
 #   routing: enforce                 # enforce | report (readiness measured, not gating triage)
 #   calibration: fitted              # fitted | artifact (ignore the table fitted from history)
+#   retention_days: {logs.search: 30, metrics.query: 15, changes.recent: 90, gha.recent_runs: 400}   # ADR-0018: older evidence is aged out

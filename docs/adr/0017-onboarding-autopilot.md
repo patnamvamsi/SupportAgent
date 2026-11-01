@@ -29,7 +29,7 @@ The reference systems were how the framework got built. From here they are its r
 
 ### 1. One command, one state machine
 
-`supportagent onboard run --system system.yaml --workspace <dir>` runs every stage in order (`onboard` is the command group). A **step** is one of ingest, sense, install, graph, incidents, requests, readiness or calibrate. Each step reads the workspace and writes its artifact plus a line in `onboarding.json`:
+`supportagent onboard run --system system.yaml --workspace <dir>` runs every stage in order (`onboard` is the command group). A **step** is one of ingest, sense, install, graph, incidents, requests, evidence (ADR-0018), readiness or calibrate. Each step reads the workspace and writes its artifact plus a line in `onboarding.json`:
 
 ```json
 {"step": "install", "state": "blocked", "on": "user", "detail": "2 plugins need approval", "at": "..."}

@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
+from datetime import datetime
 
 import httpx
 
@@ -53,8 +54,21 @@ class PrometheusQueryTool:
         self._client = client
 
     def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        return self._query(args, {}, timeout_s)
+
+    def run_as_of(
+        self, args: Mapping[str, object], *, at: datetime, timeout_s: float
+    ) -> ToolResult:
+        """ADR-0018: the instant query evaluated at ``at``."""
+        return self._query(args, {"time": f"{at.timestamp():.3f}"}, timeout_s)
+
+    def _query(
+        self, args: Mapping[str, object], extra: Mapping[str, str], timeout_s: float
+    ) -> ToolResult:
         query = render_query(args)
-        body = get_json(self._client, "/api/v1/query", params={"query": query}, timeout_s=timeout_s)
+        body = get_json(
+            self._client, "/api/v1/query", params={"query": query, **extra}, timeout_s=timeout_s
+        )
         data = body.get("data", {}) if isinstance(body, dict) else {}
         if not isinstance(body, dict) or body.get("status") != "success":
             raise ToolError(f"metrics.query: Prometheus returned {body!r:.200}")  # noqa: TRY003

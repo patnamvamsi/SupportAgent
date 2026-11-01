@@ -16,13 +16,15 @@ import httpx
 
 from supportagent.adapters.tools._http import get_json
 from supportagent.adapters.tools.kubernetes import check_scope
-from supportagent.domain.errors import ToolError
+from supportagent.domain.errors import HistoryUnavailable, ToolError
 from supportagent.domain.tiers import Tier, TrustClass
 from supportagent.ports.clock import Clock
 from supportagent.ports.tools import ToolResult
 
 _MAX_CHANGES = 25
 _DEFAULT_WINDOW_MIN = 180
+#: The newest page each source returns (GitHub deployments, ReplicaSets).
+_PAGE = 50
 
 SCHEMA: Mapping[str, object] = {
     "type": "object",
@@ -79,19 +81,35 @@ class RecentChangesTool:
         self._k8s = kubernetes
 
     def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        return self._changes(args, self._clock.now(), timeout_s, as_of=False)
+
+    def run_as_of(
+        self, args: Mapping[str, object], *, at: datetime, timeout_s: float
+    ) -> ToolResult:
+        """ADR-0018: the changes in the window ending at ``at``, none after it. Both
+        sources return their newest page only: when it doesn't reach back to the
+        window, the history is unavailable, not empty."""
+        return self._changes(args, at, timeout_s, as_of=True)
+
+    def _changes(
+        self, args: Mapping[str, object], now: datetime, timeout_s: float, *, as_of: bool
+    ) -> ToolResult:
         window = int(str(args.get("window_min", _DEFAULT_WINDOW_MIN)))
         if not 1 <= window <= 7 * 24 * 60:
             raise ToolError("changes.recent: window_min must be 1..10080")  # noqa: TRY003
-        now = self._clock.now()
         since = now - timedelta(minutes=window)
         changes: list[dict[str, object]] = []
         asked = False
         if "repo" in args:
             asked = True
-            changes += self._deployments(str(args["repo"]), since, timeout_s)
+            changes += self._deployments(str(args["repo"]), since, timeout_s, as_of=as_of)
         if "namespace" in args or "selector" in args:
             asked = True
-            changes += self._rollouts(args.get("namespace"), args.get("selector"), since, timeout_s)
+            changes += self._rollouts(
+                args.get("namespace"), args.get("selector"), since, timeout_s, as_of=as_of
+            )
+        if as_of:
+            changes = [c for c in changes if (t := _parse(c["at"])) is not None and t <= now]
         if not asked:
             raise ToolError("changes.recent: pass repo, or namespace and selector")  # noqa: TRY003
         for change in changes:
@@ -103,15 +121,24 @@ class RecentChangesTool:
             len(changes) > _MAX_CHANGES,
         )
 
-    def _deployments(self, repo: str, since: datetime, timeout_s: float) -> list[dict[str, object]]:
+    def _deployments(
+        self, repo: str, since: datetime, timeout_s: float, *, as_of: bool = False
+    ) -> list[dict[str, object]]:
         if self._github is None:
             raise ToolError("changes.recent: the github source is not configured")  # noqa: TRY003
         name = repo.removeprefix("github:")
         if name.count("/") != 1:
             raise ToolError(f"changes.recent: repo must be owner/name, got {name!r}")  # noqa: TRY003
         body = get_json(
-            self._github, f"/repos/{name}/deployments", params={"per_page": 30}, timeout_s=timeout_s
+            self._github,
+            f"/repos/{name}/deployments",
+            params={"per_page": 30},
+            timeout_s=timeout_s,
         )
+        if as_of:
+            _reaches_back(
+                body if isinstance(body, list) else [], since, "created_at", "github", page=30
+            )
         out: list[dict[str, object]] = []
         for d in body if isinstance(body, list) else []:
             at = _parse(d.get("created_at")) if isinstance(d, dict) else None
@@ -130,7 +157,13 @@ class RecentChangesTool:
         return out
 
     def _rollouts(
-        self, namespace: object, selector: object, since: datetime, timeout_s: float
+        self,
+        namespace: object,
+        selector: object,
+        since: datetime,
+        timeout_s: float,
+        *,
+        as_of: bool = False,
     ) -> list[dict[str, object]]:
         if self._k8s is None:
             raise ToolError("changes.recent: the kubernetes source is not configured")  # noqa: TRY003
@@ -138,10 +171,19 @@ class RecentChangesTool:
         body = get_json(
             self._k8s,
             f"/apis/apps/v1/namespaces/{ns}/replicasets",
-            params={"labelSelector": sel, "limit": 50},
+            params={"labelSelector": sel, "limit": _PAGE},
             timeout_s=timeout_s,
         )
         items = body.get("items", []) if isinstance(body, dict) else []
+        if as_of:
+            _reaches_back(
+                [i.get("metadata") or {} for i in items if isinstance(i, dict)]
+                if isinstance(items, list)
+                else [],
+                since,
+                "creationTimestamp",
+                "kubernetes",
+            )
         out: list[dict[str, object]] = []
         for rs in items if isinstance(items, list) else []:
             meta = (rs.get("metadata") or {}) if isinstance(rs, dict) else {}
@@ -160,6 +202,19 @@ class RecentChangesTool:
                 }
             )
         return out
+
+
+def _reaches_back(
+    items: list[object], since: datetime, key: str, source: str, page: int = _PAGE
+) -> None:
+    """A full page whose oldest item is newer than ``since`` may be hiding the window."""
+    if len(items) < page:
+        return
+    stamps = [t for i in items if isinstance(i, dict) and (t := _parse(i.get(key)))]
+    if stamps and min(stamps) > since:
+        raise HistoryUnavailable(  # noqa: TRY003
+            f"changes.recent: {source}'s newest {page} changes don't reach back to {since:%Y-%m-%d}"
+        )
 
 
 __all__ = ["SCHEMA", "RecentChangesTool"]

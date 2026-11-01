@@ -76,6 +76,9 @@ class ClassReadiness:
     false_causes: tuple[tuple[str, str], ...] = ()
     #: Incidents with a cause but no captured evidence: not replayed.
     no_evidence: tuple[str, ...] = ()
+    #: ADR-0018: of those, ``(incident, why)`` when capture said why (``live_only``,
+    #: ``aged_out``, ``unavailable``, ``failed``).
+    unreplayed: tuple[tuple[str, str], ...] = ()
     #: Per incident: what the tools supported (``None``: nothing) and pass/fail.
     outcomes: tuple[tuple[str, str | None, bool], ...] = ()
 
@@ -155,6 +158,7 @@ class ReadinessReport:
                     "top1": round(t, 3) if (t := c.top1) is not None else None,
                     "false_causes": [list(f) for f in c.false_causes],
                     "no_evidence": list(c.no_evidence),
+                    "unreplayed": [list(u) for u in c.unreplayed],
                     "outcomes": [
                         {"incident": n, "supported": s, "passed": ok} for n, s, ok in c.outcomes
                     ],
@@ -253,7 +257,8 @@ def history_scenarios(
             if incident is None:
                 continue
             world = evidence.get(number)
-            if world is None and cls.cause is not None:
+            # ADR-0018: an empty world is a capture that couldn't read the cause's probes
+            if not world and cls.cause is not None:
                 skipped.append(number)
                 continue
             scenario = _scenario(cls, incident, graph, world or {}, system)
@@ -363,30 +368,52 @@ def assess(  # noqa: PLR0913 — the run's inputs
     gates: ReadinessGates,
     system: str,
     model_id: str,
+    unreplayed: Mapping[str, str] | None = None,
 ) -> ReadinessReport:
     """Each class's replayed scenarios against the gates.
 
     ``testable(cause)`` is ``None`` when something can test the cause, otherwise why not.
+    ``unreplayed`` (ADR-0018): per incident, why capture left it without a world.
     """
     report = ReadinessReport(system=system, model_id=model_id, bar=gates.bar)
+    why = unreplayed or {}
     for cls in incident_map.classes:
+        lost = missing.get(cls.id, ())
         report.classes.append(
-            _assess_class(cls, replayed.get(cls.id, ()), missing.get(cls.id, ()), testable, gates)
+            _assess_class(
+                cls,
+                replayed.get(cls.id, ()),
+                lost,
+                testable,
+                gates,
+                unreplayed=tuple((n, why[n]) for n in lost if n in why),
+            )
         )
     report.classes.sort(key=lambda c: (-c.share, c.class_id))
     return report
 
 
-def _assess_class(
+def _assess_class(  # noqa: PLR0913 — the class, its replays and what judges them
     cls: IncidentClass,
     replayed: Sequence[Replayed],
     missing: Sequence[str],
     testable: Callable[[str], str | None],
     gates: ReadinessGates,
+    *,
+    unreplayed: tuple[tuple[str, str], ...] = (),
 ) -> ClassReadiness:
     hypothesis = cause_hypothesis(cls.cause) if cls.cause else None
     p1 = cls.severities.get("P1", 0)
     why_not = testable(cls.cause) if cls.cause is not None else None
+    if why_not is None and not replayed and missing and len(unreplayed) == len(missing):
+        # ADR-0018: nothing replayable, and capture said why for every incident
+        if all(w == "live_only" for _, w in unreplayed):
+            why_not = (
+                "its cause is visible only live (point-in-time tools can't read the past): "
+                "prove it in shadow"
+            )
+        elif all(w == "aged_out" for _, w in unreplayed):
+            why_not = "its evidence aged out of the stores' retention"
     if why_not is not None:
         return ClassReadiness(
             cls.id,
@@ -398,6 +425,7 @@ def _assess_class(
             "untestable",
             (why_not,),
             no_evidence=tuple(missing),
+            unreplayed=unreplayed,
         )
     outcomes = tuple(
         (r.incident, r.supported, r.score.root_cause_ok and not r.score.false_cause)
@@ -411,7 +439,7 @@ def _assess_class(
     if len(replayed) < gates.min_scenarios:
         reasons.append(
             f"{len(replayed)} scenario(s) with evidence; needs {gates.min_scenarios}"
-            + (f" ({len(missing)} without evidence)" if missing else "")
+            + (f" ({_without(missing, unreplayed)})" if missing else "")
         )
     if len(false) > gates.max_false_causes:
         named = ", ".join(f"{n}: {sup}" for n, sup in false)
@@ -432,8 +460,26 @@ def _assess_class(
         correct=correct,
         false_causes=false,
         no_evidence=tuple(missing),
+        unreplayed=unreplayed,
         outcomes=outcomes,
     )
+
+
+_UNREPLAYED = {
+    "live_only": "visible only live",
+    "aged_out": "aged out",
+    "unavailable": "no tool here",
+    "failed": "reads failed",
+}
+
+
+def _without(missing: Sequence[str], unreplayed: Sequence[tuple[str, str]]) -> str:
+    """``3 without evidence: 2 visible only live, 1 aged out``."""
+    counts: dict[str, int] = {}
+    for _, why in unreplayed:
+        counts[why] = counts.get(why, 0) + 1
+    detail = ", ".join(f"{n} {_UNREPLAYED.get(w, w)}" for w, n in sorted(counts.items()))
+    return f"{len(missing)} without evidence" + (f": {detail}" if detail else "")
 
 
 __all__ = [

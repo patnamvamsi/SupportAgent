@@ -59,6 +59,7 @@ from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.demo_servicenow import build as _build_demo_servicenow
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink, FaultInjectingTool
+from supportagent.adapters.files._yaml import dump_yaml
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
 from supportagent.adapters.files.change_set import apply_change_set
@@ -236,6 +237,7 @@ from supportagent.domain.errors import (
     ExternalServiceError,
     LLMUnavailable,
 )
+from supportagent.domain.evidence import PlannedRead, capture, capture_plan
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
 from supportagent.domain.gap_plan import GapPlan
 from supportagent.domain.gap_plan import plan as gap_plan
@@ -257,7 +259,7 @@ from supportagent.domain.model.calibration import (
     CalibrationTable,
 )
 from supportagent.domain.model.case import Case
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.knowledge import DocFrontMatter
 from supportagent.domain.model.plugin import cause_hypothesis
 from supportagent.domain.model.preclass import RuleSet
@@ -348,6 +350,7 @@ from supportagent.evals.readiness import (
     assess,
     fit_calibration,
     history_scenarios,
+    service_entry,
 )
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.clock import Clock
@@ -2327,10 +2330,9 @@ def build_tool_registry(
     fail as if its API were down (WP-106).
     """
     cfg = config.tools
-    catalog = _build_catalog(config)
     tools: list[Tool] = []
-    if cfg.logs_root:
-        allow = frozenset(p for s in catalog.services for p in s.log_paths)
+    if cfg.logs_root:  # the catalog only bounds file logs: onboarding may have none yet
+        allow = frozenset(p for s in _build_catalog(config).services for p in s.log_paths)
         tools.append(LogsTool(root=Path(cfg.logs_root), allowlist=allow))
     if cfg.cron_status_dir:
         tools.append(CronStatusTool(status_dir=Path(cfg.cron_status_dir), clock=clock))
@@ -3691,6 +3693,115 @@ def load_evidence(path: Path) -> dict[str, dict[str, WorldEntry]]:
     return out
 
 
+def load_unreplayed(path: Path) -> dict[str, str]:
+    """ADR-0018: per captured incident left without a world, why (``live_only``, ...)."""
+    directory = path / "sources" / "evidence"
+    out: dict[str, str] = {}
+    for file in sorted(directory.glob("*.yaml")) if directory.is_dir() else []:
+        doc = load_yaml_document(file)
+        if why := doc.get("unreplayed"):
+            out[str(doc.get("incident") or file.stem)] = str(why)
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceCapture:
+    """What ``onboard evidence`` did (ADR-0018)."""
+
+    #: Incidents written with a world to replay.
+    captured: int
+    #: Incidents written without one, by why (``live_only``, ``aged_out``, ...).
+    unreplayed: Mapping[str, int]
+    #: Incidents whose evidence was already there (a fixture, an earlier capture).
+    kept: int
+
+    def line(self) -> str:
+        why = ", ".join(f"{n} {w.replace('_', ' ')}" for w, n in sorted(self.unreplayed.items()))
+        return (
+            f"evidence for {self.captured} incident(s)"
+            + (f"; {sum(self.unreplayed.values())} not replayable ({why})" if why else "")
+            + (f"; {self.kept} kept" if self.kept else "")
+        )
+
+
+_EVIDENCE_HEADER = (
+    "# Captured by `supportagent onboard evidence` (ADR-0018): the read-only tools, as of\n"
+    "# the incident. Re-capture with --recapture; never edit by hand.\n"
+)
+
+
+def capture_evidence(  # noqa: PLR0913 — the run, the tools and the seams
+    config: AppConfig,
+    workspace: Path,
+    run: OnboardingRun,
+    tools: ToolRegistry,
+    *,
+    clock: Clock,
+    plugins: Sequence[LoadedPlugin] | None = None,
+    recapture: bool = False,
+) -> EvidenceCapture:
+    """ADR-0018 (WP-E1): each past incident of a testable class, read as of its open time.
+
+    The reads are the probes RCA would plan for it (its label's runbooks in the
+    packs its service selects, and the cause's probe), through the registry, so
+    each is bound, schema-checked and a ``tool_call`` event.
+    """
+    directory = workspace / "sources" / "evidence"
+    existing = {f.stem for f in directory.glob("*.yaml")} if directory.is_dir() else set()
+    why_not = readiness_testable(config, plugins if plugins is not None else load_plugins())
+    knowledge = build_rca_knowledge(config, tools.names)
+    packs = _pack_set(config)
+    incidents = {i.number: i for i in _past_incidents(workspace)}
+    trace = TraceContext(tenant_id=config.tenant.id, trace_id="evidence", span_id="capture")
+    captured, kept = 0, 0
+    unreplayed: dict[str, int] = {}
+    for cls in run.incidents.classes:
+        if cls.cause is None or why_not(cls.cause) is not None:
+            continue
+        hypothesis = cause_hypothesis(cls.cause)
+        probe = knowledge.probes.get(hypothesis)
+        for number in cls.incidents:
+            incident = incidents.get(number)
+            if incident is None:
+                continue
+            if number in existing and not recapture:
+                kept += 1
+                continue
+            service = ServiceEntry.model_validate(service_entry(run.graph.graph, incident.ci))
+            selected = packs.runbook_ids(packs.active(service.stack))
+            plan = capture_plan(
+                cls.label,
+                hypothesis,
+                [r for r, _ in knowledge.runbooks if r.id in selected],
+                probe[0] if probe else None,
+            )
+
+            def read(
+                item: PlannedRead, at: datetime = incident.opened, svc: ServiceEntry = service
+            ) -> Mapping[str, object]:
+                return tools.call_as_of(item.capability, item.args, svc, trace, at=at).data
+
+            evidence = capture(
+                number,
+                incident.opened,
+                plan,
+                now=clock.now(),
+                retention_days=config.onboarding.retention_days,
+                available=lambda c: c in tools.names,
+                replayable=tools.replayable,
+                read=read,
+            )
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"{number}.yaml").write_text(
+                _EVIDENCE_HEADER + dump_yaml(evidence.as_document()), encoding="utf-8"
+            )
+            if evidence.unreplayed is None:
+                captured += 1
+            else:
+                unreplayed[evidence.unreplayed] = unreplayed.get(evidence.unreplayed, 0) + 1
+    return EvidenceCapture(captured, unreplayed, kept)
+
+
 def readiness_testable(
     config: AppConfig, plugins: Sequence[LoadedPlugin]
 ) -> Callable[[str], str | None]:
@@ -3751,6 +3862,7 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         run.incidents,
         replayed,
         missing,
+        unreplayed=load_unreplayed(path),
         testable=why_not,
         gates=system.readiness,
         system=system.system.id,
@@ -4005,6 +4117,55 @@ def onboard_incidents(
     mapped = build_incident_map(workspace, detect_plugins(workspace, plugins), plugins, pipeline)
     path = Workspace(workspace).write_artifact("incident_map.json", incident_map_document(mapped))
     return mapped, path
+
+
+def onboard_evidence(  # noqa: PLR0913 — the config, the workspace and the seams
+    config: AppConfig,
+    workspace: Path,
+    *,
+    provider: LLMProvider | None = None,
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+    master_key: bytes | None = None,
+    transport: httpx.BaseTransport | None = None,
+    recapture: bool = False,
+) -> EvidenceCapture | None:
+    """``onboard evidence`` (ADR-0018): capture each past incident's evidence from the
+    configured read-only tools, as of the incident. ``None`` when no configured tool
+    can read the past: the workspace's evidence (a fixture, a capture) stays as it is.
+
+    Every read is a ``tool_call`` event in the log, like RCA's.
+    """
+
+    def onboarding_cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    clock = clock or SystemClock()
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(db)
+        with uow:
+            tools = build_tool_registry(
+                config,
+                events=_event_sink(uow, master_key, clock),
+                ids=UlidIdGenerator(),
+                clock=clock,
+                transport=transport,
+            )
+            if not any(tools.replayable(n) for n in tools.names):
+                return None
+            plugins = load_plugins()
+            pipeline = OnboardingPipeline(config, provider=provider, decorate=onboarding_cache)
+            run = run_onboarding_pipeline(workspace, plugins, pipeline)
+            result = capture_evidence(
+                config, workspace, run, tools, clock=clock, plugins=plugins, recapture=recapture
+            )
+            uow.commit()
+            return result
+    finally:
+        if own:
+            db.dispose()
 
 
 def onboard_readiness(  # noqa: PLR0913 — the config, the workspace and the seams
@@ -4339,6 +4500,19 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                 ),
             ),
             (
+                "evidence",
+                lambda: _evidence_detail(
+                    onboard_evidence(
+                        config,
+                        workspace,
+                        provider=provider,
+                        engine=db,
+                        clock=clock,
+                        master_key=master_key,
+                    )
+                ),
+            ),
+            (
                 "readiness",
                 lambda: _readiness_detail(
                     onboard_readiness(
@@ -4354,19 +4528,25 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
             ("gaps", lambda: _gaps_detail(onboard_gaps(config, workspace, provider=provider))),
         ]
         for step, run in stages:
-            if skip(step, sensed):
+            # Readiness and gaps replay the evidence: a capture re-runs them, nothing else.
+            inputs = (
+                digest(sensed, _tree_digest(workspace / "sources" / "evidence"))
+                if step in ("readiness", "gaps")
+                else sensed
+            )
+            if skip(step, inputs):
                 continue
             try:
                 detail = run()
             except (ConfigError, ExternalServiceError) as exc:
-                record(step, "failed", sensed, str(exc)[:200])
+                record(step, "failed", inputs, str(exc)[:200])
                 continue
             # The model gave no answer for part of it: re-running retries that part.
             unanswered = " unread" in detail
             record(
                 step,
                 "blocked" if unanswered else "done",
-                sensed,
+                inputs,
                 detail,
                 "model" if unanswered else None,
             )
@@ -4388,6 +4568,15 @@ def _incidents_detail(mapped: IncidentMap) -> str:
 
 def _requests_detail(plan: GapPlan) -> str:
     return f"{len(plan.requests)} request(s) unlocking {plan.unlocked:.0%}; {len(plan.gaps)} gap(s)"
+
+
+def _evidence_detail(capture: EvidenceCapture | None) -> str:
+    if capture is None:
+        return (
+            "no tool here reads the past (logs, metrics, deploys or CI under tools:): "
+            "readiness replays the evidence already in the workspace"
+        )
+    return capture.line()
 
 
 def _readiness_detail(report: ReadinessReport) -> str:
@@ -4468,10 +4657,17 @@ def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
         reasons = "; ".join(str(x) for x in c.get("reasons", []))
         share = float(c.get("share", 0.0))
         what = f"{c.get('cause') or 'no cause'}: {reasons}"
-        if c.get("status") == "untestable":
+        why = {str(u[1]) for u in c.get("unreplayed") or [] if isinstance(u, list) and len(u) == 2}  # noqa: PLR2004
+        if c.get("status") == "untestable" and why == {"live_only"}:
+            out.append(Need("evidence", what, share, "prove it in shadow (visible only live)"))
+        elif c.get("status") == "untestable" and why == {"aged_out"}:
+            out.append(Need("evidence", what, share, "the next incidents, or prove it in shadow"))
+        elif c.get("status") == "untestable":
             out.append(Need("plugin", what, share, "add or evaluate the plugin"))
         elif c.get("no_evidence") and not c.get("scenarios"):
-            out.append(Need("evidence", what, share, "capture its evidence"))
+            out.append(
+                Need("evidence", what, share, "supportagent onboard evidence (tools: configured)")
+            )
     return out
 
 
@@ -4577,8 +4773,13 @@ def _sense_digest(workspace: Path, config: AppConfig) -> str:
         plugins_root() / "index.yaml",
         *(Path(c) / "index.yaml" for c in config.plugins.catalogs),
     ]
+    sources = [
+        (path, sha)
+        for path, sha in _tree_digest(workspace / "sources")
+        if not path.startswith("evidence/")
+    ]  # ADR-0018: evidence is the evidence step's output; readiness keys on it
     return digest(
-        _tree_digest(workspace / "sources"),
+        sources,
         [(str(i), hashlib.sha256(i.read_bytes()).hexdigest()) for i in indexes if i.is_file()],
     )
 

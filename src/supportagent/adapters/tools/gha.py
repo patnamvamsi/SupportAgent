@@ -8,6 +8,7 @@ GitHub REST: ``GET /repos/{owner}/{repo}/actions/runs`` and
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 
 import httpx
 
@@ -62,6 +63,18 @@ class GitHubActionsTool:
         self._client = client
 
     def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        return self._runs(args, {}, timeout_s)
+
+    def run_as_of(
+        self, args: Mapping[str, object], *, at: datetime, timeout_s: float
+    ) -> ToolResult:
+        """ADR-0018: the runs created before ``at`` (GitHub's ``created`` filter)."""
+        stamp = at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self._runs(args, {"created": f"<{stamp}"}, timeout_s)
+
+    def _runs(
+        self, args: Mapping[str, object], extra: Mapping[str, str], timeout_s: float
+    ) -> ToolResult:
         repo = str(args["repo"]).removeprefix("github:")
         if repo.count("/") != 1:
             raise ToolError(f"gha.recent_runs: repo must be owner/name, got {repo!r}")  # noqa: TRY003
@@ -69,7 +82,7 @@ class GitHubActionsTool:
         body = get_json(
             self._client,
             f"/repos/{repo}/actions/runs",
-            params={"per_page": limit},
+            params={"per_page": limit, **extra},
             timeout_s=timeout_s,
         )
         raw = body.get("workflow_runs", []) if isinstance(body, dict) else []

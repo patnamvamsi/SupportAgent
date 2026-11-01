@@ -25,6 +25,7 @@ from supportagent.bootstrap import (
     load_plugins,
     onboard_cycle,
     onboard_drift,
+    onboard_evidence,
     onboard_gaps,
     onboard_graph,
     onboard_incidents,
@@ -314,6 +315,32 @@ def onboard_requests_command(
     for g in plan.gaps:
         typer.echo(f"  gap: {g.class_id} ({g.share:.0%}): {g.why}")
     typer.echo(f"wrote {path}; decide at /ui/onboarding/requests")
+
+
+@onboard_app.command("evidence")
+def onboard_evidence_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An ingested workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (the read-only tools)."
+    ),
+    recapture: bool = typer.Option(
+        False, "--recapture", help="Read again incidents that already have evidence."
+    ),
+) -> None:
+    """Capture each past incident's evidence from the read-only tools, as of the incident."""
+    try:
+        result = onboard_evidence(load_config_default(config), workspace, recapture=recapture)
+    except (ConfigError, ExternalServiceError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if result is None:
+        typer.echo(
+            "no configured tool can read the past (logs, metrics, deploys or CI under "
+            "tools:); the workspace's evidence is unchanged"
+        )
+        return
+    typer.echo(result.line())
+    typer.echo(f"wrote {workspace / 'sources' / 'evidence'}; next: supportagent onboard readiness")
 
 
 @onboard_app.command("readiness")
