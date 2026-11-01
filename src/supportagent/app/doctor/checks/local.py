@@ -116,7 +116,7 @@ class PagingCheck:
         )
 
 
-__all__ = ["ConfigCheck", "DbCheck", "PagingCheck"]
+__all__ = ["ConfigCheck", "DbCheck", "OnboardingCheck", "PagingCheck"]
 
 
 class PacksCheck:
@@ -207,4 +207,52 @@ class KnowledgeCheck:
         if missing:
             needs = "; ".join(f"{s} (used by {', '.join(wanted[s])})" for s in missing)
             return CheckResult(self.name, "warn", f"{detail} — unconfigured spaces: {needs}", data)
+        return CheckResult(self.name, "pass", detail, data)
+
+
+class OnboardingCheck:
+    """ADR-0017 (WP-A6): plugins, catalogues, unserved capabilities, readiness, calibration."""
+
+    name = "onboarding"
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        if ctx.load_onboarding is None:
+            return CheckResult(self.name, "pass", "not wired")
+        try:
+            facts = ctx.load_onboarding()
+        except ConfigError as exc:
+            return CheckResult(self.name, "fail", f"plugins: {exc}")
+        warnings: list[str] = []
+        lines = [f"{len(facts.plugins)} plugin(s)"]
+        if facts.disabled:
+            lines.append(f"disabled: {', '.join(facts.disabled)}")
+        for catalog, offered, error in facts.catalogs:
+            if offered is None:
+                warnings.append(f"catalogue {catalog} doesn't load: {error}")
+            else:
+                lines.append(f"catalogue {catalog}: {offered} plugin(s)")
+        for capability, plugin in facts.unserved:
+            warnings.append(
+                f"{capability} (declared by {plugin}) has no MCP server bound "
+                "(tools.bindings): the checks that read it never run"
+            )
+        if not facts.readiness_present:
+            lines.append("readiness: not assessed (triage routes as configured)")
+        else:
+            at = facts.readiness_at
+            when = f"from {at[:16].replace('T', ' ')}" if at else "assessed"
+            lines.append(f"readiness {when}")
+            if facts.plugins_changed:
+                warnings.append("plugins changed since readiness was assessed: re-run onboarding")
+        lines.append(f"routing: {facts.routing}")
+        source, why = facts.calibration
+        lines.append(f"calibration: {source} ({why})")
+        data = {
+            "unserved": [list(u) for u in facts.unserved],
+            "routing": facts.routing,
+            "calibration": source,
+        }
+        detail = " · ".join(lines)
+        if warnings:
+            return CheckResult(self.name, "warn", detail + " — " + "; ".join(warnings), data)
         return CheckResult(self.name, "pass", detail, data)

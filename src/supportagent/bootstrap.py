@@ -76,6 +76,8 @@ from supportagent.adapters.files.knowledge_loader import load_markdown_source, s
 from supportagent.adapters.files.pack_loader import load_pack_set
 from supportagent.adapters.files.plugin_loader import (
     LoadedPlugin,
+    disabled_plugins,
+    index_sha256,
     install_plugin,
     load_manifest,
     load_registry,
@@ -154,6 +156,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
+from supportagent.app.doctor.base import OnboardingFacts
 from supportagent.app.extend import Scaffold, runbook_from_doc, scenario_from_incident
 from supportagent.app.feedback import FeedbackService
 from supportagent.app.gate import GateService
@@ -660,20 +663,29 @@ def _fitted_calibration(
 ) -> CalibrationTable | None:
     """ADR-0017 (WP-A5): the calibration fitted from the system's history, if it was
     fitted with the model triage now uses; otherwise the configured artifact applies."""
-    if config.onboarding.calibration == "artifact":
-        return None  # the switch: score with the configured artifact
     report = ReadinessStore(uow=uow, clock=clock, tenant_id=config.tenant.id).load()
+    return _calibration_in_use(config, report)[0]
+
+
+def _calibration_in_use(
+    config: AppConfig, report: Mapping[str, object] | None
+) -> tuple[CalibrationTable | None, str]:
+    """The fitted table triage scores with (``None``: the configured artifact), and why."""
+    if config.onboarding.calibration == "artifact":
+        return None, "onboarding.calibration: artifact"  # the switch
     raw = report.get("calibration") if report else None
     if not isinstance(raw, dict):
-        return None
+        return None, "nothing fitted yet"
     try:
         table = CalibrationTable.model_validate(raw)
     except ValidationError:
-        return None
+        return None, "the fitted table doesn't parse"
     configured = config.llm.slots[SlotName.CLASSIFY.value].model_id
-    if table.model_id != configured or table.signature != table.computed_signature():
-        return None
-    return table
+    if table.signature != table.computed_signature():
+        return None, "the fitted table's counts were edited (signature mismatch)"
+    if table.model_id != configured:
+        return None, f"fitted with {table.model_id}, triage uses {configured}"
+    return table, f"fitted with {table.model_id}"
 
 
 def _readiness_policy(
@@ -1614,6 +1626,49 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         known_tools=frozenset(KNOWN_TOOL_SCHEMAS),
         mcp_servers=_mcp_probes(config, transport),
         load_knowledge=lambda: build_knowledge_index(config, transport=transport, strict=True),
+        load_onboarding=lambda: onboarding_facts(config, engine, clock),
+    )
+
+
+def onboarding_facts(config: AppConfig, engine: Engine, clock: Clock) -> OnboardingFacts:
+    """What ``doctor``'s onboarding check reads (ADR-0017, WP-A6)."""
+    root = plugins_root()
+    plugins = load_plugins(root)
+    catalogs: list[tuple[str, int | None, str]] = []
+    for catalog in config.plugins.catalogs:
+        try:
+            catalogs.append((catalog, len(load_registry(Path(catalog))), ""))
+        except (ConfigError, OSError) as exc:
+            catalogs.append((catalog, None, str(exc)))
+    declared = {
+        name: p.manifest.id
+        for p in plugins
+        for name, spec in p.manifest.provides.capabilities.items()
+        if spec.result_schema is not None and name not in CAPABILITIES
+    }
+    used = {t for pack in _pack_set(config).packs if not pack.placeholder for t in pack.tools}
+    unserved = sorted(
+        (c, pid) for c, pid in declared.items() if c in used and c not in config.tools.bindings
+    )
+    try:
+        report = ReadinessStore(
+            uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id
+        ).load()
+    except sa.exc.SQLAlchemyError:
+        report = None
+    at = str(report["at"]) if report and report.get("at") else None
+    pinned = report.get("plugins_index") if report else None
+    table, why = _calibration_in_use(config, report)
+    return OnboardingFacts(
+        plugins=[(p.manifest.id, p.manifest.version) for p in plugins],
+        disabled=disabled_plugins(root),
+        catalogs=catalogs,
+        unserved=unserved,
+        readiness_at=at if report else None,
+        readiness_present=report is not None,
+        plugins_changed=None if pinned is None else pinned != index_sha256(root),
+        routing=config.onboarding.routing,
+        calibration=("fitted" if table is not None else "artifact", why),
     )
 
 
@@ -2732,6 +2787,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     webhook_sources: Mapping[str, WebhookSource] | None = None,
     promotion_gate: PromotionGate | None = None,
     semantics: TicketSemantics | None = None,
+    calibration_in_use: Callable[[], tuple[str, str]] | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -2848,6 +2904,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         readiness=readiness,
         onboarding_status=onboarding_status,
         onboarding_history=onboarding_history,
+        calibration_in_use=calibration_in_use,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -2877,8 +2934,9 @@ def build_api_context(
         clock=clock,
         backchannel_url=config.identity.backchannel_url,
     )
+    engine = make_engine(config.database.url.get_secret_value())
     return api_context_for(
-        make_engine(config.database.url.get_secret_value()),
+        engine,
         tenant_id=config.tenant.id,
         catalog=_build_catalog(config),
         master_key=key,
@@ -2893,7 +2951,15 @@ def build_api_context(
         webhook_sources=_webhook_sources(config),
         semantics=ticket_semantics(config),
         promotion_gate=_promotion_gate(config),
+        calibration_in_use=lambda: calibration_source(config, engine, clock),
     )
+
+
+def calibration_source(config: AppConfig, engine: Engine, clock: Clock) -> tuple[str, str]:
+    """``("fitted" | "artifact", why)``: what triage scores with now (ADR-0017, WP-A6)."""
+    store = ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id)
+    table, why = _calibration_in_use(config, store.load())
+    return ("fitted" if table is not None else "artifact", why)
 
 
 def _promotion_gate(config: AppConfig) -> PromotionGate:
@@ -3972,6 +4038,8 @@ def onboard_readiness(  # noqa: PLR0913 — the config, the workspace and the se
     try:
         ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=config.tenant.id).save(
             report.as_dict()
+            # WP-A6: when, and against which plugins, so doctor can say it went stale
+            | {"at": clock.now().isoformat(), "plugins_index": index_sha256(plugins_root())}
         )
         record = _recorder(config, db, master_key, clock)
         record(

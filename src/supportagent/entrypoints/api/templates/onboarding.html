@@ -53,6 +53,11 @@
 </table></div>
 {% endif %}
 {% if activity %}
+{% set assessed = activity | selectattr("action", "equalto", "readiness_assessed") | list | reverse | list %}
+{% if assessed | length > 1 %}
+<p><span class="muted">Ready share over the last {{ assessed | length }} assessments:</span>
+  {% for a in assessed %}{{ ((a.ready_share_bp or 0) / 100) | round | int }}%{% if not loop.last %} → {% endif %}{% endfor %}</p>
+{% endif %}
 <h2>Recent activity</h2>
 <p class="muted">Every onboarding decision, from the audit trail (the event log): steps, installs, access and graph decisions, readiness, calibration, drift.</p>
 <div class="table-wrap"><table class="activity">

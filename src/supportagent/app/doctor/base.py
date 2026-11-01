@@ -62,6 +62,26 @@ class Bundle:
 
 
 @dataclass(frozen=True, slots=True)
+class OnboardingFacts:
+    """What the onboarding check reads (ADR-0017, WP-A6); computed by the wiring."""
+
+    plugins: Sequence[tuple[str, str]]
+    disabled: Sequence[str]
+    #: ``(catalogue, plugins it offers or None, the error)``.
+    catalogs: Sequence[tuple[str, int | None, str]]
+    #: ``(capability, plugin)``: declared, used by a pack, served by no MCP binding.
+    unserved: Sequence[tuple[str, str]]
+    #: The readiness report: whether there is one, when it was made (reports from
+    #: before WP-A6 don't say), and whether the plugins changed since.
+    readiness_present: bool
+    readiness_at: str | None
+    plugins_changed: bool | None
+    routing: str
+    #: Which calibration triage scores with, and why.
+    calibration: tuple[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class DoctorContext:
     """Everything a check may read. Loaders raise ``ConfigError``; probes raise typed errors."""
 
@@ -82,6 +102,8 @@ class DoctorContext:
     #: WP-M06: per registered MCP server, a probe returning its registration problems
     #: (raises ``ExternalServiceError`` when the server can't be reached).
     mcp_servers: Mapping[str, Callable[[], Sequence[str]]] = field(default_factory=dict)
+    #: ADR-0017 (WP-A6): what the onboarding check reads (``None``: not wired).
+    load_onboarding: Callable[[], OnboardingFacts] | None = None
     #: WP-M08: the knowledge index (``None``: no sources configured).
     load_knowledge: Callable[[], KnowledgeIndex | None] | None = None
     connector: ConnectorManifest = field(
@@ -157,4 +179,5 @@ __all__ = [
     "Doctor",
     "DoctorContext",
     "DoctorReport",
+    "OnboardingFacts",
 ]

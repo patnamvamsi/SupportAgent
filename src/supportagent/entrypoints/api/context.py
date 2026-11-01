@@ -53,3 +53,6 @@ class ApiContext:
     onboarding_status: Callable[[], OnboardingStatusStore] | None = None
     #: ADR-0017 (WP-A6): the tenant's onboarding events, newest first.
     onboarding_history: Callable[[], list[dict[str, object]]] | None = None
+    #: ADR-0017 (WP-A6): which calibration triage scores with (``fitted`` or
+    #: ``artifact``), and why.
+    calibration_in_use: Callable[[], tuple[str, str]] | None = None

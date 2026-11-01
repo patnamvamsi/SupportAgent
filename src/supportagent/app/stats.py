@@ -21,6 +21,9 @@ Metrics, each with its denominator stated:
 - **conflict rate**: ``classifier-conflict`` / reached cases where the
   pre-classifier produced a label (conflict is only possible then).
 
+- **held back by readiness** (WP-A6): RCA cases with a claim tagged
+  ``not_ready``, over cases with an RCA.
+
 A rate with an empty denominator is ``None``, not 0.
 """
 
@@ -39,6 +42,7 @@ import sqlalchemy as sa
 
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.promotion import PromotionGate, PromotionResult, evaluate
+from supportagent.domain.readiness import NOT_READY_TAG
 from supportagent.domain.stats import wilson_lower_bound
 from supportagent.ports.clock import Clock
 
@@ -101,6 +105,22 @@ class FatigueStat:
     approve_time_p50_s: int | None
     approve_time_p90_s: int | None
     one_click_rate: float | None
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessHolds:
+    """ADR-0015 §5 (WP-A6): RCA claims the evidence supported but readiness held back.
+
+    A claim citing a step whose class isn't proven ready is tagged ``not_ready``
+    and never sent; ``rca_cases`` is the denominator (cases with an RCA).
+    """
+
+    rca_cases: int
+    cases_held: int
+    claims_held: int
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -217,6 +237,21 @@ class StatsService:
             one_click_rate=_rate(one_click, len(approved)),
         )
 
+    def readiness_holds(self, *, window: timedelta | None = None) -> ReadinessHolds:
+        """How often readiness held back a claim the evidence supported (ADR-0015 §5)."""
+        since = None if window is None else int((self._clock.now() - window).timestamp())
+        sql = "SELECT artifact_json FROM rca_artifacts WHERE tenant_id = :tenant"
+        if since is not None:
+            sql += " AND created_ts >= :since"
+        held = []
+        rows = self._fetch(sql, since)
+        for row in rows:
+            claims = json.loads(row["artifact_json"]).get("claims") or []
+            held.append(sum(1 for c in claims if NOT_READY_TAG in (c.get("tags") or [])))
+        return ReadinessHolds(
+            rca_cases=len(rows), cases_held=sum(1 for n in held if n), claims_held=sum(held)
+        )
+
     def _shadow_rows(self, since: int | None) -> list[sa.RowMapping]:
         sql = (
             "SELECT s.alert_received_ts AS received, s.first_proposal_ts AS first, "
@@ -252,6 +287,7 @@ __all__ = [
     "AgreementStat",
     "FatigueStat",
     "LatencyStat",
+    "ReadinessHolds",
     "StatsReport",
     "StatsService",
     "parse_window",

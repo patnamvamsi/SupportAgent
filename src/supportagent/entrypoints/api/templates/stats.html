@@ -34,6 +34,14 @@
   <tbody>{% for reason, n in r.safe_default_by_reason.items() %}<tr><td>{{ reason }}</td><td>{{ n }}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% endif %}
+<h2>Readiness and calibration</h2>
+<p class="muted">Onboarding's proof (ADR-0015 §5): a class not yet proven on the system's history routes to the safe default (<code>class-not-ready</code> above), and an RCA claim citing it is shown but never sent.</p>
+<div class="grid">
+  <span class="muted">RCA claims held back</span><span>{{ holds.claims_held }} claim(s) in {{ holds.cases_held }} of {{ holds.rca_cases }} RCA case(s)</span>
+  <span class="muted">Routed safe: class not ready</span><span>{{ r.safe_default_by_reason.get("class-not-ready", 0) }} case(s)</span>
+  {% if calibration %}<span class="muted">Calibration in use</span><span>{{ "the table fitted on this system's history" if calibration[0] == "fitted" else "the configured artifact" }} <span class="muted">({{ calibration[1] }})</span></span>{% endif %}
+</div>
+
 {% if gate %}
 <h2>Promotion gate (shadow → assisted)</h2>
 <p>{% if gate.passed %}<strong class="ok">Passes</strong>{% else %}<strong class="warn">Not yet</strong>{% endif %}

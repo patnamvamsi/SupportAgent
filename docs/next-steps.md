@@ -76,12 +76,18 @@ Add event kinds, written to the append-only event log like every other decision 
 | `calibration_fitted` (labels, n, model, in use or ignored) | which table triage scores against |
 | `drift_found` (findings) | changes waiting to be re-onboarded |
 
-### 2.2 Check: `doctor`
+### 2.2 Check: `doctor` (*delivered*, WP-A6c)
 
-- **Plugins:** the index loads; every pin verifies, `tree_sha256` included; each catalogue loads against its own index; embedded packs load.
-- **Declared capabilities with no backend.** Today a capability a plugin declares counts as known, so a pack check on it looks available even when no MCP server is bound to serve it, and it silently never runs. `doctor` must name each one, and the gaps step should report it.
-- **Readiness freshness:** the report's age, whether the plugins, model or history changed since it was made, and drift findings not yet accepted.
-- **Calibration in use:** whether triage scores with the fitted table or the configured artifact, and why (model mismatch, edited counts).
+A new `onboarding` check:
+- **Plugins:** it fails if the plugin index doesn't load, a pin doesn't verify (`tree_sha256` included) or an embedded pack is missing. It names the disabled plugins and warns on a catalogue that doesn't load.
+- **Declared capabilities with no backend:** a capability a plugin declares, which an active pack checks, with no `tools.bindings` entry is named. Otherwise the check silently never runs. On the reference plugins today: `mongodb.replset`, `mongodb.slow_ops` and `rabbitmq.queues`. Binding is a deployment fact, so this lives in `doctor`, not the offline gaps step.
+- **Readiness freshness:** when the report was made, and a warning when the plugins changed since. The report now stores the index digest. Model and history changes still show on the onboarding page, not here.
+- **Calibration in use:** whether triage uses the fitted table or the configured artifact, and why:
+  - the switch;
+  - nothing fitted yet;
+  - edited counts;
+  - the fitted table's model differs from triage's.
+- **Routing:** `enforce` or `report`.
 
 ### 2.3 Control: switches (*delivered*, WP-A6b)
 
@@ -99,10 +105,13 @@ Delivered:
 | `plugin disable <id>` / `enable` | | takes a plugin out of detection and packs without uninstalling it; recorded as an event |
 | A scheduled `onboard run` | off | a worker job (daily, configurable) so drift is found without a person, raising a need when it finds something |
 
-### 2.4 Monitor: `/ui/stats` and the onboarding page
+### 2.4 Monitor: `/ui/stats` and the onboarding page (*delivered*, WP-A6c)
 
-- `/ui/stats` already counts safe-defaults by reason, so `class-not-ready` appears there with no change. Add the claims tagged `not_ready` (supported by evidence, held back by readiness), and the fitted-against-artifact calibration in use.
-- The onboarding page shows the last run. Add a short history: the ready share over time, and installs and decisions from the events above.
+- `/ui/stats` has a *Readiness and calibration* section:
+  - RCA claims tagged `not_ready` (supported by evidence, held back by readiness), over cases with an RCA;
+  - cases routed safe as `class-not-ready`;
+  - the calibration in use, and why.
+- The onboarding page shows the ready share over the recent assessments (from the audit trail), above the activity table.
 - There is no Prometheus endpoint in the product today (it observes others, not itself). If the deployment wants one, the counters above are the first to expose.
 
 ## 3. Smaller follow-ups (any order)
