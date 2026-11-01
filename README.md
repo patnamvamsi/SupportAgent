@@ -110,7 +110,7 @@ supportagent onboard run --system system.yaml --workspace ./onboarding   # re-ru
 supportagent onboard status --workspace ./onboarding
 ```
 
-It reads the system read-only, works out which plugins it needs, maps the system and its incident history, asks for read-only access, and proves per incident class whether it can support it. It ends with what it needs from you: access to grant, plugins to add, facts to confirm. Act on those, re-run, and it continues where it stopped. The review pages are under `/ui/onboarding`. How it works: [ADR-0015](docs/adr/0015-system-onboarding-and-plugins.md), [ADR-0016](docs/adr/0016-plugins-are-data.md), [ADR-0017](docs/adr/0017-onboarding-autopilot.md).
+It reads the system read-only, works out which plugins it needs, maps the system and its incident history, asks for read-only access, and proves per incident class whether it can support it. It ends with what it needs from you: access to grant, plugins to add, facts to confirm. Act on those, re-run, and it continues where it stopped. The review pages are under `/ui/onboarding`. How it works: [ADR-0015](docs/adr/0015-system-onboarding-and-plugins.md), [ADR-0016](docs/adr/0016-plugins-are-data.md), [ADR-0017](docs/adr/0017-onboarding-autopilot.md). What comes next: [docs/next-steps.md](docs/next-steps.md).
 
 ### Going further
 
