@@ -88,6 +88,8 @@ def load_registry(root: Path) -> list[LoadedPlugin]:
         if not isinstance(entry, dict) or not {"id", "version", "sha256"} <= set(entry):
             raise ConfigError(f"{root / INDEX}: each entry needs id, version, sha256")  # noqa: TRY003
         pinned[str(entry["id"])] = {k: str(v) for k, v in entry.items()}
+    # ADR-0017 (WP-A6): a disabled plugin stays installed and pinned but isn't loaded.
+    disabled = {pid for pid, pin in pinned.items() if pin.get("disabled", "").lower() == "true"}
     on_disk = sorted(d.name for d in root.iterdir() if (d / MANIFEST).is_file())
     unpinned = sorted(set(on_disk) - set(pinned))
     if unpinned:
@@ -96,6 +98,8 @@ def load_registry(root: Path) -> list[LoadedPlugin]:
         )
     loaded: list[LoadedPlugin] = []
     for plugin_id, pin in sorted(pinned.items()):
+        if plugin_id in disabled:
+            continue
         directory = root / plugin_id
         if not (directory / MANIFEST).is_file():
             raise ConfigError(f"{INDEX} pins {plugin_id!r}, which has no {MANIFEST}")  # noqa: TRY003
@@ -119,26 +123,55 @@ def load_registry(root: Path) -> list[LoadedPlugin]:
     return loaded
 
 
-def _pin_row(directory: Path) -> str:
+_HEADER = (
+    "# The plugin registry (ADR-0015 §2): each plugin pinned by version and the\n"
+    "# sha256 of its manifest. Written by `supportagent plugin index` after review;\n"
+    "# a manifest that changes without re-pinning doesn't load.\n"
+)
+
+
+def _pin(directory: Path) -> dict[str, object]:
     manifest = load_manifest(directory)
-    digest = manifest_sha256(directory / MANIFEST)
-    tree = tree_sha256(directory)
-    extra = f", tree_sha256: {tree}" if tree is not None else ""
-    return f"  - {{id: {manifest.id}, version: {manifest.version}, sha256: {digest}{extra}}}"
+    pin: dict[str, object] = {
+        "id": manifest.id,
+        "version": manifest.version,
+        "sha256": manifest_sha256(directory / MANIFEST),
+    }
+    if (tree := tree_sha256(directory)) is not None:
+        pin["tree_sha256"] = tree
+    return pin
+
+
+def _entries(root: Path) -> list[dict[str, object]]:
+    if not (root / INDEX).is_file():
+        return []
+    return [e for e in load_yaml_file(root / INDEX).get("plugins") or [] if isinstance(e, dict)]
+
+
+def _write(root: Path, entries: list[dict[str, object]]) -> None:
+    def value(v: object) -> str:
+        return str(v).lower() if isinstance(v, bool) else str(v)
+
+    rows = sorted(
+        "  - {" + ", ".join(f"{k}: {value(v)}" for k, v in e.items()) + "}" for e in entries
+    )
+    (root / INDEX).write_text(_HEADER + "plugins:\n" + "\n".join(rows) + "\n", encoding="utf-8")
+
+
+def _keep_disabled(pin: dict[str, object], previous: list[dict[str, object]]) -> dict[str, object]:
+    was = next((e for e in previous if e.get("id") == pin["id"]), {})
+    return pin | ({"disabled": True} if was.get("disabled") is True else {})
 
 
 def write_index(root: Path) -> list[str]:
-    """Pin every plugin under ``root`` as it is now; returns the ids pinned."""
-    rows = []
-    for directory in sorted(d for d in root.iterdir() if (d / MANIFEST).is_file()):
-        rows.append(_pin_row(directory))
-    header = (
-        "# The plugin registry (ADR-0015 §2): each plugin pinned by version and the\n"
-        "# sha256 of its manifest. Written by `supportagent plugin index` after review;\n"
-        "# a manifest that changes without re-pinning doesn't load.\n"
-    )
-    (root / INDEX).write_text(header + "plugins:\n" + "\n".join(rows) + "\n", encoding="utf-8")
-    return [r.split("id: ", 1)[1].split(",", 1)[0] for r in rows]
+    """Pin every plugin under ``root`` as it is now (a disabled one stays disabled)."""
+    previous = _entries(root)
+    pins = [
+        _keep_disabled(_pin(d), previous)
+        for d in sorted(d for d in root.iterdir() if (d / MANIFEST).is_file())
+    ]
+    _write(root, pins)
+    return [str(p["id"]) for p in pins]
 
 
 __all__ = [
@@ -149,6 +182,7 @@ __all__ = [
     "load_manifest",
     "load_registry",
     "pin_one",
+    "set_disabled",
     "tree_sha256",
     "write_index",
 ]
@@ -156,20 +190,24 @@ __all__ = [
 
 def pin_one(root: Path, plugin_id: str) -> None:
     """Pin (or re-pin) one plugin, leaving every other pin as it was."""
-    index = load_yaml_file(root / INDEX)
-    entries = [
-        e for e in index.get("plugins") or [] if isinstance(e, dict) and e.get("id") != plugin_id
-    ]
-    rows = ["  - {" + ", ".join(f"{k}: {v}" for k, v in e.items()) + "}" for e in entries] + [
-        _pin_row(root / plugin_id)
-    ]
-    rows.sort()
-    header = (
-        "# The plugin registry (ADR-0015 §2): each plugin pinned by version and the\n"
-        "# sha256 of its manifest. Written by `supportagent plugin index` after review;\n"
-        "# a manifest that changes without re-pinning doesn't load.\n"
-    )
-    (root / INDEX).write_text(header + "plugins:\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    previous = _entries(root)
+    others = [e for e in previous if e.get("id") != plugin_id]
+    _write(root, [*others, _keep_disabled(_pin(root / plugin_id), previous)])
+
+
+def set_disabled(root: Path, plugin_id: str, *, disabled: bool) -> None:
+    """``plugin disable`` / ``enable`` (ADR-0017, WP-A6): flip the flag, change nothing else."""
+    entries = _entries(root)
+    if not any(e.get("id") == plugin_id for e in entries):
+        raise ConfigError(f"plugin {plugin_id!r} is not installed")  # noqa: TRY003
+    updated = []
+    for entry in entries:
+        if entry.get("id") != plugin_id:
+            updated.append(entry)
+            continue
+        flipped = {k: v for k, v in entry.items() if k != "disabled"}
+        updated.append(flipped | ({"disabled": True} if disabled else {}))
+    _write(root, updated)
 
 
 def install_plugin(catalog: LoadedPlugin, root: Path) -> Path:

@@ -65,6 +65,8 @@
       {% elif a.action == "plugin_installed" %}{{ a.plugin }} {{ a.version }} as {{ a.status }}
       {% elif a.action == "readiness_assessed" %}{{ "ready" if a.ready else "not ready" }}: {{ ((a.ready_share_bp or 0) / 100) | round | int }}% of the weight proven
       {% elif a.action == "calibration_fitted" %}{{ a.labels }} label(s) from {{ a.observations }} replays, {{ "in use" if a.in_use else "not in use (another model)" }}
+      {% elif a.action == "drift_found" %}{{ a.findings }} change(s) since the accepted snapshot: {{ a.kinds | join(", ") | replace("_", " ") }}
+      {% elif a.action in ("plugin_disabled", "plugin_enabled") %}{{ a.plugin }}
       {% else %}{{ a.action }}{% endif %}</td></tr>
   {% endfor %}</tbody>
 </table></div>

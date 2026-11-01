@@ -32,6 +32,8 @@ One model for everything pluggable. A plugin is `plugins/<id>/plugin.yaml` and c
 
 `supportagent plugin new go --from go.mod` scaffolds a skeleton plugin from such a gap, in `plugin-drafts/`, outside the registry. It detects the manifest and, where the format allows (`package.json`, `go.mod`, `composer.json`), claims the repository's component. Add its causes and a pack, then put it in a catalogue or `plugins/` and pin it. The `lines` extractor format reads plain manifests: one `key value` per line.
 
+**Disabling.** `supportagent plugin disable <id>` takes an installed plugin out of detection and packs without uninstalling it. It stays pinned, with `disabled: true` in the index. `plugin enable <id>` puts it back. Both are audited.
+
 **Pinned.** `plugins/index.yaml` records each plugin's version and the sha256 of its manifest. A manifest that changes without being re-pinned doesn't load, and neither does a plugin directory the index doesn't list. After reviewing a change, run `supportagent plugin index`. Signatures come with external catalogs.
 
 **Status.** `skeleton` means the plugin's contracts and detectors exist, so it can be detected and requested, but its knowledge hasn't been evaluated. Its incident classes can't leave shadow mode. A plugin becomes `evaluated` once its pack passes its lab gates. `oracle`, `java-spring`, `kubernetes` (WP-O6a) and `python-postgres` are evaluated.

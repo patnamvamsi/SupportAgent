@@ -11,6 +11,7 @@ WP-O2 points the same detection at live sources.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import typer
@@ -22,6 +23,7 @@ from supportagent.bootstrap import (
     ingest_system,
     install_and_record,
     load_plugins,
+    onboard_cycle,
     onboard_drift,
     onboard_gaps,
     onboard_graph,
@@ -31,6 +33,7 @@ from supportagent.bootstrap import (
     onboard_run,
     pin_plugins,
     scaffold_plugin,
+    toggle_plugin,
 )
 from supportagent.config.loader import load_config_default
 from supportagent.domain.errors import ConfigError, ExternalServiceError
@@ -154,6 +157,34 @@ def new(
     typer.echo(
         f"wrote {path}: add its causes and a pack, then a catalogue or plugins/, then pin it"
     )
+
+
+@plugin_app.command("disable")
+def disable(
+    plugin_id: str = typer.Argument(..., help="The installed plugin to take out of use."),
+    config: Path = typer.Option(Path("supportagent.yaml"), "--config"),  # noqa: B008
+) -> None:
+    """Take a plugin out of detection and packs without uninstalling it (audited)."""
+    _toggle(plugin_id, config, disabled=True)
+
+
+@plugin_app.command("enable")
+def enable(
+    plugin_id: str = typer.Argument(..., help="The disabled plugin to put back in use."),
+    config: Path = typer.Option(Path("supportagent.yaml"), "--config"),  # noqa: B008
+) -> None:
+    """Put a disabled plugin back into detection and packs (audited)."""
+    _toggle(plugin_id, config, disabled=False)
+
+
+def _toggle(plugin_id: str, config: Path, *, disabled: bool) -> None:
+    try:
+        toggle_plugin(load_config_default(config), plugin_id, disabled=disabled)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    state = "disabled" if disabled else "enabled"
+    typer.echo(f"{plugin_id} {state}; it applies from the next start and `onboard run`")
 
 
 @onboard_app.command("detect")
@@ -394,3 +425,33 @@ def onboard_gaps_command(
         typer.echo(f"  {g.kind:<20} {g.subject}: {'; '.join(g.evidence)}")
         typer.echo(f"  {'':<20} -> {g.suggestion}")
     typer.echo(f"wrote {path}")
+
+
+@onboard_app.command("watch")
+def onboard_watch_command(
+    system: Path = typer.Option(..., "--system", help="The system's system.yaml."),  # noqa: B008
+    workspace: Path = typer.Option(..., "--workspace", help="The workspace."),  # noqa: B008
+    config: Path = typer.Option(Path("supportagent.yaml"), "--config"),  # noqa: B008
+    every_hours: float = typer.Option(24.0, "--every-hours", min=0.25, help="Hours between runs."),
+    once: bool = typer.Option(False, "--once", help="One cycle, then exit (for cron)."),
+) -> None:
+    """Keep a system onboarded (ADR-0017): `onboard run` and a drift check, every N hours.
+
+    Run it as its own process or container: a cycle calls the model and can take
+    minutes, so it stays out of the triage worker. Drift findings go to the audit
+    trail and the onboarding page; accept them with `onboard drift --accept`.
+    """
+    while True:
+        try:
+            status, findings = onboard_cycle(load_config_default(config), system, workspace)
+        except ConfigError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        verdict = "ready" if status.ready else "not ready"
+        typer.echo(
+            f"{status.system}: {verdict}; {len(status.needs)} need(s); "
+            f"{len(findings)} drift finding(s)"
+        )
+        if once:
+            return
+        time.sleep(every_hours * 3600)
