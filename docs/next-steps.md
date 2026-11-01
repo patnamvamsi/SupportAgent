@@ -80,7 +80,7 @@ Add event kinds, written to the append-only event log like every other decision 
 
 A new `onboarding` check:
 - **Plugins:** it fails if the plugin index doesn't load, a pin doesn't verify (`tree_sha256` included) or an embedded pack is missing. It names the disabled plugins and warns on a catalogue that doesn't load.
-- **Declared capabilities with no backend:** a capability a plugin declares, which an active pack checks, with no `tools.bindings` entry is named. Otherwise the check silently never runs. On the reference plugins today: `mongodb.replset`, `mongodb.slow_ops` and `rabbitmq.queues`. Binding is a deployment fact, so this lives in `doctor`, not the offline gaps step.
+- **Declared capabilities with no backend:** a capability a plugin declares, which a pack some service selects checks, with no `tools.bindings` entry is named. Otherwise the check silently never runs (for example `rabbitmq.queues` for a service whose stack is `rabbitmq`). Binding is a deployment fact, so this lives in `doctor`, not the offline gaps step.
 - **Readiness freshness:** when the report was made, and a warning when the plugins changed since. The report now stores the index digest. Model and history changes still show on the onboarding page, not here.
 - **Calibration in use:** whether triage uses the fitted table or the configured artifact, and why:
   - the switch;

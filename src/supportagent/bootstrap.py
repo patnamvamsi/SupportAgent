@@ -1646,7 +1646,13 @@ def onboarding_facts(config: AppConfig, engine: Engine, clock: Clock) -> Onboard
         for name, spec in p.manifest.provides.capabilities.items()
         if spec.result_schema is not None and name not in CAPABILITIES
     }
-    used = {t for pack in _pack_set(config).packs if not pack.placeholder for t in pack.tools}
+    packs = _pack_set(config)
+    # Only packs a catalogue service selects: a pack no service selects can't fail a case.
+    try:
+        services = _build_catalog(config).services
+    except ConfigError:
+        services = []  # the config check reports it
+    used = {t for entry in services for pack in packs.active(entry.stack) for t in pack.tools}
     unserved = sorted(
         (c, pid) for c, pid in declared.items() if c in used and c not in config.tools.bindings
     )

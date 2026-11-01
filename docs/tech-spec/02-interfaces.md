@@ -197,7 +197,7 @@ Rules: no JavaScript beyond HTMX; every form posts with CSRF; the payload shown 
 |---|---|---|
 | config | v0.0 | All files validate; taxonomy references resolve; calibration grade ≥ `min_grade` |
 | packs | ADR-0011 | Every pack loads and validates together (unique label, hypothesis and runbook ids; preclass labels exist; fragments within budget). Lists each pack, the services that select it and its eval status. Warning: a selected pack that is not evaluated, or that names tools the build doesn't have. Added by WP-M01 |
-| onboarding | ADR-0017 | The plugin index loads and every pin verifies; names disabled plugins, the routing switch, and which calibration triage scores with and why. Fail: the plugins don't load. Warning: a catalogue that doesn't load; a capability a plugin declares that an active pack checks with no `tools.bindings` entry (it never runs); plugins changed since readiness was assessed. Added by WP-A6c |
+| onboarding | ADR-0017 | The plugin index loads and every pin verifies; names disabled plugins, the routing switch, and which calibration triage scores with and why. Fail: the plugins don't load. Warning: a catalogue that doesn't load; a capability a plugin declares that a pack some service selects checks, with no `tools.bindings` entry (it never runs); plugins changed since readiness was assessed. Added by WP-A6c |
 | db | v0.0 | Connects; migrations at head; `PRAGMA foreign_keys` = 1 on a fresh connection (SQLite) |
 | servicenow.auth | v0.0 | Token obtained; read probe on each configured table succeeds; **no write performed** |
 | servicenow.journal_visibility | v0.0 | `work_notes` not exposed to the caller role (checks `sys_dictionary` / ACL read for `snc_external`/ess roles) |

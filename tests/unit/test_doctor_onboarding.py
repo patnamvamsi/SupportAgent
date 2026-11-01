@@ -113,11 +113,22 @@ def test_onboarding_facts_from_the_deployment(db: Any, clock: Any) -> None:
     facts = onboarding_facts(cfg, db, clock)
     assert facts.plugins and not facts.readiness_present and facts.plugins_changed is None
     assert facts.routing == "report"
-    # mongodb and rabbitmq declare capabilities their packs check; nothing binds them here
-    assert ("rabbitmq.queues", "rabbitmq") in facts.unserved
+    assert facts.unserved == []  # the lab's services select no pack that needs one
     ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=cfg.tenant.id).save(
         {"v": 1, "classes": [], "at": "2026-11-02T09:30:00+00:00", "plugins_index": "stale"}
     )
     facts = onboarding_facts(cfg, db, clock)
     assert facts.readiness_present and facts.readiness_at == "2026-11-02T09:30:00+00:00"
     assert facts.plugins_changed is True
+
+
+def test_onboarding_facts_name_an_unbound_capability_a_service_needs(
+    db: Any, clock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import supportagent.bootstrap as boot  # noqa: PLC0415
+    from supportagent.domain.model.catalog import Catalog, ServiceEntry  # noqa: PLC0415
+
+    entry = ServiceEntry(name="orders", paging_integration="pagerduty:orders", stack=["rabbitmq"])
+    monkeypatch.setattr(boot, "_build_catalog", lambda _c: Catalog(version="1", services=[entry]))
+    facts = onboarding_facts(_config(), db, clock)
+    assert ("rabbitmq.queues", "rabbitmq") in facts.unserved
