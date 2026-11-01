@@ -249,7 +249,7 @@ def test_each_gate_keeps_a_class_from_being_ready() -> None:
         "1 scenario(s) with evidence; needs 3 (2 without evidence)"
         in by["oracle-plan-regression"].reasons
     )
-    assert by["jvm-heap-exhaustion"].reasons == ("found the cause in 1 of 4 (needs 75%)",)
+    assert by["jvm-heap-exhaustion"].reasons == ("found the cause below the 75% needed",)
     assert by["ui-cors-or-stale-bundle"].status == "untestable"
     assert report.ready_share == round(shares["oracle-tablespace-full"], 3)
     assert not report.ready and report.false_causes == 1

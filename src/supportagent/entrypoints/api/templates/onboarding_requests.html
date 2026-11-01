@@ -2,7 +2,7 @@
 {% block title %}Access requests{% endblock %}
 {% block content %}
 <h1>Access requests</h1>
-<p class="muted">What onboarding needs to test the causes in this system's incident history, most valuable first. Each scope is the plugin's read-only contract, word for word; nothing is asked for beyond it. Approving says you will provide the credential. It is checked against its probes before anything uses it.</p>
+<p class="muted">What onboarding needs to test the causes in this system's incident history, most valuable first. Each scope is the plugin's read-only contract, word for word; nothing is asked for beyond it. Approving says you will provide the credential. Binding it, and proving it against these probes (what it must be able to read, and every write it must be refused), is the next step to land (next-steps 1.2); until then nothing uses it.</p>
 {% for r in requests %}
 <article class="card {{ r.status }}">
   <h2>{{ r.plugin }}: <code>{{ r.access }}</code> on <code>{{ r.target }}</code></h2>

@@ -418,7 +418,7 @@ def _assess_class(
         reasons.append(f"{len(false)} false cause(s): {named}")
     if replayed and correct / len(replayed) < gates.min_top1:
         what = "abstained" if cls.cause is None else "found the cause"
-        reasons.append(f"{what} in {correct} of {len(replayed)} (needs {gates.min_top1:.0%})")
+        reasons.append(f"{what} below the {gates.min_top1:.0%} needed")
     return ClassReadiness(
         cls.id,
         cls.cause,
