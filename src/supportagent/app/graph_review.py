@@ -27,6 +27,7 @@ from typing import Literal, Protocol, Self
 import sqlalchemy as sa
 
 from supportagent.app.graph import GraphBuild
+from supportagent.app.onboarding_audit import OnboardingAudit
 from supportagent.domain.errors import DomainValidationError, NotFound
 from supportagent.domain.graph import AliasFact, EdgeFact, NodeFact
 from supportagent.ports.clock import Clock
@@ -100,10 +101,19 @@ def fact_id(fact: str, src: str, kind: str, dst: str | None) -> str:
 
 
 class GraphReview:
-    def __init__(self, *, uow: _UoW, clock: Clock, tenant_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        uow: _UoW,
+        clock: Clock,
+        tenant_id: str,
+        audit: OnboardingAudit | None = None,
+    ) -> None:
         self._uow = uow
         self._clock = clock
         self._tenant = tenant_id
+        #: ADR-0017 (WP-A6): each decision is an ``onboarding`` event, in the same transaction.
+        self._audit = audit
 
     # -- saving a build ---------------------------------------------------------------
 
@@ -339,6 +349,12 @@ class GraphReview:
                         "t": self._tenant,
                     },
                 ).rowcount
+            if self._audit is not None and changed:
+                self._audit.record(
+                    "graph_decided",
+                    actor=actor,
+                    detail={"decision": decision, "facts": changed, "ids": list(ids)[:20]},
+                )
             self._uow.commit()
         return changed
 
@@ -411,6 +427,12 @@ class GraphReview:
                         ),
                         {"id": fid, "a": actor, "now": now},
                     )
+            if self._audit is not None:
+                self._audit.record(
+                    "graph_decided",
+                    actor=actor,
+                    detail={"question": question_id, "choice": choice, "edge": edge or None},
+                )
             self._uow.commit()
 
 

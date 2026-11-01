@@ -51,3 +51,5 @@ class ApiContext:
     readiness: Callable[[], ReadinessStore] | None = None
     #: ADR-0017 (WP-A4): the last ``onboard run``'s steps and needs.
     onboarding_status: Callable[[], OnboardingStatusStore] | None = None
+    #: ADR-0017 (WP-A6): the tenant's onboarding events, newest first.
+    onboarding_history: Callable[[], list[dict[str, object]]] | None = None

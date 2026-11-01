@@ -22,6 +22,7 @@ from typing import Literal, Protocol, Self
 
 import sqlalchemy as sa
 
+from supportagent.app.onboarding_audit import OnboardingAudit
 from supportagent.domain.errors import DomainValidationError, NotFound
 from supportagent.domain.gap_plan import AccessRequest, GapPlan
 from supportagent.ports.clock import Clock
@@ -81,10 +82,19 @@ def _detail(r: AccessRequest) -> dict[str, object]:
 
 
 class RequestReview:
-    def __init__(self, *, uow: _UoW, clock: Clock, tenant_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        uow: _UoW,
+        clock: Clock,
+        tenant_id: str,
+        audit: OnboardingAudit | None = None,
+    ) -> None:
         self._uow = uow
         self._clock = clock
         self._tenant = tenant_id
+        #: ADR-0017 (WP-A6): each decision is an ``onboarding`` event, in the same transaction.
+        self._audit = audit
 
     def save(self, plan: GapPlan) -> dict[str, int]:
         now = int(self._clock.now().timestamp())
@@ -179,6 +189,22 @@ class RequestReview:
             ).rowcount
             if not changed:
                 raise NotFound(f"request {rid}")  # noqa: TRY003
+            if self._audit is not None:
+                row = self._uow.connection.execute(
+                    sa.text(
+                        "SELECT plugin, access, target FROM onboarding_requests "
+                        "WHERE id = :id AND tenant_id = :t"
+                    ),
+                    {"id": rid, "t": self._tenant},
+                ).first()
+                self._audit.record(
+                    "access_decided",
+                    actor=actor,
+                    detail={
+                        "request": "/".join(str(x) for x in row) if row else rid,
+                        "decision": decision,
+                    },
+                )
             self._uow.commit()
         return next(r for r in self.requests() if r.id == rid)
 

@@ -1,4 +1,4 @@
-"""Event kinds for the append-only event log (ARCH §15: exactly 20)."""
+"""Event kinds for the append-only event log (ARCH §15: exactly 21; ``onboarding``: ADR-0017)."""
 
 from __future__ import annotations
 
@@ -26,3 +26,7 @@ class EventKind(StrEnum):
     WEBHOOK_REJECTED = "webhook_rejected"
     EXECUTOR_HASH_MISMATCH = "executor_hash_mismatch"
     SLO_MISS = "slo_miss"
+    #: ADR-0017 (WP-A6): onboarding's audit trail. ``payload.action`` says what:
+    #: a step, a plugin installed or disabled, an access or graph decision, a
+    #: readiness assessment, a calibration fit, drift found.
+    ONBOARDING = "onboarding"

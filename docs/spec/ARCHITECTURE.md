@@ -820,7 +820,10 @@ events(id, tenant_id, trace_id, span_id, parent_span_id, kind, actor,
     kind: ingest | dedup | preclass | classify | decision | llm | redact |
           tool_call | rca_step | gate | send | sync | sync_takeover | feedback |
           prior_zeroed | page_recommended | spend_breaker | webhook_rejected |
-          executor_hash_mismatch | slo_miss
+          executor_hash_mismatch | slo_miss | onboarding
+    (`onboarding`, ADR-0017: onboarding's audit trail, one trace per tenant; `payload.action`
+     is a step, a plugin installed or disabled, an access or graph decision, readiness,
+     calibration or drift)
     (`redact` events are emitted from inside LLMClient: counts per detector class, never the values)
 
 -- Knowledge & learning
