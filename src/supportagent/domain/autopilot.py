@@ -25,13 +25,14 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-Step = Literal["ingest", "sense", "graph", "incidents", "requests", "readiness", "gaps"]
+Step = Literal["ingest", "sense", "graph", "incidents", "requests", "evidence", "readiness", "gaps"]
 STEPS: tuple[Step, ...] = (
     "ingest",
     "sense",
     "graph",
     "incidents",
     "requests",
+    "evidence",
     "readiness",
     "gaps",
 )

@@ -27,9 +27,13 @@ from supportagent.domain.trace import TraceContext
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
-from supportagent.ports.tools import Tool, ToolResult
+from supportagent.ports.tools import ReplayableTool, Tool, ToolResult
 
 DEFAULT_TIMEOUT_S = 10.0
+
+
+def _past(tool: object) -> ReplayableTool | None:
+    return tool if isinstance(tool, ReplayableTool) else None
 
 
 class ToolRegistry:
@@ -77,10 +81,46 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             raise ToolError(f"tool {name!r} is not registered")  # noqa: TRY003
+        return self._run(tool, template, service, trace, lambda a, t: tool.run(a, timeout_s=t))
+
+    def replayable(self, name: str) -> bool:
+        """ADR-0018: whether the tool can read the past (``run_as_of``)."""
+        return _past(self._tools.get(name)) is not None
+
+    def call_as_of(
+        self,
+        name: str,
+        template: Mapping[str, object],
+        service: ServiceEntry,
+        trace: TraceContext,
+        *,
+        at: datetime,
+    ) -> ToolResult:
+        """ADR-0018: the same read as ``call``, ending at ``at``; bound, checked, audited."""
+        past = _past(self._tools.get(name))
+        if past is None:
+            raise ToolError(f"tool {name!r} can't read the past")  # noqa: TRY003
+        return self._run(
+            self._tools[name],
+            template,
+            service,
+            trace,
+            lambda a, t: past.run_as_of(a, at=at, timeout_s=t),
+        )
+
+    def _run(
+        self,
+        tool: Tool,
+        template: Mapping[str, object],
+        service: ServiceEntry,
+        trace: TraceContext,
+        run: Callable[[Mapping[str, object], float], ToolResult],
+    ) -> ToolResult:
+        name = tool.name
         args = bind_args(template, service, literal_args=tool.literal_args)
         started = self._clock.now()
         try:
-            result = tool.run(args, timeout_s=self._timeout_s)
+            result = run(args, self._timeout_s)
             problems = schema_errors(dict(result.data), tool.result_schema)
             if problems:
                 raise ToolError(  # noqa: TRY003, TRY301 — an off-schema result is a failure

@@ -136,8 +136,14 @@ class LokiSearchTool:
         self._clock = clock
 
     def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        return self.run_as_of(args, at=self._clock.now(), timeout_s=timeout_s)
+
+    def run_as_of(
+        self, args: Mapping[str, object], *, at: datetime, timeout_s: float
+    ) -> ToolResult:
+        """ADR-0018: the window ends at ``at``."""
         query, window, limit = render_logql(args)
-        end = self._clock.now()
+        end = at
         start = end - timedelta(minutes=window)
         body = get_json(
             self._client,

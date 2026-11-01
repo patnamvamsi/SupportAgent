@@ -148,3 +148,8 @@ class LLMRateLimited(ExternalServiceError):
 
 class ToolError(ExternalServiceError):
     """A tool execution failed after its retries."""
+
+
+class HistoryUnavailable(ToolError):
+    """ADR-0018: the store no longer holds the past this read asked for (aged out, or
+    the newest page of history doesn't reach back that far). Reported, never guessed."""

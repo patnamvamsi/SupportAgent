@@ -21,6 +21,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0015](0015-system-onboarding-and-plugins.md) | System onboarding: an instance learns the system it supports, asks for what it lacks, and proves readiness; everything pluggable is a plugin | accepted |
 | [0016](0016-plugins-are-data.md) | Plugins are data: declared capabilities and declarative extractors, so a new stack needs no core code | accepted |
 | [0017](0017-onboarding-autopilot.md) | Onboarding autopilot: any system, one command; install what exists, name what doesn't, resume when it arrives | accepted |
+| [0018](0018-live-evidence-capture.md) | Live evidence capture: replay a real system's history from its own tools, as of each incident | accepted |
 | [0016](0016-plugins-are-data.md) | Plugins are data: declared capabilities and declarative extractors, so a new stack needs no core code | accepted |
 
 ## Naming

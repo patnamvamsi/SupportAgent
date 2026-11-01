@@ -20,17 +20,23 @@ Three reference systems (Java/Oracle, data platform, Node/MongoDB/RabbitMQ) are 
 
 ## 1. The path to a real system (in order)
 
-### 1.1 Capture evidence from live tools (WP-E1). The blocker
+### 1.1 Capture evidence from live tools (*delivered*, WP-E1, ADR-0018)
 
-Readiness replays each past incident from the evidence captured at the time. The reference systems carry that evidence as fixtures; a real workspace has none. So today a real system ends every `onboard run` with *"not ready: no evidence captured"*, whatever its plugins.
+`onboard evidence` (and an `evidence` step in `onboard run`, before readiness) reads each past incident of a testable class as of its open time. It uses the probes RCA would plan, through the tool registry, so every read is a `tool_call` event.
+- **Can read the past:** `logs.search` (Loki), `metrics.query` (Prometheus), `changes.recent` and `gha.recent_runs`. Each has `run_as_of`.
+- **Point-in-time** (locks, sessions, pods, MCP-served capabilities): marked *not replayable*.
+- **Aged out:**
+  - older than `onboarding.retention_days` (logs 30, metrics 15, changes 90, CI 400 by default);
+  - or the store's newest page doesn't reach back.
 
-- **What:** for each past incident in a testable class, call the plugins' read-only tools for that incident's time window, the same probes its runbooks use. That means logs and metrics around the open time, rollouts before it, and database state where the tool can read history. Store the results as `sources/evidence/<incident>.yaml`; readiness then replays from them.
-- **Honesty rules:**
-  - Evidence that has aged out of retention (Loki or Prometheus) is reported as missing, never guessed.
-  - Point-in-time tools (current locks, current queue depth) can't see the past, so they are marked *not replayable*.
-  - A class whose cause can only be seen live is reported as such: it can still be proven later in shadow (1.3).
-- **Needs:** approved access (1.2) and a model.
-- **Done when:** a workspace whose tools are fakes with history onboards to the same readiness as its fixture.
+  Reported, never read as "nothing was wrong".
+- **The replay rule:** an incident is replayed only when every read of its cause came back. Without the decisive evidence, the replay drifted to another hypothesis: a lock read only as the pool exhaustion it caused, six false causes in System A's lock class.
+- A class with nothing replayable says why: *visible only live: prove it in shadow* (1.3), or *aged out*. It asks for evidence, not for a plugin.
+- Done: fakes with history reach System A's fixture readiness exactly.
+
+**Follow-ups:**
+- Oracle history from AWR/ASH (`DBA_HIST_*`) needs the Diagnostics Pack licence, which is the partner's decision.
+- An MCP binding that maps a time argument.
 
 ### 1.2 Bind approved credentials and verify they are read-only (WP-O5b)
 
@@ -126,4 +132,4 @@ Delivered:
 
 ## Suggested order
 
-1.1 then 1.2, which together unblock a real system; then 2 (control and observability); then 1.4 on a real system as soon as one is available; then 1.3. Section 3 fits around them.
+1.1 (delivered) then 1.2, which together unblock a real system; then 2 (control and observability, delivered); then 1.4 on a real system as soon as one is available; then 1.3. Section 3 fits around them.

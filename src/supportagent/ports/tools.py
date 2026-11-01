@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from datetime import datetime
+from typing import Protocol, runtime_checkable
 
 from supportagent.domain.tiers import Tier, TrustClass
 
@@ -36,4 +37,17 @@ class Tool(Protocol):
         ...
 
 
-__all__ = ["Tool", "ToolResult"]
+@runtime_checkable
+class ReplayableTool(Protocol):
+    """ADR-0018: a tool that can read the past, the same read ending at ``at``.
+
+    Point-in-time tools (current locks, pods, queue depth) don't implement it:
+    their evidence for a past incident is *not replayable*.
+    """
+
+    def run_as_of(
+        self, args: Mapping[str, object], *, at: datetime, timeout_s: float
+    ) -> ToolResult: ...
+
+
+__all__ = ["ReplayableTool", "Tool", "ToolResult"]

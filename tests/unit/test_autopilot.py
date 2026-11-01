@@ -82,9 +82,12 @@ def test_one_command_takes_a_new_system_through_every_step(
         "graph",
         "incidents",
         "requests",
+        "evidence",
         "readiness",
         "gaps",
     ]
+    # ADR-0018: no configured tool reads the past, so the workspace's evidence stands.
+    assert "no tool here reads the past" in steps["evidence"].detail
     # The model never answers here: the steps that need it say so, and nothing claims ready.
     blocked = {s.step for s in status.steps if s.state == "blocked"}
     assert blocked == {"graph", "incidents"}, status.lines()
@@ -99,7 +102,7 @@ def test_one_command_takes_a_new_system_through_every_step(
     assert any(n.kind == "review" for n in status.needs)  # the graph facts to confirm
     assert status.bar == 0.70
     saved = json.loads((tmp_path / "ws" / AUTOPILOT_STATE).read_text())
-    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 7
+    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 8
 
 
 def test_a_rerun_skips_what_is_done_and_clears_what_a_person_did(

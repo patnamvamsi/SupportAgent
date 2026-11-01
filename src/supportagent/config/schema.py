@@ -643,6 +643,16 @@ class OnboardingConfig(DomainModel):
 
     routing: Literal["enforce", "report"] = "enforce"
     calibration: Literal["fitted", "artifact"] = "fitted"
+    #: ADR-0018: how long each store that can read the past keeps it, in days. An
+    #: incident older than that is reported *aged out* for it, never read.
+    retention_days: dict[str, int] = Field(
+        default_factory=lambda: {
+            "logs.search": 30,
+            "metrics.query": 15,
+            "changes.recent": 90,
+            "gha.recent_runs": 400,
+        }
+    )
 
 
 class AppConfig(DomainModel):
