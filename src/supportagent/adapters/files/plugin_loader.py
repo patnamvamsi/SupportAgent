@@ -178,6 +178,8 @@ __all__ = [
     "INDEX",
     "MANIFEST",
     "LoadedPlugin",
+    "disabled_plugins",
+    "index_sha256",
     "install_plugin",
     "load_manifest",
     "load_registry",
@@ -208,6 +210,17 @@ def set_disabled(root: Path, plugin_id: str, *, disabled: bool) -> None:
         flipped = {k: v for k, v in entry.items() if k != "disabled"}
         updated.append(flipped | ({"disabled": True} if disabled else {}))
     _write(root, updated)
+
+
+def disabled_plugins(root: Path) -> list[str]:
+    """The installed plugins ``plugin disable`` took out (ADR-0017, WP-A6)."""
+    return sorted(str(e["id"]) for e in _entries(root) if e.get("disabled") is True)
+
+
+def index_sha256(root: Path) -> str | None:
+    """The digest of the plugin index: any install, re-pin or toggle changes it."""
+    path = root / INDEX
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
 def install_plugin(catalog: LoadedPlugin, root: Path) -> Path:

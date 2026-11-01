@@ -329,6 +329,8 @@ def stats_page(
             window=window,
             gate=stats.promotion(ctx.promotion_gate, window=span) if chosen == "shadow" else None,
             fatigue=stats.fatigue(window=span),
+            holds=stats.readiness_holds(window=span),
+            calibration=ctx.calibration_in_use() if ctx.calibration_in_use else None,
         )
 
     return _page(request, ctx, Permission.VIEW, build)

@@ -94,3 +94,31 @@ def test_audit_payloads_carry_no_floats() -> None:
         "n": 3,
     }
     assert EventKind.ONBOARDING.value == "onboarding"
+
+
+def test_onboarding_page_shows_the_ready_share_over_time(  # noqa: PLR0913, PLR0917 — fixtures
+    tmp_path: Path,
+    db: Any,
+    clock: Any,
+    ids: Any,
+    master_key: bytes,
+    client: TestClient,
+    oidc: FakeOIDC,
+) -> None:
+    _run(tmp_path, db, clock)
+    for share in (0.62, 0.75):
+        clock.advance(3600)
+        uow = SqlUnitOfWork(db)
+        with uow:
+            OnboardingAudit(
+                events=_event_sink(uow, master_key, clock), ids=ids, clock=clock, tenant_id=TENANT
+            ).record(
+                "readiness_assessed",
+                actor="onboarding",
+                detail={"ready": share >= 0.7, "ready_share": share},
+            )
+            uow.commit()
+    login(client, oidc, ADA)
+    page = client.get("/ui/onboarding").text
+    assert "Ready share over the last" in page
+    assert "62% → 75%</p>" in page

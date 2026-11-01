@@ -93,6 +93,7 @@ def test_wp015_dod_doctor_all_green_on_example_config(
     assert [r.name for r in report.results] == [
         "config",
         "packs",
+        "onboarding",
         "knowledge",
         "db",
         "servicenow.auth",
