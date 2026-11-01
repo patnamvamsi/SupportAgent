@@ -11,10 +11,10 @@
   <p class="muted">Most valuable first: each item's share is the incident weight it holds back. Act on it, then re-run <code>supportagent onboard run</code>; it continues where it stopped.</p>
   <ul class="needs">{% for n in run.needs %}
     <li class="need {{ n.kind }}">{% if n.weight %}<meter class="share" min="0" max="1" value="{{ n.weight }}">{{ (n.weight * 100) | round | int }}%</meter> {% endif %}<strong>{{ need_labels[n.kind] }}:</strong> {{ n.what }}
-      {% if n.how.startswith("/ui/") %}<a href="{{ n.how }}">Open</a>{% else %}<code>{{ n.how }}</code>{% endif %}</li>
+      {% if n.how.startswith("/ui/") %}<a href="{{ n.how }}">Open</a>{% elif n.how.startswith("supportagent ") %}<code>{{ n.how }}</code>{% else %}<span class="muted">({{ n.how }})</span>{% endif %}</li>
   {% endfor %}</ul>
   {% else %}<p class="ok">Nothing: onboarding is waiting on no one.</p>{% endif %}
-  <p class="muted">As of the last run, {{ run.at }}.</p>
+  <p class="muted">As of the last run{% if run.at %}, {{ run.at[:16] | replace("T", " ") }} UTC{% endif %}.</p>
 </section>
 {% endif %}
 {% if not p.total %}

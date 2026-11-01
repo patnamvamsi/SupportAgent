@@ -44,7 +44,7 @@ main:has(.review-grid) { max-width: 1500px; }
 .review-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 1rem; align-items: start; }
 @media (max-width: 900px) { .review-grid { grid-template-columns: 1fr; } }
 .graph-pane { overflow: auto; border: 1px solid var(--line); border-radius: 6px; max-height: 80vh; position: sticky; top: .5rem; }
-svg.graph { display: block; color: var(--muted); font: 12px system-ui, sans-serif; }
+svg.graph { display: block; width: 100%; height: auto; min-width: 640px; color: var(--muted); font: 12px system-ui, sans-serif; }
 svg.graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.4; }
 svg.graph .edge.proposed { stroke-dasharray: 5 4; }
 svg.graph .edge.confirmed { stroke: var(--ok); }

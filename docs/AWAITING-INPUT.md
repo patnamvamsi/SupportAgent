@@ -4,6 +4,12 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
+### A real system to onboard (2026-11-01)
+
+- **What's needed:** a system to point `supportagent onboard run` at: its ServiceNow scope (business service, assignment groups), Confluence spaces and repositories, plus read-only credentials as onboarding asks for them. The partner data (BL-037) would do.
+- **Done meanwhile:** the loop works end to end on three synthetic reference systems (ADR-0015/16/17). [next-steps.md](next-steps.md) lists what must land first for a real system to reach *ready*: live evidence capture (1.1) and credential binding (1.2).
+- **Unblocks:** next-steps 1.4, the first real onboarding.
+
 ### GitHub Actions minutes: merging on local CI until they reset (2026-10-29)
 
 - **What happened:** the repo is private on the free plan, so Actions get the free plan's monthly minutes. Each push runs about 13 jobs, billed per job and rounded up to the minute, and the nightly job runs every day; together they used up the month's minutes. GitHub then refuses jobs with the "payments … spending limit" message. No payment is needed.

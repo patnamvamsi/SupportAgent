@@ -120,7 +120,7 @@ def test_the_readiness_page_shows_each_class_and_why(
     page = client.get("/ui/onboarding/readiness").text
     assert "Ready to support" in page and "<meter" in page and "style=" not in page
     assert "Can&#39;t be tested yet" in page and "angular plugin is a skeleton" in page
-    assert "found the cause in 3 of 6" in page  # the pool class, held back by its gate
+    assert "<strong>3 of 6</strong>" in page and "below the 75% needed" in page  # held back
 
 
 def _replay(predicted: str, preclass: str | None, *, ok: bool) -> Any:

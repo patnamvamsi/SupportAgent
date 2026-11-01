@@ -27,7 +27,7 @@ _COLUMNS = {
     "Runtime": 4,
     "External": 4,
 }
-_COL_W, _ROW_H, _BOX_W, _BOX_H, _PAD = 230, 40, 190, 26, 20
+_COL_W, _ROW_H, _BOX_W, _BOX_H, _PAD = 172, 36, 148, 24, 14
 _LABEL_MAX = 26
 
 
@@ -49,7 +49,7 @@ def render(facts: Sequence[FactView], *, focus: str | None = None) -> Markup:
     width = _PAD * 2 + (max(columns, default=0) + 1) * _COL_W
     height = _PAD * 2 + max((len(v) for v in columns.values()), default=1) * _ROW_H
     parts = [
-        f'<svg class="graph" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'<svg class="graph" viewBox="0 0 {width} {height}" '
         'role="img" aria-label="System graph: confirmed edges solid, proposed dashed">',
         '<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" '
         'markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" '
