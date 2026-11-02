@@ -1,7 +1,7 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml. ADR-0016: data only.
 # Its evidence is served by a RabbitMQ management MCP server (read-only tools).
 id: rabbitmq
-version: 0.1.0
+version: 0.1.1
 description: RabbitMQ brokers and their queues (backlogs, consumers, memory alarms).
 core_api: ">=1.0,<2"
 status: evaluated   # its pack passes its lab (packs/rabbitmq/evals)
@@ -57,6 +57,7 @@ requires:
     target: Cluster
     verify_can: [GET /api/queues]
     verify_cannot: [publish a message, purge a queue, delete a queue]
+    verifier: rabbitmq   # ADR-0019: proves a credential read-only before it is bound
     find: {graph: Runtime, tech: rabbitmq}
 detectors:
   min_score: 1.0

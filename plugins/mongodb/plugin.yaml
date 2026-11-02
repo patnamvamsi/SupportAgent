@@ -2,7 +2,7 @@
 # Its evidence is served by a MongoDB MCP server (read-only tools); the core
 # knows the capabilities from the schemas declared here.
 id: mongodb
-version: 0.1.0
+version: 0.1.1
 description: MongoDB under an application (slow and unindexed queries, the driver's connection pool, elections).
 core_api: ">=1.0,<2"
 status: evaluated   # its pack passes its lab (packs/mongodb/evals)
@@ -59,6 +59,7 @@ requires:
     target: Database
     verify_can: ["db.currentOp()", "db.system.profile.find()"]
     verify_cannot: [insert, update, createIndex, dropDatabase]
+    verifier: mongodb   # ADR-0019: proves a credential read-only before it is bound
     find: {graph: Database, tech: mongodb}
 detectors:
   min_score: 1.0

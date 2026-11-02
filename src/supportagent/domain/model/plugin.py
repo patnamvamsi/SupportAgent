@@ -280,6 +280,10 @@ class AccessContract(DomainModel):
     #: Probes run at provision (WP-O5): what must work, and what must be refused.
     verify_can: list[str] = Field(min_length=1)
     verify_cannot: list[str] = Field(min_length=1)
+    #: ADR-0019 (WP-O5b): the built-in verifier that runs these probes (``oracle``,
+    #: ``mongodb``, ``rabbitmq``). Without one a credential can't be proven read-only,
+    #: so it isn't bound. Verifiers are core code: a plugin names one, never ships one.
+    verifier: str | None = Field(default=None, pattern=_ID)
     #: Where the targets are found; one request per target.
     find: TargetFinder
 

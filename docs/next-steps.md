@@ -1,4 +1,4 @@
-# Next steps (as of 2026-11-01)
+# Next steps (as of 2026-11-02)
 
 Where SupportAgent stands after ADR-0015 (onboarding and plugins), ADR-0016 (plugins are data) and ADR-0017 (the onboarding autopilot), and what comes next, in order.
 
@@ -35,18 +35,24 @@ Three reference systems (Java/Oracle, data platform, Node/MongoDB/RabbitMQ) are 
 - Done: fakes with history reach System A's fixture readiness exactly.
 
 **Follow-ups:**
-- Oracle history from AWR/ASH (`DBA_HIST_*`) needs the Diagnostics Pack licence, which is the partner's decision.
+- Oracle history from AWR/ASH (`DBA_HIST_*`): **not pursued**. There is no Diagnostics Pack licence (maintainer, 2026-11-02), so Oracle lock and session evidence stays point-in-time: those classes are proven live, in shadow (1.3).
 - An MCP binding that maps a time argument.
 
-### 1.2 Bind approved credentials and verify they are read-only (WP-O5b)
+### 1.2 Bind approved credentials and verify they are read-only (*delivered*, WP-O5b, ADR-0019)
 
-Approving an access request records intent only.
-- **What:** approving takes the credential (into the secret store, never the database), binds it to the plugin's first-party tool or MCP server, and runs the contract's probes:
-  - `verify_can` must work;
-  - `verify_cannot` must be refused: no insert, no update, no DDL, no publish, no delete.
+`supportagent onboard bind <id>` takes an approved request's credential from a hidden prompt or `--stdin`, never from a web page.
+- **The probes:** the contract's verifier runs them with the credential. `verify_can` must work. Every `verify_cannot` must be refused. The probes never write: they read the system's own account of the credential's privileges, or make an operation that changes nothing.
+- **The verdict:** proven read-only, the credential goes to the vault (`onboarding.credentials_vault`, sealed under the master key, never the database) and the request is `bound`. Otherwise nothing is stored and the request reopens with why. Anything that can't be told counts against the credential.
+- **The record:** every probe is on the request and in the audit trail, redacted of the credential.
+- **Use:** a bound `oracle_ro` credential serves the Oracle tools.
+- **Keeping it true:** `onboard verify` re-runs every bound credential's probes; one that can write now is unbound and reopened.
+- Done: fakes of Oracle, MongoDB and RabbitMQ, each with a read-only and a read-write account, bind the first and refuse the second.
 
-  A credential that can write is refused and the request reopens with why. Every probe and its result is recorded.
-- **Done when:** a fake Oracle, MongoDB and RabbitMQ, each with a read-only and a read-write account, bind the first and refuse the second.
+**Follow-ups:**
+- Verifiers for the other contracts (GitHub, Snowflake, Kafka, Airflow, Grafana and the rest). Until one exists, a contract is never bound.
+- Starting an MCP server (MongoDB, RabbitMQ) with its bound credential: the installer's job (§3).
+- Run `onboard verify` on a schedule (cron, or the worker), alerting when it unbinds.
+- Meeting real systems: the verifiers are tested against faithful fakes only.
 
 ### 1.3 Shadow replay (WP-O6c)
 
@@ -128,8 +134,8 @@ Delivered:
   - the MCP canary on Postgres;
   - `test_sop_auto_db`'s daily cap on SQLite, which is possibly date-sensitive.
 - Knowledge for System B's stack (Kafka, Snowflake, Spark, Airflow, data quality), done the ADR-0016 way: plugins as data, packs with labs.
-- The installer: `./install.sh` should offer `plugins.catalogs` and `onboard run` as its last step.
+- The installer: `./install.sh` should offer `plugins.catalogs` and `onboard run` as its last step, and start each MCP server a plugin needs with its bound credential (ADR-0019 §5).
 
 ## Suggested order
 
-1.1 (delivered) then 1.2, which together unblock a real system; then 2 (control and observability, delivered); then 1.4 on a real system as soon as one is available; then 1.3. Section 3 fits around them.
+1.1 and 1.2 (delivered), which together unblock a real system; then 2 (control and observability, delivered); then 1.4 on a real system as soon as one is available; then 1.3. Section 3 fits around them.

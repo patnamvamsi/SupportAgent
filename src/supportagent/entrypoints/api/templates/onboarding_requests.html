@@ -2,7 +2,7 @@
 {% block title %}Access requests{% endblock %}
 {% block content %}
 <h1>Access requests</h1>
-<p class="muted">What onboarding needs to test the causes in this system's incident history, most valuable first. Each scope is the plugin's read-only contract, word for word; nothing is asked for beyond it. Approving says you will provide the credential. Binding it, and proving it against these probes (what it must be able to read, and every write it must be refused), is the next step to land (next-steps 1.2); until then nothing uses it.</p>
+<p class="muted">What onboarding needs to test the causes in this system's incident history, most valuable first. Each scope is the plugin's read-only contract, word for word; nothing is asked for beyond it. Approving says you will provide the credential. Bind it from a terminal with <code>supportagent onboard bind &lt;id&gt;</code>: it is proven against these probes first (what it must be able to read, and every write it must be refused), stored in the credential vault only if every one passes, and never typed into this page.</p>
 {% for r in requests %}
 <article class="card {{ r.status }}">
   <h2>{{ r.plugin }}: <code>{{ r.access }}</code> on <code>{{ r.target }}</code></h2>
@@ -10,7 +10,20 @@
   <p>{{ r.description }}</p>
   <blockquote>{{ r.scope }}</blockquote>
   <p class="muted">Found in {{ r.found_in }}. Verified by: can {{ r.verify_can | join(", ") }}; must be refused {{ r.verify_cannot | join(", ") }}.</p>
-  {% if r.status == "open" %}
+  {% if r.reopened_why %}<p class="bad"><strong>Its credential was refused, and nothing was stored:</strong> {{ r.reopened_why }}</p>{% endif %}
+  {% if r.verification and r.verification.probes %}
+  <div class="table-wrap"><table>
+    <caption class="muted">Probes {{ r.verification.at[:16] | replace("T", " ") }} UTC{% if r.verification.verifier %}, {{ r.verification.verifier }} verifier{% endif %}</caption>
+    <thead><tr><th>Must</th><th>Probe</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>{% for p in r.verification.probes %}
+    <tr><td>{{ "work" if p.kind == "can" else "be refused" }}</td><td><code>{{ p.probe }}</code></td>
+      <td class="{{ 'ok' if (p.kind == 'can') == (p.outcome == 'allowed') and p.outcome != 'error' else 'bad' }}">{{ p.outcome }}</td><td>{{ p.detail }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  {% if r.status == "bound" %}
+  <p><span class="ok">Bound by {{ r.decided_by }}: proven read-only, in the credential vault.</span> <span class="muted">Remove it with <code>supportagent onboard unbind {{ r.id }}</code>; <code>supportagent onboard verify</code> runs the probes again.</span></p>
+  {% elif r.status == "open" %}
   <form method="post" action="/ui/onboarding/requests/{{ r.id }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" name="decision" value="approved" class="primary">Approve</button>
@@ -22,6 +35,7 @@
     <span class="{{ 'ok' if r.status == 'approved' else 'muted' }}">{{ r.status | capitalize }} by {{ r.decided_by }}</span>
     <button type="submit" name="decision" value="open">Undo</button>
   </form>
+  {% if r.status == "approved" %}<p class="muted">Waiting for its credential: <code>supportagent onboard bind {{ r.id }}</code></p>{% endif %}
   {% endif %}
 </article>
 {% else %}<p class="muted">No requests yet: run <code>supportagent onboard requests --workspace &lt;dir&gt;</code>.</p>{% endfor %}

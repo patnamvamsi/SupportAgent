@@ -110,14 +110,21 @@ def test_a_rerun_skips_what_is_done_and_clears_what_a_person_did(
 ) -> None:
     first = _run(tmp_path, db, clock)
     review = RequestReview(uow=SqlUnitOfWork(db), clock=clock, tenant_id=TENANT)
-    for request in review.requests():
-        review.decide(request.id, "approved", actor="user_ada")
+    approved, *declined = review.requests()
+    review.decide(approved.id, "approved", actor="user_ada")
+    for request in declined:
+        review.decide(request.id, "declined", actor="user_ada")
     clock.advance(300)
     again = _run(tmp_path, db, clock)
     before = {s.step: s for s in first.steps}
     for step in again.steps:  # done steps are skipped; blocked ones are retried
         assert (step.at == before[step.step].at) == (before[step.step].state == "done")
-    assert not [n for n in again.needs if n.kind == "access"]
+    # ADR-0019: a declined request is done; an approved one waits for its credential.
+    access = [n.what for n in again.needs if n.kind == "access"]
+    assert access == [
+        f"{approved.plugin}/{approved.access} on {approved.target}: approved, "
+        f"bind it with `supportagent onboard bind {approved.id}`"
+    ]
     assert len(again.needs) < len(first.needs)
 
 

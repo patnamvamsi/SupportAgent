@@ -26,7 +26,7 @@ A tool that can read the past implements `run_as_of(args, *, at, timeout_s)` bes
 
 Every other tool is **point-in-time**: it reads current locks, sessions, queue depth or pods. Its evidence for a past incident is marked *not replayable*, never captured from today's state. MCP-served capabilities are point-in-time in this ADR. A binding that maps a time argument is a follow-up.
 
-Oracle's AWR and ASH views (`DBA_HIST_*`) do keep history for sessions, locks and tablespace use. Reading them needs the Diagnostics Pack licence, which is the partner's decision, so it is left out here.
+Oracle's AWR and ASH views (`DBA_HIST_*`) do keep history for sessions, locks and tablespace use. Reading them needs the Diagnostics Pack licence. There is none (maintainer, 2026-11-02), so they are left out.
 
 ### 2. Retention is declared, never guessed
 
