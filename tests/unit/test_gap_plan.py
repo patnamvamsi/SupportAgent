@@ -135,7 +135,7 @@ def test_the_review_keeps_decisions_across_plans(db: Any, clock: Any) -> None:
     smaller = GapPlan(tuple(r for r in plan.requests if r.target != "crmdb"), (), plan.unlocked)
     assert review.save(smaller) == {"new": 0, "kept": 4, "gone": 1}
     assert next(r for r in review.requests() if r.id == rid).decided_by == "user_ada"
-    assert review.progress() == {"open": 3, "approved": 1, "declined": 0}
+    assert review.progress() == {"open": 3, "approved": 1, "declined": 0, "bound": 0}
     with pytest.raises(Exception, match="unknown decision"):
         review.decide(rid, "maybe", actor="u")  # type: ignore[arg-type]
 

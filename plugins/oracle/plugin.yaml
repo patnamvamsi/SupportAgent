@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: oracle
-version: 0.2.0
+version: 0.2.1
 description: Oracle Database (locks and deadlocks, tablespaces, ORA- errors, plan regressions).
 core_api: ">=1.0,<2"
 status: evaluated   # WP-O6a: its pack passes its lab (packs/oracle/evals)
@@ -28,6 +28,7 @@ requires:
     target: Database
     verify_can: ["SELECT count(*) FROM V$SESSION"]
     verify_cannot: [insert, update, delete, ddl]
+    verifier: oracle   # ADR-0019: proves a credential read-only before it is bound
     find: {graph: Database, tech: oracle}   # WP-O5: one request per target found
 detectors:
   min_score: 1.0

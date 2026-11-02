@@ -476,8 +476,11 @@ onboarding_requests = sa.Table(
     sa.Column("decided_by", sa.Text),
     sa.Column("decided_ts", sa.BigInteger),
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
+    # 0021 (ADR-0019, WP-O5b): the last binding's verdict and probes; never the secret.
+    sa.Column("verification_json", sa.Text),
     sa.CheckConstraint(
-        "status IN ('open', 'approved', 'declined')", name="ck_onboarding_requests_status"
+        "status IN ('open', 'approved', 'declined', 'bound')",
+        name="ck_onboarding_requests_status",
     ),
 )
 

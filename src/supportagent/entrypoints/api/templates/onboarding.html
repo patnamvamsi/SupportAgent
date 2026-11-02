@@ -66,6 +66,8 @@
   <tr><td>{{ a.at }}</td><td>{{ a.action | replace("_", " ") }}</td><td>{{ a.actor }}</td>
     <td>{% if a.action == "step" %}{{ a.step }}: {{ a.state }}{% if a.on %} on {{ a.on }}{% endif %}
       {% elif a.action == "access_decided" %}{{ a.request }}: {{ a.decision }}
+      {% elif a.action == "access_verified" %}{{ a.request }}: {{ "bound, proven read-only" if a.bound else "refused: " ~ a.why }}
+      {% elif a.action == "access_unbound" %}{{ a.request }}: {{ a.why }}
       {% elif a.action == "graph_decided" %}{% if a.question %}question settled (option {{ a.choice }}){% else %}{{ a.facts }} fact(s) {{ a.decision }}{% endif %}
       {% elif a.action == "plugin_installed" %}{{ a.plugin }} {{ a.version }} as {{ a.status }}
       {% elif a.action == "readiness_assessed" %}{{ "ready" if a.ready else "not ready" }}: {{ ((a.ready_share_bp or 0) / 100) | round | int }}% of the weight proven

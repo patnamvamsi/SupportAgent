@@ -11,18 +11,21 @@ WP-O2 points the same detection at live sources.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
 import typer
 
 from supportagent.adapters.files.plugin_loader import LoadedPlugin
+from supportagent.app.request_review import request_id
 from supportagent.bootstrap import (
     AUTOPILOT_STATE,
     detect_plugins,
     ingest_system,
     install_and_record,
     load_plugins,
+    onboard_bind,
     onboard_cycle,
     onboard_drift,
     onboard_evidence,
@@ -32,12 +35,19 @@ from supportagent.bootstrap import (
     onboard_readiness,
     onboard_requests,
     onboard_run,
+    onboard_unbind,
+    onboard_verify,
     pin_plugins,
     scaffold_plugin,
     toggle_plugin,
 )
 from supportagent.config.loader import load_config_default
-from supportagent.domain.errors import ConfigError, ExternalServiceError
+from supportagent.domain.errors import (
+    ConfigError,
+    DomainValidationError,
+    ExternalServiceError,
+    NotFound,
+)
 
 plugin_app = typer.Typer(help="The plugin registry (ADR-0015).", no_args_is_help=True)
 onboard_app = typer.Typer(help="Onboarding a system (ADR-0015).", no_args_is_help=True)
@@ -311,10 +321,95 @@ def onboard_requests_command(
         f"{saved['gone']} no longer needed"
     )
     for r in plan.requests:
-        typer.echo(f"  {r.share:>4.0%}  {r.plugin}/{r.access} on {r.target}: {r.why}")
+        typer.echo(
+            f"  {r.share:>4.0%}  {r.plugin}/{r.access} on {r.target}: {r.why} "
+            f"[{request_id(*r.key)}]"
+        )
     for g in plan.gaps:
         typer.echo(f"  gap: {g.class_id} ({g.share:.0%}): {g.why}")
-    typer.echo(f"wrote {path}; decide at /ui/onboarding/requests")
+    typer.echo(
+        f"wrote {path}; decide at /ui/onboarding/requests, then bind an approved one's "
+        "credential with `supportagent onboard bind <id>`"
+    )
+
+
+_BY = typer.Option("cli", "--by", help="Who is doing this, for the audit trail.")
+
+
+@onboard_app.command("bind")
+def onboard_bind_command(
+    request: str = typer.Argument(..., help="The request's id (onboard requests prints it)."),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, vault)."
+    ),
+    stdin: bool = typer.Option(
+        False, "--stdin", help="Read the credential from standard input, not a prompt."
+    ),
+    by: str = _BY,
+) -> None:
+    """Prove a credential read-only against its contract's probes, then bind it (ADR-0019).
+
+    The credential is the connection string the contract's verifier takes (an
+    Oracle DSN, a MongoDB URI, a RabbitMQ management URL with the user in it).
+    It is never echoed, and stored only once every probe passed.
+    """
+    secret = (
+        sys.stdin.readline().strip()
+        if stdin
+        else typer.prompt("credential", hide_input=True).strip()
+    )
+    try:
+        outcome = onboard_bind(load_config_default(config), request, secret, actor=by)
+    except (ConfigError, DomainValidationError, NotFound) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for p in outcome.probes:
+        typer.echo(f"  {p.kind:<6} {p.probe:<40} {p.outcome}{f': {p.detail}' if p.detail else ''}")
+    r = outcome.request
+    if outcome.bound:
+        typer.echo(f"bound: {r.plugin}/{r.access} on {r.target} is proven read-only")
+        return
+    typer.echo(f"refused, nothing stored; the request is open again: {outcome.why}", err=True)
+    raise typer.Exit(1)
+
+
+@onboard_app.command("unbind")
+def onboard_unbind_command(
+    request: str = typer.Argument(..., help="The request's id."),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, vault)."
+    ),
+    by: str = _BY,
+) -> None:
+    """Take a bound credential out of the vault (the request stays approved)."""
+    try:
+        r = onboard_unbind(load_config_default(config), request, actor=by)
+    except (ConfigError, DomainValidationError, NotFound) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"unbound {r.plugin}/{r.access} on {r.target}; it is approved, with no credential")
+
+
+@onboard_app.command("verify")
+def onboard_verify_command(
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (database, vault)."
+    ),
+    by: str = typer.Option("system", "--by", help="Who is doing this, for the audit trail."),
+) -> None:
+    """Run every bound credential's probes again. One that can write now is unbound."""
+    try:
+        outcomes = onboard_verify(load_config_default(config), actor=by)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for o in outcomes:
+        r = o.request
+        verdict = "still read-only" if o.bound else f"unbound and reopened: {o.why}"
+        typer.echo(f"  {r.plugin}/{r.access} on {r.target}: {verdict}")
+    typer.echo(f"{len(outcomes)} bound credential(s) verified")
+    if any(not o.bound for o in outcomes):
+        raise typer.Exit(1)
 
 
 @onboard_app.command("evidence")

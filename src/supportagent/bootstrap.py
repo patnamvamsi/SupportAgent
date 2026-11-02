@@ -43,6 +43,7 @@ from starlette.types import ASGIApp
 
 from supportagent.adapters.cel.check import CelCheckCompiler
 from supportagent.adapters.crypto.aead import Aead
+from supportagent.adapters.crypto.vault import FileCredentialVault
 from supportagent.adapters.db.engine import make_engine
 from supportagent.adapters.db.probe import SqlSchemaProbe
 from supportagent.adapters.db.repos.automation import SqlAutomationActors
@@ -140,6 +141,7 @@ from supportagent.adapters.servicenow.sink import ServiceNowSink
 from supportagent.adapters.servicenow.source import ServiceNowSource
 from supportagent.adapters.system.clock import ReplayClock, SystemClock
 from supportagent.adapters.system.ids import UlidIdGenerator
+from supportagent.adapters.tools.access import access_verifiers
 from supportagent.adapters.tools.airflow import AirflowTool
 from supportagent.adapters.tools.capabilities import CAPABILITIES, Capability
 from supportagent.adapters.tools.changes import RecentChangesTool
@@ -153,6 +155,7 @@ from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.oracle import ORACLE_TOOLS, OracledbReader
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
+from supportagent.app.access_binding import AccessBinding, BindOutcome
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
@@ -188,7 +191,7 @@ from supportagent.app.rca import (
 )
 from supportagent.app.readiness_store import OnboardingStatusStore, ReadinessStore
 from supportagent.app.replay import ReplayService, ReplayView
-from supportagent.app.request_review import RequestReview
+from supportagent.app.request_review import RequestReview, RequestView
 from supportagent.app.retention import RetentionService
 from supportagent.app.setup import SetupService, expand_grant_requests
 from supportagent.app.shadow import ShadowInbound, ShadowRunner, import_history
@@ -353,6 +356,7 @@ from supportagent.evals.readiness import (
     service_entry,
 )
 from supportagent.evals.scoring import CaseRun
+from supportagent.ports.access import AccessVerifier
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
 from supportagent.ports.events import EventSink
@@ -1157,7 +1161,14 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
     """``rca.run`` (WP-110). RCA's own events are buffered and written with the artifact."""
     uow = SqlUnitOfWork(engine)
     buffer = BufferedEvents()
-    tools = build_tool_registry(config, events=buffer, ids=ids, clock=clock, transport=transport)
+    tools = build_tool_registry(
+        config,
+        events=buffer,
+        ids=ids,
+        clock=clock,
+        transport=transport,
+        credentials=bound_credentials(config, master_key),
+    )
     rca = config.rca
     service = RcaService(
         knowledge=build_rca_knowledge(config, tools.names),
@@ -2191,19 +2202,30 @@ def _pack_tools(
     client: Callable[[str, Mapping[str, str]], httpx.Client],
     clock: Clock,
     transport: httpx.BaseTransport | None,
+    credentials: Mapping[str, Mapping[str, str]] | None = None,
 ) -> list[Tool]:
-    """WP-M04, WP-O6a: the packs' and plugins' tools, each registered when configured."""
+    """WP-M04, WP-O6a: the packs' and plugins' tools, each registered when configured.
+
+    ADR-0019: ``credentials`` are the vault's bound ones, by backend
+    (``first_party:oracle_ro``) and target. A target ``tools.oracle`` configures
+    keeps its configured DSN: the reviewed config wins.
+    """
     tools: list[Tool] = []
+    bound = credentials or {}
     if cfg.postgres:  # WP-M04
         reader = PsycopgReader(
             {name: db.dsn.get_secret_value() for name, db in cfg.postgres.databases.items()},
             statement_timeout_ms=cfg.postgres.statement_timeout_ms,
         )
         tools.extend(tool_cls(reader=reader) for tool_cls in POSTGRES_TOOLS)
-    if cfg.oracle:  # WP-O6a: the oracle plugin's first-party backend
+    oracle_dsns = dict(bound.get("first_party:oracle_ro", {}))
+    if cfg.oracle:
+        oracle_dsns |= {
+            name: db.dsn.get_secret_value() for name, db in cfg.oracle.databases.items()
+        }
+    if oracle_dsns:  # WP-O6a: the oracle plugin's first-party backend
         ora = OracledbReader(
-            {name: db.dsn.get_secret_value() for name, db in cfg.oracle.databases.items()},
-            call_timeout_ms=cfg.oracle.call_timeout_ms,
+            oracle_dsns, call_timeout_ms=cfg.oracle.call_timeout_ms if cfg.oracle else 5000
         )
         tools.extend(tool_cls(reader=ora) for tool_cls in ORACLE_TOOLS)
     if cfg.prometheus:
@@ -2316,15 +2338,19 @@ def doc_policy(config: AppConfig) -> DocPolicy:
     return DocPolicy(top_k=k.top_k, max_chars=k.max_guidance_chars, max_suggested=k.max_suggested)
 
 
-def build_tool_registry(
+def build_tool_registry(  # noqa: PLR0913 — the config, its event seams and what it reaches
     config: AppConfig,
     *,
     events: EventSink,
     ids: IdGenerator,
     clock: Clock,
     transport: httpx.BaseTransport | None = None,
+    credentials: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ToolRegistry:
     """WP-107: the configured read tools behind the registry (class/tier checked at load).
+
+    ADR-0019: ``credentials`` (:func:`bound_credentials`) add the targets whose
+    credentials were bound after their probes proved them read-only.
 
     ``gha_500`` (``SUPPORTAGENT_FAULT_INJECT``) makes the GitHub Actions tool
     fail as if its API were down (WP-106).
@@ -2357,7 +2383,9 @@ def build_tool_registry(
         if Fault.GHA_500 in load_fault_injection_default():
             gha = FaultInjectingTool(gha)
         tools.append(gha)
-    tools.extend(_pack_tools(cfg, client=client, clock=clock, transport=transport))
+    tools.extend(
+        _pack_tools(cfg, client=client, clock=clock, transport=transport, credentials=credentials)
+    )
     if cfg.oncall:
         oc = cfg.oncall
         pd = (
@@ -4152,6 +4180,7 @@ def onboard_evidence(  # noqa: PLR0913 — the config, the workspace and the sea
                 ids=UlidIdGenerator(),
                 clock=clock,
                 transport=transport,
+                credentials=bound_credentials(config, master_key),
             )
             if not any(tools.replayable(n) for n in tools.names):
                 return None
@@ -4297,6 +4326,115 @@ def onboard_requests(
     }
     path = Workspace(workspace).write_artifact("requests.json", document)
     return run.plan, saved, path
+
+
+def credential_vault(config: AppConfig, master_key: bytes) -> FileCredentialVault:
+    """ADR-0019: the vault of bound credentials (``onboarding.credentials_vault``)."""
+    return FileCredentialVault(
+        Path(config.onboarding.credentials_vault), master_key=master_key, tenant_id=config.tenant.id
+    )
+
+
+def bound_credentials(config: AppConfig, master_key: bytes | None) -> dict[str, dict[str, str]]:
+    """ADR-0019: the vault's credentials by backend, then target, for the tool registry."""
+    out: dict[str, dict[str, str]] = {}
+    if not Path(config.onboarding.credentials_vault).exists():
+        return out  # nothing bound: no master key needed
+    key = master_key if master_key is not None else load_master_key_default()
+    for cred in credential_vault(config, key).all():
+        out.setdefault(cred.backend, {})[cred.target] = cred.secret
+    return out
+
+
+def build_access_binding(  # noqa: PLR0913 — the stores, the clock and what the probes reach
+    config: AppConfig,
+    *,
+    engine: Engine,
+    master_key: bytes,
+    clock: Clock | None = None,
+    ids: IdGenerator | None = None,
+    verifiers: Mapping[str, AccessVerifier] | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> AccessBinding:
+    """ADR-0019 (WP-O5b): ``onboard bind``, ``unbind`` and ``verify``.
+
+    The review and its audit events share one unit of work; the credential
+    goes to the vault. ``verifiers`` replaces the built-in ones (tests, fakes).
+    """
+    clock = clock or SystemClock()
+    uow = SqlUnitOfWork(engine)
+    audit = OnboardingAudit(
+        events=_event_sink(uow, master_key, clock),
+        ids=ids or UlidIdGenerator(),
+        clock=clock,
+        tenant_id=config.tenant.id,
+    )
+    return AccessBinding(
+        review=RequestReview(uow=uow, clock=clock, tenant_id=config.tenant.id, audit=audit),
+        store=credential_vault(config, master_key),
+        verifiers=verifiers if verifiers is not None else access_verifiers(transport=transport),
+        plugins=[p.manifest for p in load_plugins()],
+        clock=clock,
+    )
+
+
+def onboard_bind(  # noqa: PLR0913 — the request, its credential and who binds it
+    config: AppConfig,
+    rid: str,
+    secret: str,
+    *,
+    actor: str,
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    clock: Clock | None = None,
+) -> BindOutcome:
+    """``onboard bind``: prove a request's credential read-only and bind it, or reopen it."""
+    return _with_binding(
+        config, engine, master_key, clock, lambda b: b.bind(rid, secret, actor=actor)
+    )
+
+
+def onboard_unbind(  # noqa: PLR0913 — the request and who unbinds it
+    config: AppConfig,
+    rid: str,
+    *,
+    actor: str,
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    clock: Clock | None = None,
+) -> RequestView:
+    """``onboard unbind``: take a request's credential out of the vault."""
+    return _with_binding(config, engine, master_key, clock, lambda b: b.unbind(rid, actor=actor))
+
+
+def onboard_verify(
+    config: AppConfig,
+    *,
+    actor: str = "system",
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    clock: Clock | None = None,
+) -> list[BindOutcome]:
+    """``onboard verify``: every bound credential's probes again; one that can write now
+    leaves the vault and its request reopens."""
+    return _with_binding(config, engine, master_key, clock, lambda b: b.reverify(actor=actor))
+
+
+def _with_binding[T](
+    config: AppConfig,
+    engine: Engine | None,
+    master_key: bytes | None,
+    clock: Clock | None,
+    run: Callable[[AccessBinding], T],
+) -> T:
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    key = master_key if master_key is not None else load_master_key_default()
+    try:
+        return run(build_access_binding(config, engine=db, master_key=key, clock=clock))
+    finally:
+        if own:
+            db.dispose()
 
 
 def incident_map_document(mapped: IncidentMap) -> dict[str, object]:
@@ -4616,15 +4754,13 @@ def _autopilot_status(
             )
         )
     for req in RequestReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).requests():
-        if req.status == "open":
-            status.needs.append(
-                Need(
-                    "access",
-                    f"{req.plugin}/{req.access} on {req.target}",
-                    req.share,
-                    "/ui/onboarding/requests",
-                )
-            )
+        name = f"{req.plugin}/{req.access} on {req.target}"
+        if req.status == "open" and req.reopened_why:
+            name += f": its credential was refused ({req.reopened_why})"
+        elif req.status == "approved":  # ADR-0019: approved, its credential not bound yet
+            name += f": approved, bind it with `supportagent onboard bind {req.id}`"
+        if req.status in ("open", "approved"):
+            status.needs.append(Need("access", name, req.share, "/ui/onboarding/requests"))
     report = ReadinessStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).load()
     if report is not None:
         status.ready_share = float(str(report.get("ready_share", 0.0)))

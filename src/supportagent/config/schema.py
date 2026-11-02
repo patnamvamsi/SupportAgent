@@ -653,6 +653,9 @@ class OnboardingConfig(DomainModel):
             "gha.recent_runs": 400,
         }
     )
+    #: ADR-0019: the credential vault, where bound credentials live (never the
+    #: database). Sealed under the master key; keep it on a persistent volume.
+    credentials_vault: str = "local/credentials.vault"
 
 
 class AppConfig(DomainModel):

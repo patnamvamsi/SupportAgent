@@ -130,3 +130,4 @@ retention:
 #   routing: enforce                 # enforce | report (readiness measured, not gating triage)
 #   calibration: fitted              # fitted | artifact (ignore the table fitted from history)
 #   retention_days: {logs.search: 30, metrics.query: 15, changes.recent: 90, gha.recent_runs: 400}   # ADR-0018: older evidence is aged out
+#   credentials_vault: local/credentials.vault   # ADR-0019: bound credentials, sealed under the master key

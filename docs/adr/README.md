@@ -22,6 +22,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0016](0016-plugins-are-data.md) | Plugins are data: declared capabilities and declarative extractors, so a new stack needs no core code | accepted |
 | [0017](0017-onboarding-autopilot.md) | Onboarding autopilot: any system, one command; install what exists, name what doesn't, resume when it arrives | accepted |
 | [0018](0018-live-evidence-capture.md) | Live evidence capture: replay a real system's history from its own tools, as of each incident | accepted |
+| [0019](0019-credential-binding.md) | Credential binding: a credential is stored only once it is proven read-only | accepted |
 
 ## Naming
 

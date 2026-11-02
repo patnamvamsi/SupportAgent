@@ -27,6 +27,8 @@ Action = Literal[
     "plugin_disabled",
     "plugin_enabled",
     "access_decided",
+    "access_verified",
+    "access_unbound",
     "graph_decided",
     "readiness_assessed",
     "calibration_fitted",
