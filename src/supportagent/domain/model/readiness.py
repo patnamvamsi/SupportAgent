@@ -18,6 +18,9 @@ class ReadinessGates(DomainModel):
     min_top1: float = Field(default=0.75, ge=0, le=1)
     #: False causes a class may have and still be ready: none.
     max_false_causes: int = Field(default=0, ge=0)
+    #: WP-O6c: the share of its incidents shadow replay must route with its label, on
+    #: their own case. A class the lab proved but the pipeline wouldn't route isn't ready.
+    min_routed: float = Field(default=0.75, ge=0, le=1)
     #: The share of incident weight ready classes must hold (decision 6: 70% for now).
     bar: float = Field(default=0.70, ge=0, le=1)
 

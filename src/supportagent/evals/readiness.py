@@ -24,15 +24,26 @@ common pack, has a probe for its cause), has enough scenarios, meets top-1
 and has no false cause. The system is **ready to support** when its ready
 classes hold ``bar`` of the history's incident weight (decision 6: 70%).
 
-The classifier's calibration is fitted from the replays (WP-A5); shadow replay
-isn't measured yet, and the report says so.
+The classifier's calibration is fitted from the replays (WP-A5).
+
+**Shadow replay** (WP-O6c, :func:`apply_shadow`) then sends the same
+incidents, in the order they were opened, through the real triage pipeline in
+shadow: dedup, storm grouping, the pre-classifier, the fitted calibration, the
+severity cap and routing by readiness. A class the lab proved stays ready only
+when shadow routes ``min_routed`` of its incidents with its label, each on its
+own case. Until it runs, the report says shadow replay wasn't measured.
+
+**Proven live** (WP-O6c): an incident with no replayable evidence (its cause is
+visible only live) counts once the agent's own RCA saw it live, in shadow. The
+caller passes that RCA's result as a :class:`Replayed` with ``live`` set.
+
 Pure: the caller runs the scenarios and passes the scores.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from supportagent.domain.classification import prefix_match
@@ -81,10 +92,40 @@ class ClassReadiness:
     unreplayed: tuple[tuple[str, str], ...] = ()
     #: Per incident: what the tools supported (``None``: nothing) and pass/fail.
     outcomes: tuple[tuple[str, str | None, bool], ...] = ()
+    #: WP-O6c: incidents whose result is the agent's live RCA in shadow, not a replay.
+    proven_live: tuple[str, ...] = ()
+    #: WP-O6c: what shadow replay did with each of its incidents (``None``: not run).
+    shadow: tuple[ShadowCase, ...] | None = None
 
     @property
     def top1(self) -> float | None:
         return self.correct / self.scenarios if self.scenarios else None
+
+    @property
+    def routed(self) -> int | None:
+        """WP-O6c: its incidents shadow routed with its label, on their own case."""
+        if self.shadow is None:
+            return None
+        return sum(c.routes(self.label or _NO_CAUSE_LABEL) for c in self.shadow)
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowCase:
+    """WP-O6c: one past incident as the shadow pipeline triaged it."""
+
+    incident: str
+    #: ``routed`` or ``safe_default``, and the decision's reason (``routed`` when routed).
+    outcome: str
+    reason: str
+    classification: str | None
+    route: str | None = None
+    #: The earlier incident whose case this one landed on (dedup), if any.
+    merged_into: str | None = None
+    #: The action kinds shadow would have proposed.
+    actions: tuple[str, ...] = ()
+
+    def routes(self, label: str) -> bool:
+        return self.outcome == "routed" and self.classification == label and not self.merged_into
 
 
 @dataclass
@@ -96,6 +137,9 @@ class ReadinessReport:
     not_measured: tuple[str, ...] = ("shadow replay",)
     #: WP-A5: the classifier's calibration fitted from these replays.
     calibration: CalibrationTable | None = None
+    #: WP-O6c: services the history hits that the catalog doesn't route
+    #: (``(service, why)``). Configuration to complete, not a class failing.
+    catalog_gaps: tuple[tuple[str, str], ...] = ()
 
     @property
     def ready_share(self) -> float:
@@ -123,10 +167,14 @@ class ReadinessReport:
         ]
         for c in self.classes:
             top1 = f"{c.correct}/{c.scenarios}" if c.scenarios else "-"
+            routed = f"{c.routed}/{len(c.shadow)}" if c.shadow else "-"
             why = f": {'; '.join(c.reasons)}" if c.reasons else ""
             cause = c.cause or "(no cause)"
-            out.append(f"  {c.share:>4.0%}  {c.status:<10} {cause:<32} {top1:>5}{why}")
-        out.append(f"  not measured yet: {', '.join(self.not_measured)}")
+            out.append(f"  {c.share:>4.0%}  {c.status:<10} {cause:<32} {top1:>5} {routed:>5}{why}")
+        for service, why in self.catalog_gaps:
+            out.append(f"  catalog: {service}: {why}")
+        if self.not_measured:
+            out.append(f"  not measured yet: {', '.join(self.not_measured)}")
         return out
 
     def statuses(self) -> dict[str, str]:
@@ -143,6 +191,7 @@ class ReadinessReport:
             "false_causes": self.false_causes,
             "not_measured": list(self.not_measured),
             "calibration": self.calibration.model_dump(mode="json") if self.calibration else None,
+            "catalog_gaps": [list(g) for g in self.catalog_gaps],
             "classes": [
                 {
                     "id": c.class_id,
@@ -161,6 +210,22 @@ class ReadinessReport:
                     "unreplayed": [list(u) for u in c.unreplayed],
                     "outcomes": [
                         {"incident": n, "supported": s, "passed": ok} for n, s, ok in c.outcomes
+                    ],
+                    "proven_live": list(c.proven_live),
+                    "routed": c.routed,
+                    "shadow": None
+                    if c.shadow is None
+                    else [
+                        {
+                            "incident": s.incident,
+                            "outcome": s.outcome,
+                            "reason": s.reason,
+                            "classification": s.classification,
+                            "route": s.route,
+                            "merged_into": s.merged_into,
+                            "actions": list(s.actions),
+                        }
+                        for s in c.shadow
                     ],
                 }
                 for c in self.classes
@@ -267,6 +332,17 @@ def history_scenarios(
     return out, missing
 
 
+def incident_scenario(
+    cls: IncidentClass,
+    incident: PastIncident,
+    graph: SystemGraph,
+    world: Mapping[str, WorldEntry],
+    system: str,
+) -> LabScenario:
+    """The lab scenario of one past incident of ``cls``, with the evidence in ``world``."""
+    return _scenario(cls, incident, graph, world, system)
+
+
 def _scenario(
     cls: IncidentClass,
     incident: PastIncident,
@@ -313,6 +389,8 @@ class Replayed:
     #: WP-A5: what the classifier said, and the pre-classifier's label (calibration).
     predicted: str | None = None
     preclass: str | None = None
+    #: WP-O6c: the agent's RCA on the live incident, in shadow; not a replay.
+    live: bool = False
 
 
 def fit_calibration(
@@ -328,8 +406,8 @@ def fit_calibration(
     """
     counts: dict[str, dict[str, list[int]]] = {}
     for r in replayed:
-        if r.predicted is None:
-            continue
+        if r.predicted is None or r.live:
+            continue  # a live result was routed by the calibration it would fit
         if r.preclass is None:
             row = "abstain"
         elif prefix_match(r.preclass, r.predicted):
@@ -462,7 +540,68 @@ def _assess_class(  # noqa: PLR0913 — the class, its replays and what judges t
         no_evidence=tuple(missing),
         unreplayed=unreplayed,
         outcomes=outcomes,
+        proven_live=tuple(r.incident for r in replayed if r.live),
     )
+
+
+# --- WP-O6c: shadow replay ----------------------------------------------------------------
+
+
+def apply_shadow(
+    report: ReadinessReport,
+    incident_map: IncidentMap,
+    cases: Sequence[ShadowCase],
+    *,
+    gates: ReadinessGates,
+    catalog_gaps: Sequence[tuple[str, str]] = (),
+) -> ReadinessReport:
+    """The report with each class's shadow replay, and its gate applied.
+
+    A class the lab made ready stays ready only when shadow routed ``min_routed``
+    of its incidents with its label, each on its own case. One that lands on an
+    earlier incident's case was merged by dedup: the pipeline would never have
+    triaged it. The other classes keep their status; their shadow is reported.
+    """
+    by_incident = {c.incident: c for c in cases}
+    out: list[ClassReadiness] = []
+    for cls in report.classes:
+        members = next((m.incidents for m in incident_map.classes if m.id == cls.class_id), ())
+        shadow = tuple(by_incident[n] for n in members if n in by_incident)
+        measured = replace(cls, shadow=shadow)
+        if cls.status == "ready" and shadow:
+            why = _shadow_failure(measured, gates)
+            if why is not None:
+                measured = replace(measured, status="not_ready", reasons=(*cls.reasons, why))
+        out.append(measured)
+    return replace(
+        report,
+        classes=out,
+        not_measured=tuple(m for m in report.not_measured if m != "shadow replay"),
+        catalog_gaps=tuple(catalog_gaps),
+    )
+
+
+def _shadow_failure(cls: ClassReadiness, gates: ReadinessGates) -> str | None:
+    """Why shadow keeps a lab-ready class from being ready; ``None`` when it doesn't."""
+    shadow = cls.shadow or ()
+    routed = cls.routed or 0
+    if routed / len(shadow) >= gates.min_routed:
+        return None
+    label = cls.label or _NO_CAUSE_LABEL
+    counts: dict[str, int] = {}
+    for case in shadow:
+        if case.routes(label):
+            continue
+        if case.merged_into:
+            why = "merged into an earlier case"
+        elif case.outcome == "routed":
+            why = f"routed as {case.classification}"
+        else:
+            why = case.reason
+        counts[why] = counts.get(why, 0) + 1
+    detail = ", ".join(f"{n} {w}" for w, n in sorted(counts.items()))
+    need = f"{gates.min_routed:.0%}"
+    return f"shadow routed {routed}/{len(shadow)}, below the {need} needed ({detail})"
 
 
 _UNREPLAYED = {
@@ -487,9 +626,12 @@ __all__ = [
     "HistoryScenario",
     "ReadinessReport",
     "Replayed",
+    "ShadowCase",
+    "apply_shadow",
     "assess",
     "fit_calibration",
     "history_scenarios",
+    "incident_scenario",
     "regressions",
     "service_entry",
 ]
