@@ -146,6 +146,14 @@ class LLMRateLimited(ExternalServiceError):
     """The LLM provider rate-limited the request (429)."""
 
 
+class CheckUnevaluated(SupportAgentError):
+    """A runbook check couldn't be evaluated in its budget: the step didn't run.
+
+    Never "the check didn't hold". Reporting a timeout as a negative would
+    let RCA say a cause was tested and ruled out when it never was.
+    """
+
+
 class ToolError(ExternalServiceError):
     """A tool execution failed after its retries."""
 

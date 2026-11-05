@@ -21,7 +21,11 @@ class CompiledCheck(Protocol):
         service: Mapping[str, object],
         case: Mapping[str, object],
     ) -> tuple[bool, str]:
-        """``(ok, why)``; an evaluation error or timeout is ``(False, reason)``."""
+        """``(ok, why)``; an evaluation error is ``(False, reason)``.
+
+        Raises ``CheckUnevaluated`` when the check couldn't be evaluated at all
+        (its budget ran out): the caller must not read that as ``False``.
+        """
         ...
 
 
