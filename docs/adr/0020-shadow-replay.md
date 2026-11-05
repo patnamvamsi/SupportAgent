@@ -48,7 +48,7 @@ Triage refuses a service that isn't in the catalog or has no paging integration,
 
 ## Consequences
 
-- A system's ready share now falls to 0% until live evidence arrives. This is the true state: fitted calibration already held every label back after onboarding (ADR-0017), and nothing showed it.
+- A system's ready share now falls to 0% until live evidence arrives. This is the true state: fitted calibration already held every label back after onboarding (ADR-0017). That smoke-grade calibration can't route was known since v0.0 (an open ADR-0003 question); what's new is that readiness measures it per class and says what each label waits for.
 - `onboard run` re-runs readiness when a live case resolves. New tickets reach the workspace through `onboard ingest --refresh`.
 - RCA runs on more cases in shadow, so it costs more model tokens, within each case's existing budget and the job's limit per run.
 - The shadow replay classifies incidents the lab skips, so a new system's first readiness run makes more model calls.
