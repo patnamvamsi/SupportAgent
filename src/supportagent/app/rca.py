@@ -46,7 +46,7 @@ from pydantic import Field
 
 from supportagent.app.propose import rca_page_spec, sop_step_spec
 from supportagent.domain.auto import AutoEvidence
-from supportagent.domain.errors import DomainValidationError, ToolError
+from supportagent.domain.errors import CheckUnevaluated, DomainValidationError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.knowledge import DocHit, DocScope, guidance_text, suggested_hypotheses
@@ -589,9 +589,12 @@ class RcaService:
             out = self._tools.call(step.tool, step.args, case.service, trace)
         except (ToolError, DomainValidationError) as exc:
             return failed(f"tool call failed: {str(exc)[:160]}")
-        ok, why = step.check.is_satisfied_by(
-            out.data, case.service.model_dump(mode="json"), case.as_cel()
-        )
+        try:
+            ok, why = step.check.is_satisfied_by(
+                out.data, case.service.model_dump(mode="json"), case.as_cel()
+            )
+        except CheckUnevaluated as exc:
+            return failed(str(exc)[:200])
         result = StepResult(step.step_id, step.hypothesis, ran=True, ok=ok, why=why)
         self._step_event(trace, case, step, result)
         return Evidence(result, step.tool, dict(out.data))
