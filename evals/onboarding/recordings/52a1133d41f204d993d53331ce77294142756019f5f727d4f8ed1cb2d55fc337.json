@@ -1,0 +1,1 @@
+{"latency_ms": 7103, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"A batch job failed after retries due to YARN memory limits, leaving the feature table stale.\",\n  \"confidence\": 0.87\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 640, "tokens_out": 372}

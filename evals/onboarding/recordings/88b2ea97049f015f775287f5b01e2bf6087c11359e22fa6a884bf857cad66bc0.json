@@ -1,0 +1,1 @@
+{"latency_ms": 6063, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The cdc.customers consumer is failing to deserialize orders events, causing the dead-letter topic to fill.\",\n  \"confidence\": 0.62\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 336}

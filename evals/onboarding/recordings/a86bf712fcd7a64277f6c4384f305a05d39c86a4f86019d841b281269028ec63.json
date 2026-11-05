@@ -1,0 +1,1 @@
+{"latency_ms": 5264, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"Consumer group stream-ingest is falling more than 2M messages behind on events.clickstream, causing the real-time dashboard to lag by hours.\",\n  \"confidence\": 0.68\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 643, "tokens_out": 312}

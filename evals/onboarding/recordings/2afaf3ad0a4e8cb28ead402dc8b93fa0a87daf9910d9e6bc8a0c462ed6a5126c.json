@@ -1,0 +1,1 @@
+{"latency_ms": 6350, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The DAILY_SALES data load appears stale after yesterday 02:00, causing the Streamlit app to report zero for yesterday's sales.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 649, "tokens_out": 361}
