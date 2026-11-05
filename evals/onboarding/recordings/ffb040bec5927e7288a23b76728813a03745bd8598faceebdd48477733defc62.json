@@ -1,0 +1,1 @@
+{"latency_ms": 3529, "raw_text": "{\n  \"classification\": \"database/saturation\",\n  \"severity\": \"P2\",\n  \"summary\": \"Warehouse BI dashboard queries are queued and taking minutes, indicating database saturation or degradation under load rather than an outage.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 204}

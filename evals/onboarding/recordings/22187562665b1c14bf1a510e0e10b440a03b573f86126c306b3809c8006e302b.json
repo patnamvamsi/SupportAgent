@@ -1,0 +1,1 @@
+{"latency_ms": 99421, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P3\",\n  \"summary\": \"A scheduled Snowflake analytics task failed with a SQL compilation error due to invalid identifier DISCOUNT_AMT.\",\n  \"confidence\": 0.85\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 318}

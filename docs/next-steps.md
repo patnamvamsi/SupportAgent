@@ -54,9 +54,19 @@ Three reference systems (Java/Oracle, data platform, Node/MongoDB/RabbitMQ) are 
 - Run `onboard verify` on a schedule (cron, or the worker), alerting when it unbinds.
 - Meeting real systems: the verifiers are tested against faithful fakes only.
 
-### 1.3 Shadow replay (WP-O6c)
+### 1.3 Shadow replay (*delivered*, WP-O6c, ADR-0020)
 
-Readiness runs the lab harness: the real classifier and RCA, with tools from evidence. Shadow replay runs the same incidents through the real pipeline in shadow mode, so readiness also covers ingest, grouping, routing and the gates. It also proves classes whose evidence is only visible live.
+Readiness runs the lab harness: the real classifier and RCA, with tools from evidence. Shadow replay runs the same incidents through the real pipeline in shadow mode, so readiness also covers dedup, grouping, calibration, the severity cap and routing.
+- **The gate:** a class the lab proved stays ready only when shadow routes 75% of its incidents with its label, each on its own case. The lab's baseline guards the lab's own verdict.
+- **The finding:** all three reference systems measure 0% ready. Calibration needs about 16 correct classifications per label, and they hold 3 to 7 incidents per class. The floor stays (maintainer's decision).
+- **Learning live:** every resolved live case calibrates its label. Status says how many more each label needs.
+- **Proven live:** in shadow, RCA also runs on held-back cases with bound credentials. Its result stands in for evidence an incident never had, once the ticket resolves.
+- **Catalog gaps:** services the catalog wouldn't route are reported as a configuration need.
+
+**Follow-ups:**
+- Have onboarding propose the catalog from the graph. Today a person writes it.
+- Prove `onboard ingest --refresh` plus `onboard run` on a real system, on a schedule.
+- Alert storms in the replay: the histories hold tickets only.
 
 ### 1.4 A first real system (waiting on the maintainer)
 
@@ -138,4 +148,4 @@ Delivered:
 
 ## Suggested order
 
-1.1 and 1.2 (delivered), which together unblock a real system; then 2 (control and observability, delivered); then 1.4 on a real system as soon as one is available; then 1.3. Section 3 fits around them.
+1.1 and 1.2 (delivered), which together unblock a real system; then 2 (control and observability, delivered); then 1.3 (delivered); then 1.4 on a real system as soon as one is available. Section 3 fits around them.

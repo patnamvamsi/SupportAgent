@@ -8,6 +8,11 @@ bound, read-only credentials (ADR-0019), while the incident is happening. Once
 the ticket is resolved and onboarding maps it to its class, readiness counts
 that RCA's result as the incident's outcome.
 
+Every resolved case also says what triage concluded on it, live. That is
+calibration evidence (ADR-0002): once onboarding maps the ticket to its class,
+the label it predicted was right or wrong, and the fitted calibration grows
+by one observation. A label routes once enough of them agree.
+
 Only resolved cases count: the class an incident belongs to is known from its
 resolution, never from what the agent guessed while it was open.
 """
@@ -40,10 +45,11 @@ class _UoW(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class LiveRca:
-    """One resolved case's live RCA: its verdict and the hypothesis its tools supported."""
+    """One resolved case, live: triage's labels, and its RCA's verdict if it had one."""
 
     ticket: str
-    verdict: str
+    #: ``None``: no RCA ran on it.
+    verdict: str | None
     supported: str | None
     tested: tuple[str, ...]
     #: What triage said, and the pre-classifier's label.
@@ -52,10 +58,10 @@ class LiveRca:
     severity: str | None
 
 
-_RESOLVED_WITH_RCA = (
+_RESOLVED = (
     "SELECT c.ticket_number, c.classification, c.severity, c.decision_json, "
     "r.outcome, r.artifact_json FROM cases c "
-    "JOIN rca_artifacts r ON r.tenant_id = c.tenant_id AND r.case_id = c.id "
+    "LEFT JOIN rca_artifacts r ON r.tenant_id = c.tenant_id AND r.case_id = c.id "
     "WHERE c.tenant_id = :t AND c.status = 'resolved' AND c.ticket_number IS NOT NULL "
     "ORDER BY c.opened_ts, c.id"
 )
@@ -69,9 +75,7 @@ class LiveProof:
     def outcomes(self) -> dict[str, LiveRca]:
         """By ticket number; the first case wins when a ticket was triaged twice."""
         with self._uow:
-            rows = self._uow.connection.execute(
-                sa.text(_RESOLVED_WITH_RCA), {"t": self._tenant}
-            ).mappings()
+            rows = self._uow.connection.execute(sa.text(_RESOLVED), {"t": self._tenant}).mappings()
             out: dict[str, LiveRca] = {}
             for row in rows:
                 ticket = str(row["ticket_number"])
@@ -84,7 +88,7 @@ class LiveProof:
                     for e in artifact.get("evidence", [])
                     if isinstance(e, dict)
                 }
-                verdict = str(row["outcome"])
+                verdict = None if row["outcome"] is None else str(row["outcome"])
                 supported = by_step.get(str(artifact.get("supported_by") or ""))
                 suggestion = decision.get("llm_suggestion") or {}
                 out[ticket] = LiveRca(

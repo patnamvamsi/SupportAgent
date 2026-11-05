@@ -1,0 +1,1 @@
+{"latency_ms": 5273, "raw_text": "{\n  \"classification\": \"app/config\",\n  \"severity\": \"P2\",\n  \"summary\": \"Orders ingest is rejecting records because the connector reports an incompatible schema registration.\",\n  \"confidence\": 0.58\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 636, "tokens_out": 289}

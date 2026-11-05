@@ -46,7 +46,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from supportagent.domain.classification import prefix_match
+from supportagent.domain.classification import MIN_CALIBRATION_N, prefix_match
 from supportagent.domain.gap_plan import target_name
 from supportagent.domain.graph import SystemGraph
 from supportagent.domain.incident_map import IncidentClass, IncidentMap, PastIncident
@@ -57,6 +57,7 @@ from supportagent.domain.model.calibration import (
 )
 from supportagent.domain.model.plugin import cause_hypothesis
 from supportagent.domain.model.readiness import ReadinessGates
+from supportagent.domain.stats import wilson_lower_bound
 from supportagent.evals.lab import LabScenario, LabScore, WorldEntry
 
 Status = Literal["ready", "not_ready", "untestable"]
@@ -96,6 +97,10 @@ class ClassReadiness:
     proven_live: tuple[str, ...] = ()
     #: WP-O6c: what shadow replay did with each of its incidents (``None``: not run).
     shadow: tuple[ShadowCase, ...] | None = None
+    #: WP-O6c: the lab's verdict before shadow's gate (``None``: shadow didn't run).
+    #: The lab baseline compares this: it guards what the lab proves, while
+    #: ``status`` says whether the pipeline would route the class too.
+    lab_status: Status | None = None
 
     @property
     def top1(self) -> float | None:
@@ -119,6 +124,8 @@ class ShadowCase:
     reason: str
     classification: str | None
     route: str | None = None
+    #: The pre-classifier's label (which calibration row scored it).
+    preclass: str | None = None
     #: The earlier incident whose case this one landed on (dedup), if any.
     merged_into: str | None = None
     #: The action kinds shadow would have proposed.
@@ -178,7 +185,8 @@ class ReadinessReport:
         return out
 
     def statuses(self) -> dict[str, str]:
-        return {c.class_id: c.status for c in self.classes}
+        """Each class's lab verdict: what the readiness baseline guards (WP-O6c)."""
+        return {c.class_id: c.lab_status or c.status for c in self.classes}
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -213,6 +221,7 @@ class ReadinessReport:
                     ],
                     "proven_live": list(c.proven_live),
                     "routed": c.routed,
+                    "lab_status": c.lab_status,
                     "shadow": None
                     if c.shadow is None
                     else [
@@ -222,6 +231,7 @@ class ReadinessReport:
                             "reason": s.reason,
                             "classification": s.classification,
                             "route": s.route,
+                            "preclass": s.preclass,
                             "merged_into": s.merged_into,
                             "actions": list(s.actions),
                         }
@@ -394,7 +404,11 @@ class Replayed:
 
 
 def fit_calibration(
-    replayed: Iterable[Replayed], *, model_id: str, system: str
+    replayed: Iterable[Replayed],
+    *,
+    model_id: str,
+    system: str,
+    observed: Iterable[tuple[str | None, str | None, bool]] = (),
 ) -> CalibrationTable:
     """ADR-0017 (WP-A5): the classifier's calibration, fitted from the system's own history.
 
@@ -403,20 +417,26 @@ def fit_calibration(
     matched) or ``abstain`` row (it had none); a conflict never routes, so it
     isn't evidence. Correct means the label onboarding mapped (or an
     acceptable one) matched. Graded ``holdout``: the history was never tuned on.
+
+    ``observed`` (WP-O6c): ``(predicted, preclass, correct)`` for each resolved
+    live case, triaged by the real pipeline. This is how a label's calibration
+    grows past what the history alone holds. The caller leaves out the replays
+    of incidents it observed live, so no incident counts twice.
     """
     counts: dict[str, dict[str, list[int]]] = {}
-    for r in replayed:
-        if r.predicted is None or r.live:
-            continue  # a live result was routed by the calibration it would fit
-        if r.preclass is None:
+    rows = [(r.predicted, r.preclass, r.score.classification_ok) for r in replayed]
+    for predicted, preclass, correct in [*rows, *observed]:
+        if predicted is None:
+            continue
+        if preclass is None:
             row = "abstain"
-        elif prefix_match(r.preclass, r.predicted):
+        elif prefix_match(preclass, predicted):
             row = "agree"
         else:
             continue
-        cell = counts.setdefault(r.predicted, {"agree": [0, 0], "abstain": [0, 0]})[row]
+        cell = counts.setdefault(predicted, {"agree": [0, 0], "abstain": [0, 0]})[row]
         cell[0] += 1
-        cell[1] += int(r.score.classification_ok)
+        cell[1] += int(correct)
     labels = {
         label: CalibrationLabelRow(
             agree=CalibrationCountRow(n=rows["agree"][0], correct=rows["agree"][1])
@@ -547,12 +567,13 @@ def _assess_class(  # noqa: PLR0913 — the class, its replays and what judges t
 # --- WP-O6c: shadow replay ----------------------------------------------------------------
 
 
-def apply_shadow(
+def apply_shadow(  # noqa: PLR0913 — the report, shadow's cases and what judges them
     report: ReadinessReport,
     incident_map: IncidentMap,
     cases: Sequence[ShadowCase],
     *,
     gates: ReadinessGates,
+    min_score: float,
     catalog_gaps: Sequence[tuple[str, str]] = (),
 ) -> ReadinessReport:
     """The report with each class's shadow replay, and its gate applied.
@@ -567,9 +588,9 @@ def apply_shadow(
     for cls in report.classes:
         members = next((m.incidents for m in incident_map.classes if m.id == cls.class_id), ())
         shadow = tuple(by_incident[n] for n in members if n in by_incident)
-        measured = replace(cls, shadow=shadow)
+        measured = replace(cls, shadow=shadow, lab_status=cls.status)
         if cls.status == "ready" and shadow:
-            why = _shadow_failure(measured, gates)
+            why = _shadow_failure(measured, gates, report.calibration, min_score)
             if why is not None:
                 measured = replace(measured, status="not_ready", reasons=(*cls.reasons, why))
         out.append(measured)
@@ -581,8 +602,18 @@ def apply_shadow(
     )
 
 
-def _shadow_failure(cls: ClassReadiness, gates: ReadinessGates) -> str | None:
-    """Why shadow keeps a lab-ready class from being ready; ``None`` when it doesn't."""
+def _shadow_failure(
+    cls: ClassReadiness,
+    gates: ReadinessGates,
+    calibration: CalibrationTable | None,
+    min_score: float,
+) -> str | None:
+    """Why shadow keeps a lab-ready class from being ready; ``None`` when it doesn't.
+
+    A case held back by calibration says what it waits for: how many more
+    incidents of its label, classified correctly, clear the floor (ADR-0002).
+    Those come from live shadow, once each is resolved.
+    """
     shadow = cls.shadow or ()
     routed = cls.routed or 0
     if routed / len(shadow) >= gates.min_routed:
@@ -601,7 +632,50 @@ def _shadow_failure(cls: ClassReadiness, gates: ReadinessGates) -> str | None:
         counts[why] = counts.get(why, 0) + 1
     detail = ", ".join(f"{n} {w}" for w, n in sorted(counts.items()))
     need = f"{gates.min_routed:.0%}"
-    return f"shadow routed {routed}/{len(shadow)}, below the {need} needed ({detail})"
+    out = f"shadow routed {routed}/{len(shadow)}, below the {need} needed ({detail})"
+    learning = sorted(
+        {
+            _learning(c.classification, c.preclass, calibration, min_score)
+            for c in shadow
+            if c.reason == "low-calibrated-score" and c.classification == label
+        }
+    )
+    return out + "".join(f"; {line}" for line in learning)
+
+
+def _learning(
+    label: str | None, preclass: str | None, table: CalibrationTable | None, min_score: float
+) -> str:
+    """``learning live: database/latency needs 9 more correct (7/7 so far)``."""
+    agree = preclass is not None and label is not None and prefix_match(preclass, label)
+    row = table.labels.get(label or "") if table is not None else None
+    count = (row.agree if agree else row.abstain) if row is not None else None
+    n, correct = (count.n, count.correct) if count is not None else (0, 0)
+    more = observations_needed(n, correct, min_score)
+    which = "agreeing with the pre-classifier" if agree else "with no pre-classifier label"
+    so_far = f"{correct}/{n} so far" if n else "none so far"
+    if more is None:
+        return f"learning live: {label} ({which}) can't reach the {min_score:.2f} floor"
+    return (
+        f"learning live: {label} ({which}) needs {more} more correctly classified "
+        f"incident(s) ({so_far})"
+    )
+
+
+def observations_needed(
+    n: int, correct: int, min_score: float, *, limit: int = 10_000
+) -> int | None:
+    """ADR-0002: how many more correct observations lift a label's row over ``min_score``.
+
+    The row needs ``MIN_CALIBRATION_N`` observations and a Wilson lower bound
+    of at least ``min_score``; each new one is assumed correct, so this is the
+    fewest it could take. ``None`` when no number would (a floor of 1).
+    """
+    for more in range(limit + 1):
+        total = n + more
+        if total >= MIN_CALIBRATION_N and wilson_lower_bound(correct + more, total) >= min_score:
+            return more
+    return None
 
 
 _UNREPLAYED = {
@@ -632,6 +706,7 @@ __all__ = [
     "fit_calibration",
     "history_scenarios",
     "incident_scenario",
+    "observations_needed",
     "regressions",
     "service_entry",
 ]

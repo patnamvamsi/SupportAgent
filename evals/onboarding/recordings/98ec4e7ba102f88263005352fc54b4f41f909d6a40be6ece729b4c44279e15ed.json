@@ -1,0 +1,1 @@
+{"latency_ms": 19601, "raw_text": "{\n  \"classification\": \"batch/schedule\",\n  \"severity\": \"P2\",\n  \"summary\": \"A Kafka consumer for the clickstream is reporting 90 minutes of growing lag, making RAW.CLICKSTREAM data stale but not explicitly failed.\",\n  \"confidence\": 0.42\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 641, "tokens_out": 898}

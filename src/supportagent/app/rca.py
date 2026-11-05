@@ -734,6 +734,12 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
+#: WP-O6c: the safe defaults shadow still runs RCA on: the case has a label and a
+#: service, and is held back only until readiness and calibration catch up.
+PROVE_LIVE_REASONS = frozenset(
+    {"class-not-ready", "low-calibrated-score", "unconfirmed-high-severity"}
+)
+
 #: WP-M05: how much redacted incident text the planner sees.
 _SUMMARY_CHARS = 1500
 _CANDIDATES = (
@@ -774,10 +780,11 @@ class _Gate(Protocol):
 class RcaJob:
     """``rca.run``: RCA-lite for open, ``rca: lite``-routed cases; group leads only.
 
-    ``prove_live`` (WP-O6c, shadow mode only): also a case safe-defaulted as
-    ``class-not-ready``. Its artifact is how a class whose evidence can't be
-    replayed gets proven: readiness reads it once the ticket resolves
-    (``app.live_proof``). Nothing is proposed from it; shadow has no gate.
+    ``prove_live`` (WP-O6c, shadow mode only): also a case safe-defaulted with a
+    label it couldn't route on yet (:data:`PROVE_LIVE_REASONS`). Its artifact is
+    how a class whose evidence can't be replayed gets proven: readiness reads
+    it once the ticket resolves (``app.live_proof``). Nothing is proposed from
+    it; shadow has no gate.
     """
 
     def __init__(  # noqa: PLR0913 — the ports plus the routing view
@@ -825,7 +832,7 @@ class RcaJob:
                 lite = (
                     decision.get("outcome") == "routed" and decision.get("route_id") in self._lite
                 )
-                unready = self._prove and decision.get("reason") == "class-not-ready"
+                unready = self._prove and decision.get("reason") in PROVE_LIVE_REASONS
                 if not (lite or unready):
                     continue
                 out.append(
@@ -966,6 +973,7 @@ def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:
 
 
 __all__ = [
+    "PROVE_LIVE_REASONS",
     "Budget",
     "BufferedEvents",
     "DocPolicy",

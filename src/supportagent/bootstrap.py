@@ -233,6 +233,7 @@ from supportagent.domain.autopilot import (
     digest,
     should_run,
 )
+from supportagent.domain.classification import prefix_match
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.drift import ClassShape, Finding, Snapshot, diff
@@ -3894,17 +3895,33 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
     replayed: dict[str, list[Replayed]] = {}
     missing = dict(missing)
     by_number = {i.number: i for i in past}
+    seen_live = live or {}
+    # WP-O6c: an incident without evidence is proven by the live RCA shadow ran on it
+    rca_live = {n for n, s in seen_live.items() if s.verdict is not None}
     for cls in run.incidents.classes:
         if cls.cause is None or why_not(cls.cause) is not None:
             continue
         for number in missing.get(cls.id, ()):
-            seen = (live or {}).get(number)
-            if seen is not None:
+            if number in rca_live:
                 scenario = history_scenario(
                     cls, by_number[number], run.graph.graph, {}, system.system.id
                 )
-                replayed.setdefault(cls.id, []).append(_live_replayed(scenario, number, seen))
-        missing[cls.id] = tuple(n for n in missing.get(cls.id, ()) if n not in (live or {}))
+                replayed.setdefault(cls.id, []).append(
+                    _live_replayed(scenario, number, seen_live[number])
+                )
+        missing[cls.id] = tuple(n for n in missing.get(cls.id, ()) if n not in rca_live)
+    # ... and every resolved live case is a calibration observation of its class's label
+    observed = [
+        (
+            seen.classification,
+            seen.preclass,
+            seen.classification is not None
+            and prefix_match(cls.label or "request/access", seen.classification),
+        )
+        for cls in run.incidents.classes
+        for n in cls.incidents
+        if (seen := seen_live.get(n)) is not None
+    ]
     for item in scenarios:
         cause = causes.get(item.class_id)
         if cause is not None and why_not(cause) is not None:
@@ -3931,14 +3948,22 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         model_id=lab.model_id,
     )
     report.calibration = fit_calibration(
-        (r for rows in replayed.values() for r in rows),
+        (r for rows in replayed.values() for r in rows if r.incident not in seen_live),
         model_id=lab.model_id,
         system=system.system.id,
+        observed=observed,
     )
     if shadow is None:
         return report
     cases, gaps = shadow.run(report, run.incidents, past, run.graph.graph)
-    return apply_shadow(report, run.incidents, cases, gates=system.readiness, catalog_gaps=gaps)
+    return apply_shadow(
+        report,
+        run.incidents,
+        cases,
+        gates=system.readiness,
+        min_score=config.calibration.min_score,
+        catalog_gaps=gaps,
+    )
 
 
 def _live_replayed(scenario: LabScenario, number: str, seen: LiveRca) -> Replayed:
@@ -3948,7 +3973,7 @@ def _live_replayed(scenario: LabScenario, number: str, seen: LiveRca) -> Replaye
         classification=seen.classification,
         severity=seen.severity,
         preclass_label=seen.preclass,
-        verdict=seen.verdict,
+        verdict=seen.verdict or "INCONCLUSIVE",
         supported=seen.supported,
         tested=seen.tested,
         cited_tools=frozenset(),
@@ -4075,6 +4100,7 @@ class ShadowReplay:
                     reason=str(d.get("reason", "")),
                     classification=d.get("classification"),
                     route=d.get("route_id"),
+                    preclass=d.get("preclass_label"),
                     merged_into=None if merged == incident.number else merged,
                     actions=tuple(
                         str(spec.get("kind"))
@@ -4905,9 +4931,14 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
             ("gaps", lambda: _gaps_detail(onboard_gaps(config, workspace, provider=provider))),
         ]
         for step, run in stages:
-            # Readiness and gaps replay the evidence: a capture re-runs them, nothing else.
+            # Readiness and gaps replay the evidence: a capture re-runs them, and so does
+            # a live case resolving (WP-O6c: it calibrates a label, or proves a class).
             inputs = (
-                digest(sensed, _tree_digest(workspace / "sources" / "evidence"))
+                digest(
+                    sensed,
+                    _tree_digest(workspace / "sources" / "evidence"),
+                    _live_digest(db, config),
+                )
                 if step in ("readiness", "gaps")
                 else sensed
             )
@@ -4954,6 +4985,12 @@ def _evidence_detail(capture: EvidenceCapture | None) -> str:
             "readiness replays the evidence already in the workspace"
         )
     return capture.line()
+
+
+def _live_digest(engine: Engine, config: AppConfig) -> str:
+    """WP-O6c: what readiness reads from the resolved live cases."""
+    seen = LiveProof(uow=SqlUnitOfWork(engine), tenant_id=config.tenant.id).outcomes()
+    return digest(*(f"{t}:{s.verdict}:{s.classification}" for t, s in sorted(seen.items())))
 
 
 def _readiness_detail(report: ReadinessReport) -> str:
@@ -5042,6 +5079,23 @@ def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
         elif c.get("no_evidence") and not c.get("scenarios"):
             out.append(
                 Need("evidence", what, share, "supportagent onboard evidence (tools: configured)")
+            )
+        elif c.get("lab_status") == "ready":
+            # WP-O6c: proven in the lab, held back in the pipeline
+            out.append(
+                Need(
+                    "shadow",
+                    what,
+                    share,
+                    "run in shadow: each resolved incident calibrates its label; then "
+                    "supportagent onboard ingest --refresh and supportagent onboard run",
+                )
+            )
+    gaps = report.get("catalog_gaps")
+    for gap in gaps if isinstance(gaps, list) else []:
+        if isinstance(gap, list) and len(gap) == 2:  # noqa: PLR2004 — (service, why)
+            out.append(
+                Need("config", f"catalog: {gap[0]}: {gap[1]}", 0.0, "edit catalog/services.yaml")
             )
     return out
 

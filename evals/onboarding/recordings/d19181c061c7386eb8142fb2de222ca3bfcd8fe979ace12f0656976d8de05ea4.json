@@ -1,0 +1,1 @@
+{"latency_ms": 5217, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The daily sales build job failed with a column count mismatch during insert, likely causing stale downstream data.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 635, "tokens_out": 269}
