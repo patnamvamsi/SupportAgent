@@ -10,10 +10,17 @@ At compile time:
    ``service.<field>`` must be a catalog field, and ``case.<field>`` one of
    the case fields RCA exposes.
 
-At run time the compiled program is evaluated on plain data, with a 50 ms
-budget. An evaluation error or a timeout is ``(False, reason)``, never an
-exception into the RCA. CEL has no way to call Python
-(``test_cel_never_executes_python``).
+At run time the compiled program is evaluated on plain data, with a 1 s
+budget. An evaluation error (a field the result doesn't have, a division by
+zero) is ``(False, reason)``. A timeout raises ``CheckUnevaluated``: RCA
+counts the step as not run, never as a check that didn't hold. CEL has no way
+to call Python (``test_cel_never_executes_python``).
+
+The budget is a guard against a pathological expression, not a performance
+target. A check takes about a millisecond, but it runs on a worker thread
+and needs the interpreter lock, which another thread in the process can
+hold for tens of milliseconds. The old 50 ms budget timed out under that
+load and reported a held check as false.
 """
 
 from __future__ import annotations
@@ -25,11 +32,11 @@ from collections.abc import Mapping
 import celpy
 from celpy.adapter import json_to_cel
 
-from supportagent.domain.errors import ConfigError
+from supportagent.domain.errors import CheckUnevaluated, ConfigError
 from supportagent.domain.model.catalog import ServiceEntry
 from supportagent.domain.tools import schema_fields
 
-TIMEOUT_S = 0.05
+TIMEOUT_S = 1.0
 CASE_FIELDS = frozenset({"id", "service", "severity", "classification", "origin", "opened_ts"})
 _ROOTS = frozenset({"result", "service", "case"})
 _FUNCTIONS = frozenset(
@@ -85,8 +92,10 @@ class CelCheck:
         future = _POOL.submit(self._program.evaluate, activation)  # type: ignore[attr-defined]
         try:
             value = future.result(timeout=TIMEOUT_S)
-        except concurrent.futures.TimeoutError:
-            return False, f"check timed out after {int(TIMEOUT_S * 1000)} ms"
+        except concurrent.futures.TimeoutError as exc:
+            raise CheckUnevaluated(  # noqa: TRY003
+                f"check timed out after {int(TIMEOUT_S * 1000)} ms: {self.expression}"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 — a failing check is "not satisfied"
             return False, f"check could not be evaluated: {type(exc).__name__}"
         if isinstance(value, Exception):

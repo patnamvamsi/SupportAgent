@@ -12,7 +12,9 @@ Canonical test IDs from 11-wp §WP-110 that live here:
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from supportagent.adapters.cel import check as cel_check
 from supportagent.adapters.cel.check import CelCheckCompiler
 from supportagent.adapters.fakes.clock import FrozenClock
 from supportagent.adapters.fakes.events import RecordingEventSink
@@ -32,7 +35,7 @@ from supportagent.adapters.tools.airflow import SCHEMA as AIRFLOW_SCHEMA
 from supportagent.adapters.tools.gha import SCHEMA as GHA_SCHEMA
 from supportagent.adapters.tools.logs import SCHEMA as LOGS_SCHEMA
 from supportagent.app.rca import Budget, Knowledge, RcaCase, RcaService
-from supportagent.domain.errors import ConfigError, ToolError
+from supportagent.domain.errors import CheckUnevaluated, ConfigError, ToolError
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.catalog import ServiceEntry
 from supportagent.domain.rca_reduce import (
@@ -387,6 +390,35 @@ def test_rca_tool_failure_inconclusive(tmp_path: Path) -> None:
 
 
 # -- CEL checks ---------------------------------------------------------------
+
+
+class _SlowProgram:
+    """A compiled program that takes longer than the budget (another thread holds the GIL)."""
+
+    def evaluate(self, activation: object) -> bool:
+        time.sleep(0.2)
+        return True
+
+
+def test_a_check_that_times_out_is_not_run_never_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A timeout used to read as "the check didn't hold": a cause tested and ruled out."""
+    monkeypatch.setattr(cel_check, "TIMEOUT_S", 0.05)
+    slow = cel_check.CelCheck("result.count > 0", _SlowProgram())
+    with pytest.raises(CheckUnevaluated, match="timed out after 50 ms"):
+        slow.is_satisfied_by({"count": 1}, {}, {})
+
+    rb_dir = _write_runbook(tmp_path / "rb", RUNBOOK % {"stop": "false"})
+    base = _knowledge(rb_dir)
+    knowledge = replace(
+        base, runbooks=[(rb, {**checks, rb.steps[0].id: slow}) for rb, checks in base.runbooks]
+    )
+    tools = FakeTools({"gha.recent_runs": GREEN_RUN, "airflow.dag_runs": DAG_OK})
+    artifact = _service(knowledge, tools, ScriptedLLM({})).run(_case(), Budget())
+    first = artifact.evidence[0].step
+    assert not first.ran and "timed out" in first.why
+    assert artifact.outcome == "INCONCLUSIVE"  # not CONSISTENT_UNCONFIRMED
 
 
 def test_cel_compile_fails_on_unknown_field() -> None:
