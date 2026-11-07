@@ -30,6 +30,7 @@ from supportagent.bootstrap import (
     build_onboarding_pipeline,
     build_readiness,
     build_readiness_lab,
+    build_trace_pipeline,
     changed_system,
     create_snapshot,
     detector_recall,
@@ -41,6 +42,7 @@ from supportagent.bootstrap import (
     load_onboarding_gates,
     load_plugins,
     load_reference_system,
+    load_trace_suites,
     onboarding_snapshot,
     quality_gates,
     read_readiness_baseline,
@@ -68,6 +70,7 @@ from supportagent.evals.lab import (
 from supportagent.evals.onboarding import STAGES, evaluate, null, oracle, score, stage_passes
 from supportagent.evals.quality import baseline_from, run_quality, write_quality_report
 from supportagent.evals.readiness import ReadinessReport, regressions
+from supportagent.evals.trace_lab import run_trace_lab
 
 app = typer.Typer(help="Eval suites (04 §8).", no_args_is_help=True)
 
@@ -362,6 +365,61 @@ def entail(
         if misses:
             typer.echo(f"  {misses} response(s) were not recorded: run with --live to record")
     raise typer.Exit(0 if report.passed and not misses else 1)
+
+
+@app.command("trace")
+def trace_lab(
+    live: bool = typer.Option(
+        False, "--live", help="Call the configured model and record its answers (needs secrets)."
+    ),
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.example.yaml"), "--config", help="Config file."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+) -> None:
+    """Transaction tracing (ADR-0021 §6): each flow fixture's labelled questions.
+
+    The verdict is scored against the truth (no wrong stopping stage; stuck
+    objects found; every can't-tell names its stage), and no seeded personal
+    data may reach a model request. Without ``--live`` the answers replay from
+    ``evals/trace/recordings``. Exit 0 gates pass, 1 gate fail or unrecorded
+    responses, 2 config error.
+    """
+    try:
+        cfg = load_config_default(config) if live else load_config_offline(config)
+        suites, gates = load_trace_suites(cfg)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    passed, misses, reports = True, 0, []
+    for flow, suite in suites:
+        pipeline, caching = build_trace_pipeline(cfg, flow, live=live)
+        report = run_trace_lab(
+            suite,
+            pipeline.run,
+            gates=gates,
+            mode="live" if live else "replay",
+            model_id=pipeline.model_id,
+        )
+        misses += caching.misses if not live else 0
+        passed = passed and report.passed
+        reports.append(report)
+    if as_json:
+        typer.echo(json.dumps([r.as_dict() for r in reports], indent=2))
+    else:
+        for report in reports:
+            for score in report.scores:
+                got = score.got
+                where = f" at {got.stage}" if got.stage else ""
+                mark = "ok  " if score.ok else "MISS"
+                kept = f"{got.business_kept} kept, {got.dropped} dropped"
+                typer.echo(f"{mark}  {score.scenario_id:<28} {got.kind}{where} ({kept})")
+            typer.echo(f"trace {report.flow} ({report.mode}): {len(report.scores)} scenario(s)")
+            for gate in report.gates:
+                typer.echo(f"  gate {gate.name}: {'ok' if gate.ok else 'FAIL'} — {gate.detail}")
+        if misses:
+            typer.echo(f"  {misses} response(s) were not recorded: run with --live to record")
+    raise typer.Exit(0 if passed and not misses else 1)
 
 
 @app.command("onboarding")

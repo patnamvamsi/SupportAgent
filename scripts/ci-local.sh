@@ -61,6 +61,7 @@ evals() {
         --config evals/lab/lab.yaml --split all || return 1
     done &&
     if [ -d evals/entail ]; then uv run supportagent eval entail --config evals/lab/lab.yaml; fi &&
+    if [ -d evals/trace ]; then uv run supportagent eval trace --config evals/lab/lab.yaml; fi &&
     if [ -d evals/onboarding ]; then uv run supportagent eval onboarding; fi
 }
 security() {

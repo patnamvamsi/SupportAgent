@@ -241,6 +241,11 @@ jobs:
         # evals/entail/recordings: faithfulness >= 0.95 and no false support.
         if: steps.filter.outputs.triggered == 'true'
         run: uv run supportagent eval entail --config evals/lab/lab.yaml
+      - name: trace lab replay (ADR-0021)
+        # Each flow fixture's labelled questions, answers replayed from
+        # evals/trace/recordings: no wrong stopping stage, no seeded PII sent.
+        if: steps.filter.outputs.triggered == 'true'
+        run: uv run supportagent eval trace --config evals/lab/lab.yaml
       - name: onboarding lab (ADR-0015, WP-O7)
         # Reference systems A and B: fixtures self-consistent, the oracle passes
         # every gate, the null result fails every stage; enforced stages gate

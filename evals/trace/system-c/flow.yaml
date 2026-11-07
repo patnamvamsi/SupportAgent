@@ -1,0 +1,55 @@
+# ADR-0021: System C's shipment flow, reviewed. A regression fixture for the
+# trace lab, never per-system code: the lab runs any flow it finds here.
+flow: shipment-tracking
+title: Shipment from creation to customer notification
+object: shipment
+id_pattern: 'SHP-\d{6}'
+reviewed: true
+sources: [confluence:50001, confluence:50003]
+stages:
+  - id: created
+    title: Shipment created
+    component: service:shipments-api
+    lookup:
+      capability: logs.search
+      source: logs
+      args: {query: '{app="shipments-api"} |= "$object.id"'}
+      found: matches[]
+      at: matches[].ts
+      fields: ['matches[].ts', 'matches[].line']
+  - id: booked
+    title: Booked with the carrier
+    component: service:carrier-adapter
+    within_min: 15
+    rejection: {path: 'matches[].line', values: [REJECTED], match: contains}
+    lookup:
+      capability: logs.search
+      source: logs
+      args: {query: '{app="carrier-adapter"} |= "$object.id"'}
+      found: matches[]
+      at: matches[].ts
+      fields: ['matches[].ts', 'matches[].line']
+  - id: tracking
+    title: Tracking started
+    component: service:tracking-worker
+    within_min: 30
+    rca_class: messaging/consumer_lag
+    lookup:
+      capability: logs.search
+      source: logs
+      args: {query: '{app="tracking-worker"} |= "$object.id"'}
+      found: matches[]
+      at: matches[].ts
+      fields: ['matches[].ts', 'matches[].line']
+  - id: notified
+    title: Customer notified
+    component: service:notifications-service
+    within_min: 10
+    terminal: true
+    lookup:
+      capability: logs.search
+      source: logs
+      args: {query: '{app="notifications-service"} |= "$object.id"'}
+      found: matches[]
+      at: matches[].ts
+      fields: ['matches[].ts', 'matches[].line']
