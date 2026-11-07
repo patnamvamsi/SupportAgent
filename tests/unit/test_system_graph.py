@@ -8,7 +8,13 @@ import pytest
 import yaml
 
 from supportagent.adapters.files.graph_extract import structured_facts
-from supportagent.bootstrap import ONBOARDING_DIR, build_system_graph, load_reference_system
+from supportagent.bootstrap import (
+    ONBOARDING_DIR,
+    build_system_graph,
+    discovery_rules,
+    load_plugins,
+    load_reference_system,
+)
 from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, SystemGraph, build
 from supportagent.domain.graph_prose import (
     GraphExtraction,
@@ -266,7 +272,7 @@ def _structured(name: str) -> tuple[dict[str, float], SystemGraph]:
     files = {p.relative_to(git).as_posix(): p.read_text() for p in git.rglob("*") if p.is_file()}
     cmdb = yaml.safe_load((d / "sources/servicenow/cmdb.yaml").read_text())
     live = yaml.safe_load((d / "sources/live/discovery.yaml").read_text())
-    graph = build(structured_facts(files, cmdb, live))
+    graph = build(structured_facts(files, cmdb, live, (), discovery_rules(load_plugins())))
     result = OnboardingResult(
         nodes=[ResultNode(id=n.id, kind=n.kind) for n in graph.nodes.values()],
         edges=[ResultEdge(src=a, kind=b, dst=c) for a, b, c in graph.edges],

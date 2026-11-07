@@ -268,7 +268,7 @@ from supportagent.domain.model.calibration import (
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.knowledge import DocFrontMatter
-from supportagent.domain.model.plugin import cause_hypothesis
+from supportagent.domain.model.plugin import Discovery, cause_hypothesis
 from supportagent.domain.model.preclass import RuleSet
 from supportagent.domain.model.routing import Route, RoutingRule, RoutingTable
 from supportagent.domain.model.runbook import RcaBudget
@@ -3606,6 +3606,15 @@ def write_readiness_baseline(root: Path, reports: Sequence[ReadinessReport]) -> 
     return path
 
 
+def discovery_rules(plugins: Sequence[LoadedPlugin]) -> list[tuple[str, str, Discovery]]:
+    """Each plugin's live mapping (ADR-0016): ``(plugin id, capability, discovery)``."""
+    return [
+        (p.manifest.id, capability, spec)
+        for p in plugins
+        for capability, spec in sorted(p.manifest.provides.discovery.items())
+    ]
+
+
 def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> GraphBuild:
     """The system graph of a workspace (or a reference system): structured, then prose."""
     snapshot = snapshot_from_sources(path)
@@ -3613,8 +3622,9 @@ def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> Graph
     cmdb = load_yaml_document(sources / "servicenow" / "cmdb.yaml")
     live_path = sources / "live" / "discovery.yaml"
     live = load_yaml_document(live_path) if live_path.is_file() else {}
-    declared = [(p.manifest.id, e) for p in load_plugins() for e in p.manifest.provides.extractors]
-    facts = structured_facts(snapshot.files, cmdb, live, declared)
+    plugins = load_plugins()
+    declared = [(p.manifest.id, e) for p in plugins for e in p.manifest.provides.extractors]
+    facts = structured_facts(snapshot.files, cmdb, live, declared, discovery_rules(plugins))
     return build_graph(facts, snapshot.docs, pipeline.extract if pipeline is not None else None)
 
 
