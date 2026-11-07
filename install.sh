@@ -7,6 +7,8 @@
 #   ./install.sh reconfigure     change answers (LLM, ServiceNow, Confluence, ...)
 #   ./install.sh start | stop | restart | status | logs [service]
 #   ./install.sh calibrate       re-run the model calibration (after a model change)
+#   ./install.sh onboard         onboard the system in local/system.yaml (read-only;
+#                                re-run after you act on what it lists)
 #   ./install.sh uninstall       stop and delete the containers and data (keeps local/)
 #
 # Options for set-up: --answers FILE (JSON, no questions), --skip-calibration.
@@ -257,6 +259,21 @@ ${demo}    - ./install.sh doctor      check everything, with a fix for each prob
 EOF
 }
 
+onboard() { # ADR-0017: onboard the system the wizard described; 1 if it couldn't run
+  [ -f "$LOCAL/system.yaml" ] || return 0
+  local name status=0
+  name=$(sed -n 's/^  name: *//p' "$LOCAL/system.yaml" | head -1 | tr -d '"')
+  step "Onboarding ${name:-your system} (read-only: it never writes to a source)"
+  printf '  %sreads its incidents, docs and repositories; a first run can take a while%s\n' "$D" "$N"
+  compose exec -T app supportagent onboard run --system local/system.yaml \
+    --workspace local/onboarding --config local/supportagent.yaml || status=$?
+  case $status in
+    0) ok "ready to support" ;;
+    1) ok "onboarded so far: the list above is what it needs from you; ./install.sh onboard re-runs it" ;;
+    *) warn "onboarding couldn't run"; fix "./install.sh doctor, then ./install.sh onboard"; return 1 ;;
+  esac
+}
+
 cmd_install() {
   local answers="" skip_cal=0
   while [ $# -gt 0 ]; do
@@ -281,6 +298,7 @@ cmd_install() {
   start_stack || { cmd_doctor || true; exit 1; }
   step "Checking the install"
   in_app_doctor || true
+  onboard || true
   summary
 }
 
@@ -405,7 +423,7 @@ cmd_uninstall() {
   ok "uninstalled$( [ $purge = 0 ] && printf '; local/ kept (./install.sh reuses it)')"
 }
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
 cmd=${1:-install}
 [ $# -gt 0 ] && shift
@@ -427,6 +445,11 @@ case "$cmd" in
   status) need_install; compose --profile demo ps ;;
   logs) need_install; compose --profile demo logs -f --tail 200 "$@" ;;
   calibrate) need_install; calibrate; compose restart app >/dev/null 2>&1 || true ;;
+  onboard)
+    need_install
+    [ -f "$LOCAL/system.yaml" ] || die "no local/system.yaml" "./install.sh reconfigure, and answer 'Onboard this system'"
+    stack_running || start_stack
+    onboard ;;
   uninstall) cmd_uninstall "$@" ;;
   help | -h | --help) usage ;;
   *) bad "unknown command: $cmd"; usage; exit 2 ;;

@@ -418,3 +418,121 @@ def test_the_wizard_offers_a_frontier_model_after_a_local_one(tmp_path: Path) ->
     assert config["llm"]["base_url"] == "http://host.docker.internal:1234/v1"
     public = (out / "answers.json").read_text()
     assert "sk-onboarding" not in public and "claude-sonnet-4-5-20250929" in public
+
+
+# --- ADR-0017: onboarding a system from the installer -----------------------------------
+
+
+_COMMIT = "c0ffee" + "0" * 34
+
+
+def test_answers_that_onboard_a_system_write_a_system_yaml_that_loads(tmp_path: Path) -> None:
+    from supportagent.config.loader import load_system_manifest  # noqa: PLC0415
+
+    answers = tmp_path / "answers.json"
+    answers.write_text(
+        json.dumps(
+            {
+                "team_name": "Acme",
+                "llm": {"kind": "anthropic", "model_id": "claude-sonnet-4-5-20250929"},
+                "servicenow": {
+                    "kind": "basic",
+                    "instance_url": "https://acme.service-now.com",
+                    "user": "svc",
+                    "password": "pw",
+                },
+                "services": [{"name": "payments-api", "cmdb_ci": ["CI9"]}],
+                "confluence": {
+                    "base_url": "https://acme.atlassian.net/wiki",
+                    "space_key": "PAY",
+                    "user": "ada@acme.test",
+                    "token": "cf-token",
+                },
+                "onboard": {
+                    "system_name": "Payments Platform",
+                    "assignment_groups": ["PAY-L2", "PAY-DBA"],
+                    "business_service": "Payments",
+                    "repos": ["github:acme-payments/*"],
+                    "github_token": "gh-secret-token",
+                    "catalog": "https://github.com/acme/sa-plugins.git",
+                    "catalog_ref": _COMMIT,
+                    "catalog_path": "catalog",
+                },
+                "admin_password": "pw-1",
+            }
+        )
+    )
+    out = tmp_path / "local"
+    result = CliRunner().invoke(app, ["init", "--dir", str(out), "--answers", str(answers)])
+    assert result.exit_code == 0, result.output
+    env = parse_env((out / ".env").read_text())
+    assert env["GITHUB_TOKEN"] == "gh-secret-token"
+    for written in ("system.yaml", "supportagent.yaml", "answers.json"):
+        assert "gh-secret-token" not in (out / written).read_text(), written
+
+    system = load_system_manifest(out / "system.yaml", env)
+    assert (system.system.id, system.system.name) == ("payments-platform", "Payments Platform")
+    sn = system.sources.servicenow
+    assert sn is not None and sn.assignment_groups == ["PAY-L2", "PAY-DBA"]
+    assert sn.business_service == "Payments"
+    [space] = system.sources.confluence
+    assert space.space == "PAY" and space.token is not None
+    assert space.token.get_secret_value() == "cf-token"
+    [repo] = system.sources.git
+    assert repo.repo == "github:acme-payments/*" and "**/pom.xml" in repo.paths
+    assert repo.token is not None and repo.token.get_secret_value() == "gh-secret-token"
+
+    config = load_config(out / "supportagent.yaml", env)
+    [catalog] = config.plugins.catalogs
+    assert not isinstance(catalog, str)
+    assert (catalog.git, catalog.ref, catalog.path) == (
+        "https://github.com/acme/sa-plugins.git",
+        _COMMIT,
+        "catalog",
+    )
+    assert config.plugins.auto_install == "none"
+
+
+def test_a_directory_catalogue_and_no_repositories_render_too(tmp_path: Path) -> None:
+    from supportagent.config.local_install import OnboardAnswers, render_system  # noqa: PLC0415
+
+    onboard = OnboardAnswers(
+        system_id="billing",
+        system_name="Billing",
+        assignment_groups=("BILL",),
+        catalog="/srv/supportagent/catalog",
+    )
+    answers = _answers(
+        servicenow=ServiceNowAnswers(kind="basic", instance_url="https://a.service-now.com"),
+        onboard=onboard,
+    )
+    env = _write(tmp_path, answers)
+    config = load_config(tmp_path / "supportagent.yaml", env)
+    assert config.plugins.catalogs == ["/srv/supportagent/catalog"]
+    assert "GITHUB_TOKEN" not in env
+    raw = yaml.safe_load(render_system(answers) or "")
+    assert raw["sources"] == {
+        "servicenow": {"assignment_groups": ["BILL"], "history": "12mo"},
+    }
+
+
+def test_no_onboarding_writes_no_system_and_keeps_an_earlier_one(tmp_path: Path) -> None:
+    from supportagent.config.local_install import render_system  # noqa: PLC0415
+
+    assert render_system(_answers()) is None
+    out = tmp_path / "local"
+    out.mkdir()
+    (out / "system.yaml").write_text("# kept\n")
+    answers = tmp_path / "answers.json"
+    answers.write_text(
+        json.dumps(
+            {
+                "llm": {"kind": "local", "base_url": "http://localhost:1234/v1", "model_id": "m-1"},
+                "servicenow": {"kind": "demo"},
+                "admin_password": "pw-1",
+            }
+        )
+    )
+    result = CliRunner().invoke(app, ["init", "--dir", str(out), "--answers", str(answers)])
+    assert result.exit_code == 0, result.output
+    assert (out / "system.yaml").read_text() == "# kept\n"
