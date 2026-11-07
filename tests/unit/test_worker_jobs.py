@@ -9,6 +9,7 @@ executor and repositories own the database (entrypoints-thin).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,9 +18,11 @@ import pytest
 from supportagent.app.outbox import ExecResult
 from supportagent.app.sync import SyncReport
 from supportagent.entrypoints.worker.jobs import (
+    ONBOARD_VERIFY_LEASE,
     OUTBOX_EXECUTE_LEASE,
     SYNC_POLL_LEASE_TTL_S,
     JobResult,
+    onboard_verify,
     outbox_execute,
     sync_poll,
     sync_poll_lease,
@@ -165,3 +168,28 @@ def test_sync_poll_releases_lease_on_error() -> None:
     with pytest.raises(RuntimeError, match="servicenow down"):
         sync_poll(poller=poller, table=RecordType.INCIDENT, lease=lease, owner="w1")
     assert lease.released == [("sync.poll.incident", "w1")]
+
+
+def test_onboard_verify_counts_and_warns_about_each_unbound_credential(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ADR-0019 §6: a credential that can write now is unbound; the scheduler can alert on it."""
+    lease = _FakeLease()
+    outcomes = [("req-a", True, ""), ("req-b", False, "it can insert: INSERT ANY TABLE")]
+    with caplog.at_level(logging.WARNING, logger="supportagent.worker"):
+        res = onboard_verify(verify=lambda: outcomes, lease=lease, owner="w1")
+    assert res == JobResult(name=ONBOARD_VERIFY_LEASE, ran=True, rows=1)
+    assert [r.getMessage() for r in caplog.records] == [
+        "onboard.verify: unbound req-b: it can insert: INSERT ANY TABLE"
+    ]
+    assert lease.released == [(ONBOARD_VERIFY_LEASE, "w1")]
+
+
+def test_onboard_verify_skips_when_another_worker_holds_it() -> None:
+    called: list[bool] = []
+    res = onboard_verify(
+        verify=lambda: called.append(True) or [],  # type: ignore[func-returns-value]
+        lease=_FakeLease(acquire_result=False),
+        owner="w1",
+    )
+    assert res == JobResult(name=ONBOARD_VERIFY_LEASE, ran=False) and called == []

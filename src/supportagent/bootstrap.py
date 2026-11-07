@@ -300,6 +300,7 @@ from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    ONBOARD_VERIFY_LEASE,
     OUTBOX_EXECUTE_INTERVAL_S,
     OUTBOX_EXECUTE_LEASE,
     PROPOSALS_EXPIRE_INTERVAL_S,
@@ -322,6 +323,7 @@ from supportagent.entrypoints.worker.jobs import (
     sync_poll_lease,
     webhooks_drain,
 )
+from supportagent.entrypoints.worker.jobs import onboard_verify as onboard_verify_job
 from supportagent.entrypoints.worker.loop import ScheduledJob, Worker
 from supportagent.evals.cases import EvalCase, FixtureSpec, parse_cases
 from supportagent.evals.entail import EntailCase, EntailGates, EntailSuite
@@ -1492,7 +1494,9 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             config, engine=engine, key=key, clock=clock, ids=ids, lease=lease, owner=owner
         )
     )
-    if any(row.rca == "lite" for row in [*config.routing, *filter(None, [config.default])]):
+    lite = any(row.rca == "lite" for row in [*config.routing, *filter(None, [config.default])])
+    # ADR-0020: in shadow, RCA also proves held-back classes live, lite routes or not
+    if lite or config.mode == "shadow":
         rca_job = build_rca_job(
             config,
             engine=engine,
@@ -1507,6 +1511,23 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
                 name=RCA_RUN_LEASE,
                 interval_s=float(RCA_RUN_INTERVAL_S),
                 run=lambda: rca_run(run=rca_job.run_once, lease=lease, owner=owner),
+            )
+        )
+    if config.onboarding.verify_interval_h > 0:
+        jobs.append(
+            ScheduledJob(
+                name=ONBOARD_VERIFY_LEASE,
+                interval_s=float(config.onboarding.verify_interval_h * 3600),
+                run=lambda: onboard_verify_job(
+                    verify=lambda: [
+                        (o.request.id, o.bound, o.why or "")
+                        for o in onboard_verify(
+                            config, actor="worker", engine=engine, master_key=key, clock=clock
+                        )
+                    ],
+                    lease=lease,
+                    owner=owner,
+                ),
             )
         )
     if config.llm.deprecation_feed:

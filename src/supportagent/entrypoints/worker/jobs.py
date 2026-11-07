@@ -266,6 +266,30 @@ def llm_deprecation_check(
     return JobResult(name=LLM_DEPRECATION_LEASE, ran=True, rows=len(found))
 
 
+#: ADR-0019 §6: ``onboard.verify`` re-checks every bound credential
+#: (every ``onboarding.verify_interval_h``).
+ONBOARD_VERIFY_LEASE = "onboard.verify"
+
+
+def onboard_verify(
+    *, verify: Callable[[], Sequence[tuple[str, bool, str]]], lease: Lease, owner: str
+) -> JobResult:
+    """Every bound credential's probes again; ``rows`` is how many were unbound.
+
+    ``verify`` returns ``(request, still bound, why)`` per credential. An unbound
+    one is logged as a warning: the audit trail already holds ``access_unbound``,
+    and the request reopens on the onboarding page with why.
+    """
+
+    def run() -> int:
+        unbound = [(request, why) for request, bound, why in verify() if not bound]
+        for request, why in unbound:
+            _log.warning("onboard.verify: unbound %s: %s", request, why)
+        return len(unbound)
+
+    return _leased(ONBOARD_VERIFY_LEASE, run, lease, owner, ttl_s=1800)
+
+
 __all__ = [
     "COMMS_CADENCE_INTERVAL_S",
     "COMMS_CADENCE_LEASE",
@@ -273,6 +297,7 @@ __all__ = [
     "GROUPS_CLOSE_LEASE",
     "LLM_DEPRECATION_INTERVAL_S",
     "LLM_DEPRECATION_LEASE",
+    "ONBOARD_VERIFY_LEASE",
     "OUTBOX_EXECUTE_INTERVAL_S",
     "OUTBOX_EXECUTE_LEASE",
     "OUTBOX_EXECUTE_MAX_ROWS",
@@ -291,6 +316,7 @@ __all__ = [
     "comms_cadence",
     "groups_close",
     "llm_deprecation_check",
+    "onboard_verify",
     "outbox_execute",
     "proposals_expire",
     "rca_run",

@@ -19,7 +19,11 @@ from supportagent.app.retention import RetentionService
 from supportagent.bootstrap import build_worker
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.event import Event
-from supportagent.entrypoints.worker.jobs import PROPOSALS_EXPIRE_LEASE, RETENTION_SWEEP_LEASE
+from supportagent.entrypoints.worker.jobs import (
+    ONBOARD_VERIFY_LEASE,
+    PROPOSALS_EXPIRE_LEASE,
+    RETENTION_SWEEP_LEASE,
+)
 from tests.integration.test_shadow_worker import _config
 from tests.unit.api_support import TENANT, seed_proposal
 
@@ -113,6 +117,7 @@ def test_worker_schedules_expire_and_retention(
     names = [job.name for job in worker.jobs]
     assert PROPOSALS_EXPIRE_LEASE in names
     assert RETENTION_SWEEP_LEASE in names
+    assert ONBOARD_VERIFY_LEASE in names  # ADR-0019 §6: daily by default
     seed_proposal(db, proposal_id="p_due", case_id="case_2")
     with db.begin() as conn:
         conn.execute(text("UPDATE proposals SET expires_ts = 1 WHERE id = 'p_due'"))
@@ -121,3 +126,36 @@ def test_worker_schedules_expire_and_retention(
     with db.connect() as conn:
         status = conn.execute(text("SELECT status FROM proposals WHERE id = 'p_due'")).scalar_one()
     assert status == "expired"
+
+
+def test_the_worker_verifies_bound_credentials_and_can_be_told_not_to(
+    tmp_path: Path, db: Engine, clock: Any, ids: Any, master_key: bytes
+) -> None:
+    config = _config(tmp_path)
+    config = config.model_copy(
+        update={
+            "onboarding": config.onboarding.model_copy(
+                update={"credentials_vault": str(tmp_path / "vault")}
+            )
+        }
+    )
+
+    def worker(cfg: Any) -> Any:
+        return build_worker(
+            cfg,
+            master_key=master_key,
+            clock=clock,
+            ids=ids,
+            transport=SyncASGITransport(FakeServiceNowHTTP().app),
+            llm_provider=FakeLLMProvider(),
+            engine=db,
+        )
+
+    job = next(j for j in worker(config).jobs if j.name == ONBOARD_VERIFY_LEASE)
+    assert job.interval_s == 24 * 3600
+    result = job.run()  # nothing bound yet, no vault file: a no-op
+    assert result.ran and result.rows == 0
+    off = config.model_copy(
+        update={"onboarding": config.onboarding.model_copy(update={"verify_interval_h": 0})}
+    )
+    assert ONBOARD_VERIFY_LEASE not in [j.name for j in worker(off).jobs]

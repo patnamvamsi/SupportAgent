@@ -680,6 +680,9 @@ class OnboardingConfig(DomainModel):
     #: ADR-0019: the credential vault, where bound credentials live (never the
     #: database). Sealed under the master key; keep it on a persistent volume.
     credentials_vault: str = "local/credentials.vault"
+    #: ADR-0019 §6: the worker re-runs every bound credential's probes this often
+    #: (``onboard verify``); one that can write now is unbound. ``0`` turns it off.
+    verify_interval_h: int = Field(default=24, ge=0, le=24 * 30)
 
 
 class AppConfig(DomainModel):
