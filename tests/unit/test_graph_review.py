@@ -15,12 +15,14 @@ from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.adapters.files.graph_extract import structured_facts
 from supportagent.app.graph import build_graph
 from supportagent.app.graph_review import FactView, GraphReview, fact_id
-from supportagent.bootstrap import ONBOARDING_DIR
+from supportagent.bootstrap import ONBOARDING_DIR, discovery_rules, load_plugins
 from supportagent.domain.graph import EdgeFact
 from supportagent.entrypoints.api.graph_svg import render
 from tests.unit.api_support import ADA, BOB, TENANT, login, logout, make_client, seed_users
 
 pytestmark = pytest.mark.unit
+
+_DISCOVERY = discovery_rules(load_plugins())
 
 _QUOTE = (
     "| orders-service | Creates and tracks orders "
@@ -35,7 +37,7 @@ def _system_a(extra: list[EdgeFact] | None = None) -> Any:
     files = {p.relative_to(git).as_posix(): p.read_text() for p in git.rglob("*") if p.is_file()}
     cmdb = yaml.safe_load((d / "sources/servicenow/cmdb.yaml").read_text())
     live = yaml.safe_load((d / "sources/live/discovery.yaml").read_text())
-    facts = [*structured_facts(files, cmdb, live), *(extra or [])]
+    facts = [*structured_facts(files, cmdb, live, (), _DISCOVERY), *(extra or [])]
     return build_graph(facts, [], None)
 
 

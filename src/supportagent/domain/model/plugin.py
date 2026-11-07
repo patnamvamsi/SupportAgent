@@ -326,6 +326,81 @@ def cause_hypothesis(cause: str) -> str:
     return cause.replace("/", "_")
 
 
+#: ``{path|filter:arg|...}`` in a discovery template.
+PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
+#: What a discovery template's filters may do to a value.
+DISCOVERY_FILTERS = frozenset({"lower", "after_last", "strip_prefix"})
+#: Discovery's relationships: a declared rule's, plus containment.
+DISCOVERY_EDGES = RULE_EDGES | {"part_of"}
+_PATH = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$")
+
+
+def template_paths(template: str) -> list[str]:
+    """The value paths a template reads, in order (filters stripped)."""
+    return [p.split("|", 1)[0].strip() for p in PLACEHOLDER.findall(template)]
+
+
+class DiscoveryNode(DomainModel):
+    """A node a discovery rule yields. ``id`` is a template (``topic:{t}``), not lowercased."""
+
+    id: str = Field(min_length=3)
+    kind: GraphKind
+    tech: list[str] = Field(default_factory=list)
+
+
+class DiscoveryRule(DomainModel):
+    """One rule over a live capability's result (ADR-0016 follow-up).
+
+    ``each`` binds names in order, each to a list in the result or in an
+    earlier binding (``{g: result.groups, t: g.topics}`` iterates both). A
+    mapping iterates as entries, each with ``.key`` and ``.value``.
+    Templates read ``target`` (the part after ``@`` in the result's key),
+    ``result.<field>`` and bound names, through ``lower``,
+    ``after_last:<sep>`` and ``strip_prefix:<text>``. The rule yields a
+    ``node``, or an ``edge`` as ``[from, relationship, to]``, for each
+    binding. A value a template can't read skips that one yield.
+    """
+
+    each: dict[str, str] = Field(default_factory=dict)
+    node: DiscoveryNode | None = None
+    edge: list[str] | None = Field(default=None, min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def _well_formed(self) -> DiscoveryRule:
+        if (self.node is None) == (self.edge is None):
+            raise ValueError("a discovery rule yields a node or an edge")  # noqa: TRY003
+        bound: list[str] = []
+        for name, path in self.each.items():
+            if name in {"target", "result"} or not re.match(r"^[a-z_][a-z0-9_]*$", name):
+                raise ValueError(f"each: {name!r} can't be bound")  # noqa: TRY003
+            if not _PATH.match(path) or path.split(".")[0] not in {"result", *bound}:
+                raise ValueError(f"each: {name}: {path!r} must start at result or an earlier name")  # noqa: TRY003
+            bound.append(name)
+        templates = (
+            [self.node.id] if self.node else [self.edge[0], self.edge[2]] if self.edge else []
+        )
+        for template in templates:
+            for placeholder in PLACEHOLDER.findall(template):
+                path, *filters = (part.strip() for part in placeholder.split("|"))
+                if not _PATH.match(path) or path.split(".")[0] not in {"target", "result", *bound}:
+                    raise ValueError(f"{template!r}: {path!r} reads nothing bound")  # noqa: TRY003
+                for f in filters:
+                    name, _, arg = f.partition(":")
+                    if name not in DISCOVERY_FILTERS or (name != "lower") != bool(arg):
+                        raise ValueError(f"{template!r}: unknown filter {f!r}")  # noqa: TRY003
+        if self.edge is not None and self.edge[1] not in DISCOVERY_EDGES:
+            raise ValueError(f"edge {self.edge[1]!r} is not one of {sorted(DISCOVERY_EDGES)}")  # noqa: TRY003
+        return self
+
+
+class Discovery(DomainModel):
+    """How one live capability's result becomes graph facts (layer 2)."""
+
+    #: The provenance its facts carry (``live_k8s``); default ``live_<plugin id>``.
+    by: str | None = Field(default=None, pattern=r"^[a-z0-9_]+$")
+    rules: list[DiscoveryRule] = Field(min_length=1)
+
+
 class Provides(DomainModel):
     pack: str | None = Field(default=None, pattern=_ID)
     #: WP-O4: the labels and causes the incident map can use when the plugin applies.
@@ -336,6 +411,16 @@ class Provides(DomainModel):
     extractors: list[Extractor] = Field(default_factory=list)
     #: Capabilities other plugins provide that this one's knowledge uses.
     needs: list[str] = Field(default_factory=list)
+    #: ADR-0016 follow-up: live capability results to graph facts, by capability name.
+    discovery: dict[str, Discovery] = Field(default_factory=dict)
+
+    @field_validator("discovery")
+    @classmethod
+    def _discovery_names(cls, value: dict[str, Discovery]) -> dict[str, Discovery]:
+        bad = [name for name in value if not re.match(_CAPABILITY, name)]
+        if bad:
+            raise ValueError(f"discovery capability names must look like a.b: {bad}")  # noqa: TRY003
+        return value
 
     @field_validator("capabilities")
     @classmethod

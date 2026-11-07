@@ -83,7 +83,7 @@ A runtime id's first segment is an area, and is dropped from a target's name, wh
 
 - **A new ticket system or docs source** (Jira, SharePoint) is a connector (ADR-0013) or knowledge source: code by design, because it carries the write path and redaction.
 - **A config format no rule can express** (code, not config: Python's `SparkSession` options, Snowflake SQL) keeps a built-in extractor, or comes as a first-party, signed plugin package (ADR-0015 §2).
-- **Live discovery's mapping of capability results to graph facts** (`kafka.topics` to topics) is still per capability in the core. A declared mapping is a follow-up. Until then a new stack's live layer is what Kubernetes and the CMDB show.
+- ~~Live discovery's mapping of capability results to graph facts~~ (*delivered later*): a plugin declares it (`provides.discovery`, rules over the result). The six mappings that were in the core (`k8s.workloads`, `oracle.schemas`, `kafka.topics`, `kafka.consumer_groups`, `snowflake.objects`, `airflow.dags`) moved into their plugins. The reference systems' facts are identical, fact for fact.
 - **A first-party in-process backend** (like `oracle.*`) is optional: an MCP server can serve any declared capability.
 
 ## Proof

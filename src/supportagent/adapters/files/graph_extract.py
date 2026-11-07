@@ -33,7 +33,13 @@ from typing import Any
 import yaml
 
 from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, NodeKind
-from supportagent.domain.model.plugin import Extractor, ExtractRule, NodeTemplate
+from supportagent.domain.model.plugin import (
+    PLACEHOLDER,
+    Discovery,
+    Extractor,
+    ExtractRule,
+    NodeTemplate,
+)
 from supportagent.domain.plugins import path_matches
 
 _POM_ARTIFACT = re.compile(r"</parent>\s*.*?<artifactId>([^<]+)</artifactId>", re.S)
@@ -89,12 +95,16 @@ def structured_facts(
     cmdb: Mapping[str, Any],
     live: Mapping[str, Any],
     declared: Sequence[tuple[str, Extractor]] = (),
+    discovery: Sequence[tuple[str, str, Discovery]] = (),
 ) -> list[Fact]:
     """Every layer-1 (config, CMDB) and layer-2 (live) fact about the system.
 
     ``declared`` (ADR-0016) is each plugin's declarative extractors, as
     ``(plugin id, extractor)``: they run after the built-in ones, a component
     rule only for a repository no built-in claimed.
+
+    ``discovery`` is each plugin's live mapping, as ``(plugin id, capability,
+    discovery)``: a live result whose capability no plugin maps adds nothing.
     """
     out = _Collect()
     by_repo: dict[str, dict[str, str]] = {}
@@ -111,7 +121,7 @@ def structured_facts(
                     extractor(out, repo, path, text)
     _declared(out, by_repo, declared, own=False)
     _cmdb(out, cmdb, {e.match.removeprefix("cmdb:"): e.node for _, e in declared if e.node})
-    _live(out, live)
+    _live(out, live, discovery)
     _reconcile(out)
     return out.facts
 
@@ -491,73 +501,102 @@ def _cmdb(
         out.edge(parent, edge_kind, child, f"cmdb:{rel['sys_id']}", by="cmdb")
 
 
-def _live(out: _Collect, live: Mapping[str, Any]) -> None:
+def _live(
+    out: _Collect, live: Mapping[str, Any], discovery: Sequence[tuple[str, str, Discovery]]
+) -> None:
+    """Layer 2: each live result through the rules its capability's plugin declares."""
+    rules = {capability: (plugin, spec) for plugin, capability, spec in discovery}
     for key, result in live.items():
         capability, _, target = str(key).partition("@")
-        source = f"live:{key}"
-        if not isinstance(result, dict):
+        if not isinstance(result, dict) or capability not in rules:
             continue
-        if capability == "k8s.workloads":
-            runtime = f"runtime:{result['cluster']}/{result['namespace']}"
-            out.node(runtime, "Runtime", source, layer=2, tech=["kubernetes"], by="live_k8s")
-            for name in result.get("deployments", []):
-                out.edge(f"*:{name}", "runs_on", runtime, source, layer=2, by="live_k8s")
-            for job in result.get("cronjobs", []):
-                out.edge(f"*:{job['name']}", "runs_on", runtime, source, layer=2, by="live_k8s")
-        elif capability == "oracle.schemas":
-            db = f"database:{str(result['database']).lower()}"
-            out.node(db, "Database", source, layer=2, tech=["oracle"], by="live_oracle")
-            for schema in result.get("schemas", []):
-                node = f"schema:{db.split(':', 1)[1]}.{schema.lower()}"
-                out.node(node, "Datastore", source, layer=2, tech=["oracle"], by="live_oracle")
-                out.edge(node, "part_of", db, source, layer=2, by="live_oracle")
-        elif capability == "kafka.topics":
-            cluster = f"runtime:kafka/{target}"
-            out.node(cluster, "Runtime", source, layer=2, tech=["kafka"], by="live_kafka")
-            for topic in result.get("topics", []):
-                out.node(
-                    f"topic:{topic}", "Topic", source, layer=2, tech=["kafka"], by="live_kafka"
-                )
-                out.edge(f"topic:{topic}", "part_of", cluster, source, layer=2, by="live_kafka")
-        elif capability == "kafka.consumer_groups":
-            for group in result.get("groups", []):
-                member = f"*:{str(group['group']).removeprefix('connect-')}"
-                for topic in group.get("topics", []):
-                    out.edge(member, "consumes", f"topic:{topic}", source, layer=2, by="live_kafka")
-        elif capability == "snowflake.objects":
-            for db, tables in (result.get("databases") or {}).items():
-                for table in tables:
-                    node = f"table:{db.lower()}.{table.lower()}"
-                    out.node(
-                        node, "Datastore", source, layer=2, tech=["snowflake"], by="live_snowflake"
-                    )
-            for wh in result.get("warehouses", []):
-                out.node(
-                    f"runtime:snowflake/{wh.lower()}",
-                    "Runtime",
-                    source,
-                    layer=2,
-                    tech=["snowflake"],
-                    by="live_snowflake",
-                )
-            for task in result.get("tasks", []):
-                out.node(
-                    f"job:{task.split('.')[-1].lower()}",
-                    "Job",
-                    source,
-                    layer=2,
-                    tech=["snowflake-task"],
-                    by="live_snowflake",
-                )
-        elif capability == "airflow.dags":
-            out.node(
-                f"runtime:airflow/{target}",
-                "Runtime",
-                source,
-                layer=2,
-                tech=["airflow"],
-                by="live_airflow",
-            )
+        plugin, spec = rules[capability]
+        by = spec.by or f"live_{plugin}"
+        source = f"live:{key}"
+        root = {"target": target, "result": result}
+        for rule in spec.rules:
+            for env in _bindings(rule.each, root):
+                if rule.node is not None:
+                    node_id = _fill(rule.node.id, env)
+                    if node_id is not None:
+                        out.node(
+                            node_id,
+                            rule.node.kind,
+                            source,
+                            layer=2,
+                            tech=list(rule.node.tech),
+                            by=by,
+                        )
+                elif rule.edge is not None:
+                    src, relation, dst = rule.edge
+                    a, b = _fill(src, env), _fill(dst, env)
+                    if a is not None and b is not None:
+                        out.edge(a, relation, b, source, layer=2, by=by)
+
+
+@dataclass(frozen=True, slots=True)
+class _Entry:
+    """One entry of a mapping a discovery rule iterates."""
+
+    key: object
+    value: object
+
+
+def _read(path: str, env: Mapping[str, object]) -> object:
+    head, *rest = path.split(".")
+    value: object = env.get(head)
+    for segment in rest:
+        if isinstance(value, _Entry) and segment in ("key", "value"):
+            value = getattr(value, segment)
+        elif isinstance(value, dict):
+            value = value.get(segment)
+        else:
+            return None
+    return value
+
+
+def _bindings(each: Mapping[str, str], env: Mapping[str, object]) -> Iterable[Mapping[str, object]]:
+    """Every combination of ``each``'s bindings, in order (nested iteration)."""
+    if not each:
+        yield env
+        return
+    (name, path), *rest = each.items()
+    value = _read(path, env)
+    items: Iterable[object] = (
+        [_Entry(k, v) for k, v in value.items()]
+        if isinstance(value, dict)
+        else value
+        if isinstance(value, list)
+        else []
+    )
+    for item in items:
+        yield from _bindings(dict(rest), {**env, name: item})
+
+
+def _fill(template: str, env: Mapping[str, object]) -> str | None:
+    """The template with each placeholder read and filtered; ``None`` if one can't be."""
+    missing = False
+
+    def one(match: re.Match[str]) -> str:
+        nonlocal missing
+        path, *filters = (part.strip() for part in match.group(1).split("|"))
+        value = _read(path, env)
+        if value is None or isinstance(value, (dict, list, _Entry)):
+            missing = True
+            return ""
+        text = str(value)
+        for f in filters:
+            name, _, arg = f.partition(":")
+            if name == "lower":
+                text = text.lower()
+            elif name == "after_last":
+                text = text.rsplit(arg, 1)[-1]
+            elif name == "strip_prefix":
+                text = text.removeprefix(arg)
+        return text
+
+    filled = PLACEHOLDER.sub(one, template)
+    return None if missing or not filled else filled
 
 
 # --- reconciling names ---------------------------------------------------------------------

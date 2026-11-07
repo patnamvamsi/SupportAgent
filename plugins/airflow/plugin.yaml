@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: airflow
-version: 0.1.0
+version: 0.1.1
 description: Apache Airflow orchestration (DAG and task failures, late runs).
 core_api: ">=1.0,<2"
 provides:
@@ -15,6 +15,10 @@ provides:
     - {capability: "airflow.*", first_party: airflow, access: airflow_ro}
   extractors:
     - {match: "**/dags/*.py", extract: dag_schedules_and_targets}
+  discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)
+    airflow.dags:
+      rules:
+        - node: {id: "runtime:airflow/{target}", kind: Runtime, tech: [airflow]}
 requires:
   airflow_ro:
     description: The Airflow Viewer role.

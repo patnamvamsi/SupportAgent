@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: snowflake
-version: 0.1.0
+version: 0.1.1
 description: Snowflake warehouses, tasks and credits (queuing, task failures, resource monitors).
 core_api: ">=1.0,<2"
 provides:
@@ -22,6 +22,15 @@ provides:
     - {capability: "snowflake.*", first_party: snowflake, access: snowflake_ro}
   extractors:
     - {match: "**/*.sql", extract: tasks_tables_warehouses}
+  discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)
+    snowflake.objects:
+      rules:
+        - each: {db: result.databases, table: db.value}
+          node: {id: "table:{db.key|lower}.{table|lower}", kind: Datastore, tech: [snowflake]}
+        - each: {wh: result.warehouses}
+          node: {id: "runtime:snowflake/{wh|lower}", kind: Runtime, tech: [snowflake]}
+        - each: {task: result.tasks}
+          node: {id: "job:{task|after_last:.|lower}", kind: Job, tech: [snowflake-task]}
 requires:
   snowflake_ro:
     description: A role for diagnosis only.

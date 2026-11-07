@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: kafka
-version: 0.1.1
+version: 0.1.2
 description: Kafka topics, consumer groups and Kafka Connect (lag, rebalances, connector failures, schema compatibility).
 core_api: ">=1.0,<2"
 provides:
@@ -19,6 +19,18 @@ provides:
   extractors:
     - {match: "**/*.py", extract: kafka_topics_and_groups}
     - {match: "**/connector.json", extract: connect_topics_and_tables}
+  discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)
+    kafka.topics:
+      rules:
+        - node: {id: "runtime:kafka/{target}", kind: Runtime, tech: [kafka]}
+        - each: {t: result.topics}
+          node: {id: "topic:{t}", kind: Topic, tech: [kafka]}
+        - each: {t: result.topics}
+          edge: ["topic:{t}", part_of, "runtime:kafka/{target}"]
+    kafka.consumer_groups:
+      rules:
+        - each: {g: result.groups, t: g.topics}
+          edge: ["*:{g.group|strip_prefix:connect-}", consumes, "topic:{t}"]
 requires:
   kafka_ro:
     description: Describe-only ACLs on the cluster.

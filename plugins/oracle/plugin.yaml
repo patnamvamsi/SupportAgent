@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: oracle
-version: 0.2.1
+version: 0.2.2
 description: Oracle Database (locks and deadlocks, tablespaces, ORA- errors, plan regressions).
 core_api: ">=1.0,<2"
 status: evaluated   # WP-O6a: its pack passes its lab (packs/oracle/evals)
@@ -21,6 +21,15 @@ provides:
   extractors:
     - {match: "**/application*.yml", extract: jdbc_oracle_datasources}
     - {match: "cmdb:cmdb_ci_db_ora_instance", extract: databases}
+  discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)
+    oracle.schemas:
+      by: live_oracle
+      rules:
+        - node: {id: "database:{result.database|lower}", kind: Database, tech: [oracle]}
+        - each: {s: result.schemas}
+          node: {id: "schema:{result.database|lower}.{s|lower}", kind: Datastore, tech: [oracle]}
+        - each: {s: result.schemas}
+          edge: ["schema:{result.database|lower}.{s|lower}", part_of, "database:{result.database|lower}"]
 requires:
   oracle_ro:
     description: A read-only diagnostic account on each database.

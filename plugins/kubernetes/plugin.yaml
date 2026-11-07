@@ -1,6 +1,6 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: kubernetes
-version: 0.2.0
+version: 0.2.1
 description: Workloads on Kubernetes (pod status, restarts, OOMKills, rollouts).
 core_api: ">=1.0,<2"
 status: evaluated   # WP-O6a: its pack passes its lab (packs/kubernetes/evals)
@@ -17,6 +17,15 @@ provides:
   needs: [changes.recent]   # rollouts, served with the github plugin's deploys
   extractors:
     - {match: "**/helm/**", extract: workload_namespace}
+  discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)
+    k8s.workloads:
+      by: live_k8s
+      rules:
+        - node: {id: "runtime:{result.cluster}/{result.namespace}", kind: Runtime, tech: [kubernetes]}
+        - each: {d: result.deployments}
+          edge: ["*:{d}", runs_on, "runtime:{result.cluster}/{result.namespace}"]
+        - each: {j: result.cronjobs}
+          edge: ["*:{j.name}", runs_on, "runtime:{result.cluster}/{result.namespace}"]
 requires:
   k8s_ro:
     description: A service account limited to reading one namespace.
