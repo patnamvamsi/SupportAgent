@@ -63,7 +63,7 @@ The tool registry adds the vault's credentials to their backend:
 
 ### 6. Keeping it true
 
-Privileges change after binding: a DBA grants a role, an admin adds a tag. `supportagent onboard verify` runs every bound credential's probes again. If one can now write, its credential is taken out of the vault and its request reopens with why. It exits non-zero when any credential was unbound, so a scheduler can alert on it.
+Privileges change after binding: a DBA grants a role, an admin adds a tag. `supportagent onboard verify` runs every bound credential's probes again. If one can now write, its credential is taken out of the vault and its request reopens with why. It exits non-zero when any credential was unbound, so a scheduler can alert on it. The worker runs it as `onboard.verify` every `onboarding.verify_interval_h` (default 24 hours).
 
 ## Consequences
 

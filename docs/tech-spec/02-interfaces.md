@@ -279,3 +279,4 @@ All jobs run under a DB lease (`leases` table, 03 §2), so multiple replicas nev
 | `comms.cadence` | 60 s | v0.1 | Render due plan updates (send, or draft under `human_owned`) |
 | `llm.deprecation_check` | 24 h | v0.1 | Warn at T−90 days for pinned models |
 | `groups.close` | 5 min | v0.1 | Close idle case groups |
+| `onboard.verify` | `onboarding.verify_interval_h` (24 h; 0 off) | ADR-0019 §6 | Re-run every bound credential's probes; unbind one that can write now (a warning each) |

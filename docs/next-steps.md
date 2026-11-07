@@ -51,7 +51,7 @@ Three reference systems (Java/Oracle, data platform, Node/MongoDB/RabbitMQ) are 
 **Follow-ups:**
 - Verifiers for the other contracts (GitHub, Snowflake, Kafka, Airflow, Grafana and the rest). Until one exists, a contract is never bound.
 - Starting an MCP server (MongoDB, RabbitMQ) with its bound credential: the installer's job (§3).
-- Run `onboard verify` on a schedule (cron, or the worker), alerting when it unbinds.
+- ~~Run `onboard verify` on a schedule~~ (*done*): the worker's `onboard.verify` job runs every `onboarding.verify_interval_h` (default 24; `0` turns it off). It logs a warning for each credential it unbinds, and its `rows` count those.
 - Meeting real systems: the verifiers are tested against faithful fakes only.
 
 ### 1.3 Shadow replay (*delivered*, WP-O6c, ADR-0020)

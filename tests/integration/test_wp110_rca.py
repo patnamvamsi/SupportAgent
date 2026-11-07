@@ -138,9 +138,11 @@ def test_rca_job_one_artifact_per_group_lead(
     assert tools.calls == ["gha.recent_runs", "gha.recent_runs"]
 
 
-def test_worker_schedules_rca_only_for_lite_routes(
+def test_the_shadow_worker_schedules_rca_with_or_without_lite_routes(
     tmp_path: Path, db: Engine, clock: Any, ids: Any, master_key: bytes
 ) -> None:
+    """ADR-0020: in shadow, RCA also proves held-back classes live, with or without lite routes."""
+
     def names(rca: str) -> list[str]:
         config = _config(tmp_path)
         data = config.model_dump(mode="json")
@@ -158,5 +160,5 @@ def test_worker_schedules_rca_only_for_lite_routes(
         )
         return [job.name for job in worker.jobs]
 
-    assert RCA_RUN_LEASE not in names("none")
+    assert RCA_RUN_LEASE in names("none")  # the config is shadow mode's
     assert RCA_RUN_LEASE in names("lite")
