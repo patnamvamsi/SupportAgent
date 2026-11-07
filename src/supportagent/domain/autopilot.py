@@ -37,7 +37,7 @@ STEPS: tuple[Step, ...] = (
     "gaps",
 )
 State = Literal["done", "blocked", "failed"]
-NeedKind = Literal["access", "plugin", "review", "evidence", "source"]
+NeedKind = Literal["access", "plugin", "review", "evidence", "source", "shadow", "config"]
 #: Who or what a need waits on, as shown.
 NEED_LABELS: Mapping[str, str] = {
     "access": "Grant access",
@@ -45,6 +45,8 @@ NEED_LABELS: Mapping[str, str] = {
     "review": "Review what onboarding found",
     "evidence": "Capture evidence",
     "source": "Fix a source",
+    "shadow": "Run in shadow",
+    "config": "Complete the configuration",
 }
 
 

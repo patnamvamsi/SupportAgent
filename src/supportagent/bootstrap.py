@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import socket
+import tempfile
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -172,6 +173,7 @@ from supportagent.app.handlers import build_handlers
 from supportagent.app.incident_map import IncidentsAnswer, map_incidents
 from supportagent.app.ingest import HistoryExport, IngestService, SourceReport
 from supportagent.app.lifecycle import LifecycleService
+from supportagent.app.live_proof import LiveProof, LiveRca
 from supportagent.app.memory import CaseMemory
 from supportagent.app.onboarding_audit import OnboardingAudit
 from supportagent.app.onboarding_audit import history as audit_history
@@ -231,6 +233,7 @@ from supportagent.domain.autopilot import (
     digest,
     should_run,
 )
+from supportagent.domain.classification import prefix_match
 from supportagent.domain.connector import ConnectorManifest, TicketSemantics, limits_for
 from supportagent.domain.deprecation import deprecation_notices
 from supportagent.domain.drift import ClassShape, Finding, Snapshot, diff
@@ -284,7 +287,7 @@ from supportagent.domain.plugins import (
 from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.readiness import ReadinessPolicy
-from supportagent.domain.severity import SeverityStrategy, SourcePrioritySeverity
+from supportagent.domain.severity import Severity, SeverityStrategy, SourcePrioritySeverity
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.sop import step_scope
 from supportagent.domain.trace import TraceContext
@@ -350,11 +353,14 @@ from supportagent.evals.quality import RecallReport
 from supportagent.evals.readiness import (
     ReadinessReport,
     Replayed,
+    ShadowCase,
+    apply_shadow,
     assess,
     fit_calibration,
     history_scenarios,
     service_entry,
 )
+from supportagent.evals.readiness import incident_scenario as history_scenario
 from supportagent.evals.scoring import CaseRun
 from supportagent.ports.access import AccessVerifier
 from supportagent.ports.clock import Clock
@@ -1222,6 +1228,8 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         ids=ids,
         clock=clock,
         tenant_id=config.tenant.id,
+        # WP-O6c: in shadow, a class that isn't ready is proven on its live incidents
+        prove_live=config.mode == "shadow",
     )
 
 
@@ -1814,6 +1822,12 @@ class LabPipeline:
         self._redact: Callable[[str], str] = lambda text: redactor.redact(text).text
         #: Set by a caching decorator so N samples are N calls (``CachingLLMProvider.sample``).
         self.caching: CachingLLMProvider | None = None
+
+    def shadow(self) -> ShadowReplay:
+        """WP-O6c: shadow replay with this lab's model, so the replays share its recordings."""
+        if self.caching is not None:
+            self.caching.sample = 0
+        return ShadowReplay(self._config, llm=self._llm, packs=self._packs)
 
     def run(self, scenario: LabScenario, sample: int) -> LabOutcome:
         if self.caching is not None:
@@ -3857,20 +3871,57 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
     *,
     plugins: Sequence[LoadedPlugin] | None = None,
     manifest: SystemManifest | None = None,
+    shadow: ShadowReplay | None = None,
+    live: Mapping[str, LiveRca] | None = None,
 ) -> ReadinessReport:
-    """WP-O6b: replay each testable class's history in the lab and assess it."""
+    """WP-O6b: replay each testable class's history in the lab and assess it.
+
+    WP-O6c: ``live`` (the agent's RCA on live incidents, in shadow) stands in for
+    the evidence an incident has none of. ``shadow`` then runs the history
+    through the shadow triage pipeline and applies its gate.
+    """
     registry = plugins if plugins is not None else load_plugins()
     system = manifest or load_system_manifest(path / "system.yaml", {}, need_secrets=False)
     why_not = readiness_testable(config, registry)
+    past = _past_incidents(path)
     scenarios, missing = history_scenarios(
         run.incidents,
-        _past_incidents(path),
+        past,
         run.graph.graph,
         load_evidence(path),
         system=system.system.id,
     )
     causes = {c.id: c.cause for c in run.incidents.classes}
     replayed: dict[str, list[Replayed]] = {}
+    missing = dict(missing)
+    by_number = {i.number: i for i in past}
+    seen_live = live or {}
+    # WP-O6c: an incident without evidence is proven by the live RCA shadow ran on it
+    rca_live = {n for n, s in seen_live.items() if s.verdict is not None}
+    for cls in run.incidents.classes:
+        if cls.cause is None or why_not(cls.cause) is not None:
+            continue
+        for number in missing.get(cls.id, ()):
+            if number in rca_live:
+                scenario = history_scenario(
+                    cls, by_number[number], run.graph.graph, {}, system.system.id
+                )
+                replayed.setdefault(cls.id, []).append(
+                    _live_replayed(scenario, number, seen_live[number])
+                )
+        missing[cls.id] = tuple(n for n in missing.get(cls.id, ()) if n not in rca_live)
+    # ... and every resolved live case is a calibration observation of its class's label
+    observed = [
+        (
+            seen.classification,
+            seen.preclass,
+            seen.classification is not None
+            and prefix_match(cls.label or "request/access", seen.classification),
+        )
+        for cls in run.incidents.classes
+        for n in cls.incidents
+        if (seen := seen_live.get(n)) is not None
+    ]
     for item in scenarios:
         cause = causes.get(item.class_id)
         if cause is not None and why_not(cause) is not None:
@@ -3897,11 +3948,221 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         model_id=lab.model_id,
     )
     report.calibration = fit_calibration(
-        (r for rows in replayed.values() for r in rows),
+        (r for rows in replayed.values() for r in rows if r.incident not in seen_live),
         model_id=lab.model_id,
         system=system.system.id,
+        observed=observed,
     )
-    return report
+    if shadow is None:
+        return report
+    cases, gaps = shadow.run(report, run.incidents, past, run.graph.graph)
+    return apply_shadow(
+        report,
+        run.incidents,
+        cases,
+        gates=system.readiness,
+        min_score=config.calibration.min_score,
+        catalog_gaps=gaps,
+    )
+
+
+def _live_replayed(scenario: LabScenario, number: str, seen: LiveRca) -> Replayed:
+    """WP-O6c: a live RCA (in shadow) scored as the incident's replay would be."""
+    outcome = LabOutcome(
+        scenario_id=scenario.id,
+        classification=seen.classification,
+        severity=seen.severity,
+        preclass_label=seen.preclass,
+        verdict=seen.verdict or "INCONCLUSIVE",
+        supported=seen.supported,
+        tested=seen.tested,
+        cited_tools=frozenset(),
+        tool_calls=0,
+        tokens=0,
+    )
+    return Replayed(
+        number,
+        seen.supported,
+        score_outcome(scenario, outcome),
+        predicted=seen.classification,
+        preclass=seen.preclass,
+        live=True,
+    )
+
+
+#: WP-O6c: the paging integration a replayed service is given when the catalog has none,
+#: so routing is measured; the missing integration is reported as a catalog gap.
+_UNCONFIGURED_PAGING = "onboarding:unconfigured"
+
+
+class ShadowReplay:
+    """WP-O6c: a system's history through the shadow triage pipeline (ARCH §8.4).
+
+    Each past incident, in the order it was opened and with the clock at that
+    moment, goes through ``ShadowRunner`` on a throwaway database: dedup, storm
+    grouping, the spend breaker, the pre-classifier, the classifier with the
+    calibration this readiness run fitted (when triage uses that model), the
+    severity cap, routing by this run's readiness, and the actions that would
+    have been proposed. The model is the lab's, so the replays share its
+    recordings.
+
+    The catalog is the configured one where it knows the incident's CI;
+    otherwise the entry the system graph implies. Either way, a service the
+    configured catalog wouldn't route (unknown, or with no paging integration,
+    which triage refuses) is a *catalog gap*: reported, and given a placeholder
+    integration so the class's routing is still measured.
+    """
+
+    def __init__(self, config: AppConfig, *, llm: LLMClient, packs: PackSet) -> None:
+        self._config = config
+        self._llm = llm
+        self._packs = packs
+
+    def run(
+        self,
+        report: ReadinessReport,
+        incident_map: IncidentMap,
+        incidents: Sequence[PastIncident],
+        graph: SystemGraph,
+    ) -> tuple[list[ShadowCase], list[tuple[str, str]]]:
+        mapped = {n for c in incident_map.classes for n in c.incidents}
+        history = sorted(
+            (i for i in incidents if i.number in mapped), key=lambda i: (i.opened, i.number)
+        )
+        catalog, gaps = self._catalog(history, graph)
+        with tempfile.TemporaryDirectory(prefix="supportagent-shadow-") as tmp:
+            url = f"sqlite:///{(Path(tmp) / 'shadow.db').as_posix()}"
+            run_migrations(url)
+            engine = make_engine(url)
+            try:
+                return self._replay(report, history, catalog, engine), gaps
+            finally:
+                engine.dispose()
+
+    def _replay(
+        self,
+        report: ReadinessReport,
+        history: Sequence[PastIncident],
+        catalog: Catalog,
+        engine: Engine,
+    ) -> list[ShadowCase]:
+        cfg = self._config
+        uow = SqlUnitOfWork(engine)
+        clock = ReplayClock()
+        ids = UlidIdGenerator()
+        events = _event_sink(uow, secrets.token_bytes(32), clock)
+        document = report.as_dict()
+        fitted, _ = _calibration_in_use(cfg, document)
+        classes = document["classes"]
+        runner = ShadowRunner(
+            uow=uow,
+            clock=clock,
+            ids=ids,
+            events=events,
+            case_repo=CaseRepo(uow),
+            classifier=Classifier(
+                rule_set=_build_ruleset(cfg),
+                llm=self._llm,
+                calibration=fitted or _classifier_calibration(cfg),
+                min_score=cfg.calibration.min_score,
+                routing=_build_routing(cfg),
+                taxonomy_labels=labels_text(self._packs.taxonomy().labels),
+                severity=_severity_strategy(cfg),
+                packs=PackScope(
+                    packs=self._packs,
+                    stacks={s.name: frozenset(s.stack) for s in catalog.services},
+                ),
+                readiness=None
+                if cfg.onboarding.routing == "report"
+                else ReadinessPolicy.of(classes if isinstance(classes, list) else []),
+            ),
+            catalog=catalog,
+            repo=ShadowRepo(uow),
+            tenant_constants=cfg.redaction.tenant_constants,
+            grouping=GroupingService(uow=uow, ids=ids, catalog=catalog, tenant_id=cfg.tenant.id),
+            spend=SpendBreaker(uow=uow, daily_budget_tokens=cfg.llm.daily_budget_tokens),
+        )
+        first_of_case: dict[str, str] = {}
+        out: list[ShadowCase] = []
+        for incident in history:
+            clock.set(incident.opened)
+            record = runner.run(self._event(incident))
+            if record is None:  # pragma: no cover — a fresh database holds only shadow cases
+                continue
+            merged = first_of_case.setdefault(record.case_id, incident.number)
+            decision = record.proposed.get("decision")
+            specs = record.proposed.get("specs")
+            d = decision if isinstance(decision, dict) else {}
+            out.append(
+                ShadowCase(
+                    incident=incident.number,
+                    outcome=str(d.get("outcome", "safe_default")),
+                    reason=str(d.get("reason", "")),
+                    classification=d.get("classification"),
+                    route=d.get("route_id"),
+                    preclass=d.get("preclass_label"),
+                    merged_into=None if merged == incident.number else merged,
+                    actions=tuple(
+                        str(spec.get("kind"))
+                        for spec in (specs if isinstance(specs, list) else [])
+                        if isinstance(spec, dict)
+                    ),
+                )
+            )
+        return out
+
+    def _event(self, incident: PastIncident) -> AlertEvent:
+        return AlertEvent.model_validate(
+            {
+                "tenant_id": self._config.tenant.id,
+                "source": "servicenow",
+                "origin": "ticket",
+                "external_id": incident.number,
+                "table": "incident",
+                "ticket_number": incident.number,
+                "received_at": incident.opened,
+                "subject": incident.title or incident.number,
+                "body": incident.description,
+                "resource": None,
+                "alert_type": None,
+                "error_signature": None,
+                "severity_hint": Severity(incident.severity)
+                if incident.severity in {s.value for s in Severity}
+                else None,
+                "cmdb_ci": incident.ci,
+                "raw_ref": f"history:{incident.number}",
+            }
+        )
+
+    def _catalog(
+        self, history: Sequence[PastIncident], graph: SystemGraph
+    ) -> tuple[Catalog, list[tuple[str, str]]]:
+        try:
+            configured = _build_catalog(self._config).services
+        except (ConfigError, OSError):
+            configured = []
+        entries: dict[str, ServiceEntry] = {}
+        gaps: list[tuple[str, str]] = []
+        for ci in sorted({i.ci for i in history}):
+            known = next((s for s in configured if ci in s.cmdb_ci), None)
+            if known is not None:
+                entry = known
+                if not known.paging_integration:
+                    gaps.append((known.name, "no paging integration, so triage refuses it"))
+                    entry = known.model_copy(update={"paging_integration": _UNCONFIGURED_PAGING})
+            else:
+                implied = service_entry(graph, ci)
+                entry = ServiceEntry.model_validate(
+                    implied | {"cmdb_ci": [ci], "paging_integration": _UNCONFIGURED_PAGING}
+                )
+                gaps.append((entry.name, f"not in the catalog (CMDB CI {ci}): add it"))
+            prior = entries.get(entry.name)
+            if prior is not None:
+                entry = prior.model_copy(update={"cmdb_ci": sorted({*prior.cmdb_ci, ci})})
+            entries[entry.name] = entry
+        if not entries:
+            entries["onboarding-none"] = ServiceEntry(name="onboarding-none")
+        return Catalog(version="onboarding-shadow", services=list(entries.values())), gaps
 
 
 # --- WP-O8: drift and re-onboarding --------------------------------------------------------
@@ -4227,11 +4488,15 @@ def onboard_readiness(  # noqa: PLR0913 — the config, the workspace and the se
     pipeline = OnboardingPipeline(config, provider=provider, decorate=onboarding_cache)
     run = run_onboarding_pipeline(workspace, plugins, pipeline)
     lab = LabPipeline(config, provider=provider, decorate=lab_cache)
-    report = build_readiness(workspace, run, lab, config, plugins=plugins)
     own = engine is None
     db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     clock = clock or SystemClock()
     try:
+        # WP-O6c: the history through shadow too, and what shadow proved live
+        live = LiveProof(uow=SqlUnitOfWork(db), tenant_id=config.tenant.id).outcomes()
+        report = build_readiness(
+            workspace, run, lab, config, plugins=plugins, shadow=lab.shadow(), live=live
+        )
         ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=config.tenant.id).save(
             report.as_dict()
             # WP-A6: when, and against which plugins, so doctor can say it went stale
@@ -4666,9 +4931,14 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
             ("gaps", lambda: _gaps_detail(onboard_gaps(config, workspace, provider=provider))),
         ]
         for step, run in stages:
-            # Readiness and gaps replay the evidence: a capture re-runs them, nothing else.
+            # Readiness and gaps replay the evidence: a capture re-runs them, and so does
+            # a live case resolving (WP-O6c: it calibrates a label, or proves a class).
             inputs = (
-                digest(sensed, _tree_digest(workspace / "sources" / "evidence"))
+                digest(
+                    sensed,
+                    _tree_digest(workspace / "sources" / "evidence"),
+                    _live_digest(db, config),
+                )
                 if step in ("readiness", "gaps")
                 else sensed
             )
@@ -4715,6 +4985,12 @@ def _evidence_detail(capture: EvidenceCapture | None) -> str:
             "readiness replays the evidence already in the workspace"
         )
     return capture.line()
+
+
+def _live_digest(engine: Engine, config: AppConfig) -> str:
+    """WP-O6c: what readiness reads from the resolved live cases."""
+    seen = LiveProof(uow=SqlUnitOfWork(engine), tenant_id=config.tenant.id).outcomes()
+    return digest(*(f"{t}:{s.verdict}:{s.classification}" for t, s in sorted(seen.items())))
 
 
 def _readiness_detail(report: ReadinessReport) -> str:
@@ -4803,6 +5079,23 @@ def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
         elif c.get("no_evidence") and not c.get("scenarios"):
             out.append(
                 Need("evidence", what, share, "supportagent onboard evidence (tools: configured)")
+            )
+        elif c.get("lab_status") == "ready":
+            # WP-O6c: proven in the lab, held back in the pipeline
+            out.append(
+                Need(
+                    "shadow",
+                    what,
+                    share,
+                    "run in shadow: each resolved incident calibrates its label; then "
+                    "supportagent onboard ingest --refresh and supportagent onboard run",
+                )
+            )
+    gaps = report.get("catalog_gaps")
+    for gap in gaps if isinstance(gaps, list) else []:
+        if isinstance(gap, list) and len(gap) == 2:  # noqa: PLR2004 — (service, why)
+            out.append(
+                Need("config", f"catalog: {gap[0]}: {gap[1]}", 0.0, "edit catalog/services.yaml")
             )
     return out
 

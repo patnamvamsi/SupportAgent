@@ -1,0 +1,1 @@
+{"latency_ms": 4944, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P2\",\"summary\":\"Searching shipments by status is taking about 4 seconds instead of instant, indicating a sustained latency regression on the shop order page shipment lookup.\",\"confidence\":0.82}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 683, "tokens_out": 271}

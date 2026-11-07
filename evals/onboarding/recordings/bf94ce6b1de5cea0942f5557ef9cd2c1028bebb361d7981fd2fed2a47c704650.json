@@ -1,0 +1,1 @@
+{"latency_ms": 7926, "raw_text": "{\"classification\":\"batch/failure\",\"severity\":\"P3\",\"summary\":\"The daily sales dashboard is stale because the DAILY_SALES load has not updated in two days, causing yesterday to display as zero.\",\"confidence\":0.75}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 433}

@@ -1,0 +1,1 @@
+{"latency_ms": 5661, "raw_text": "{\n  \"classification\": \"batch/schedule\",\n  \"severity\": \"P2\",\n  \"summary\": \"The RAW.CLICKSTREAM clickstream is reported to be 240 minutes behind, indicating delayed ingestion or processing for the real-time dashboard.\",\n  \"confidence\": 0.64\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 640, "tokens_out": 338}

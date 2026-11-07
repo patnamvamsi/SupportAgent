@@ -1,0 +1,1 @@
+{"latency_ms": 11697, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P1\",\n  \"summary\": \"Portal is blank because the browser receives a 404 for the main.a81f2c.js asset, suggesting a missing or failed frontend deployment artifact.\",\n  \"confidence\": 0.65\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 596}

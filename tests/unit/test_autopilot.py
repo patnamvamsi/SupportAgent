@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from typer.testing import CliRunner
 
 from supportagent.adapters.db.uow import SqlUnitOfWork
@@ -126,6 +127,24 @@ def test_a_rerun_skips_what_is_done_and_clears_what_a_person_did(
         f"bind it with `supportagent onboard bind {approved.id}`"
     ]
     assert len(again.needs) < len(first.needs)
+
+
+def test_a_live_case_resolving_runs_readiness_again(tmp_path: Path, db: Any, clock: Any) -> None:
+    """ADR-0020: it calibrates a label or proves a class, so a rerun must read it."""
+    first = {s.step: s for s in _run(tmp_path, db, clock).steps}
+    clock.advance(300)
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO cases (id, tenant_id, fingerprint, origin, status, decision_json, "
+                "opened_ts, last_alert_ts, trace_id, ticket_number) VALUES ('case_live', :t, "
+                "'fp', 'ticket', 'resolved', '{}', 100, 100, 'tr', 'INC-LIVE')"
+            ),
+            {"t": TENANT},
+        )
+    again = {s.step: s for s in _run(tmp_path, db, clock).steps}
+    assert again["readiness"].at != first["readiness"].at
+    assert again["incidents"].at == first["incidents"].at or first["incidents"].state != "done"
 
 
 def test_status_reads_the_last_run(tmp_path: Path, db: Any, clock: Any) -> None:

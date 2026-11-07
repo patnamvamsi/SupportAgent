@@ -1,0 +1,1 @@
+{"latency_ms": 5535, "raw_text": "{\"classification\":\"batch/failure\",\"severity\":\"P2\",\"summary\":\"Kafka Connect is failing on orders events and routing them to the dead-letter topic, causing downstream consumers to miss or see stale order data.\",\"confidence\":0.62}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 632, "tokens_out": 273}

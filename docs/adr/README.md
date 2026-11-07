@@ -23,6 +23,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0017](0017-onboarding-autopilot.md) | Onboarding autopilot: any system, one command; install what exists, name what doesn't, resume when it arrives | accepted |
 | [0018](0018-live-evidence-capture.md) | Live evidence capture: replay a real system's history from its own tools, as of each incident | accepted |
 | [0019](0019-credential-binding.md) | Credential binding: a credential is stored only once it is proven read-only | accepted |
+| [0020](0020-shadow-replay.md) | Shadow replay: readiness also asks whether the pipeline would route it | accepted |
 
 ## Naming
 

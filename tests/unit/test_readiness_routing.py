@@ -15,6 +15,7 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.app.rca import Budget
 from supportagent.app.readiness_store import ReadinessStore
+from supportagent.domain.model.readiness import ReadinessGates
 from supportagent.domain.model.triage import TriageResult
 from supportagent.domain.readiness import NOT_READY_TAG, ReadinessPolicy
 from supportagent.domain.severity import Severity
@@ -32,7 +33,7 @@ from tests.unit.test_rca import (
     _supports,
 )
 from tests.unit.test_rca import _case as _rca_case
-from tests.unit.test_readiness import _report
+from tests.unit.test_readiness import _report, _truth_map
 
 pytestmark = pytest.mark.unit
 
@@ -121,6 +122,29 @@ def test_the_readiness_page_shows_each_class_and_why(
     assert "Ready to support" in page and "<meter" in page and "style=" not in page
     assert "Can&#39;t be tested yet" in page and "angular plugin is a skeleton" in page
     assert "<strong>3 of 6</strong>" in page and "below the 75% needed" in page  # held back
+
+
+def test_the_readiness_page_shows_what_shadow_did(
+    client: TestClient, oidc: FakeOIDC, db: Any, clock: Any
+) -> None:
+    from supportagent.evals.readiness import ShadowCase, apply_shadow  # noqa: PLC0415
+
+    login(client, oidc, ADA)
+    numbers = _truth_map("system-a").classes[0].incidents
+    report = apply_shadow(
+        _report("system-a"),
+        _truth_map("system-a"),
+        [ShadowCase(n, "safe_default", "low-calibrated-score", None) for n in numbers],
+        gates=ReadinessGates(),
+        min_score=0.8,
+        catalog_gaps=[("payments-api", "not in the catalog (CMDB CI payments-api): add it")],
+    )
+    ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=TENANT).save(report.as_dict())
+    page = client.get("/ui/onboarding/readiness").text
+    assert f"routed <strong>0 of {len(numbers)}</strong>" in page
+    assert "low-calibrated-score" in page
+    assert "Services the catalog doesn't route yet" in page and "payments-api" in page
+    assert "Not measured yet" not in page
 
 
 def _replay(predicted: str, preclass: str | None, *, ok: bool) -> Any:

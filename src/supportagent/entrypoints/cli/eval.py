@@ -423,7 +423,9 @@ def onboarding(  # noqa: PLR0912, PLR0915 — one report: fixture, self-test, pi
             g for g in evaluate(pipeline_scores, gates) if g.stage in gates.enforced_stages
         ]
         misses = replays.caching.misses if replays.caching is not None else 0
-        readiness = build_readiness(path, run, replays, cfg, plugins=plugins)
+        readiness = build_readiness(
+            path, run, replays, cfg, plugins=plugins, shadow=replays.shadow()
+        )
         readiness_reports.append(readiness)
         unrecorded = 0 if live or replays.caching is None else replays.caching.misses - misses
         lost = regressions(readiness, accepted.get(readiness.system, {}))

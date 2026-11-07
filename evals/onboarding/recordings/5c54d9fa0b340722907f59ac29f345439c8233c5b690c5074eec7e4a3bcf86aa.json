@@ -1,0 +1,1 @@
+{"latency_ms": 105653, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The daily sales dashboard is not updated and business reports are missing yesterday's orders, likely due to a failed scheduled reporting or ETL job.\",\n  \"confidence\": 0.75\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 631, "tokens_out": 320}

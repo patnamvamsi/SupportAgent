@@ -1,0 +1,1 @@
+{"latency_ms": 6786, "raw_text": "{\"classification\":\"deploy/failure\",\"severity\":\"P2\",\"summary\":\"Back-office UI is showing a blank page after a release, with a 404 for the main JavaScript bundle indicating the new frontend deployment did not load correctly.\",\"confidence\":0.85}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 644, "tokens_out": 363}

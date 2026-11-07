@@ -1,0 +1,1 @@
+{"latency_ms": 15750, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P2\",\n  \"summary\": \"Users report customer insights pages timing out at 09:00 Monday, suggesting load-related request capacity degradation.\",\n  \"confidence\": 0.45\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 637, "tokens_out": 881}

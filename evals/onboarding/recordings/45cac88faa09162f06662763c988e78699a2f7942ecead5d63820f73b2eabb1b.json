@@ -1,0 +1,1 @@
+{"latency_ms": 5844, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P2\",\n  \"summary\": \"Users report a Streamlit app becoming very slow with timeouts around 09:00 Monday, suggesting possible capacity or load-related degradation.\",\n  \"confidence\": 0.42\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 637, "tokens_out": 299}

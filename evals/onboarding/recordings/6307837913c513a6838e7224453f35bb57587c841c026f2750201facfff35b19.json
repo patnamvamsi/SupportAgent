@@ -1,0 +1,1 @@
+{"latency_ms": 5189, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The customer_features DAG failed after retries because its YARN container exceeded memory limits.\",\n  \"confidence\": 0.84\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 640, "tokens_out": 417}

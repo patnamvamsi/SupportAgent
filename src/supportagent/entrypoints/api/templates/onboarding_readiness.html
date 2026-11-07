@@ -20,6 +20,8 @@
   {% if c.scenarios %}
   <p>{{ "Claimed no cause" if not c.cause else "Found the cause" }} in <strong>{{ c.correct }} of {{ c.scenarios }}</strong> past incidents replayed.</p>
   {% endif %}
+  {% if c.proven_live %}<p>{{ c.proven_live | length }} of those {{ "were" if c.proven_live | length != 1 else "was" }} proven live, by the agent's own investigation in shadow: {{ c.proven_live | join(", ") }}.</p>{% endif %}
+  {% if c.shadow %}<p>The pipeline, in shadow, routed <strong>{{ c.routed }} of {{ c.shadow | length }}</strong> of its past incidents.</p>{% endif %}
   {% if c.reasons %}<ul class="reasons">{% for r in c.reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
   {% if c.false_causes %}<p class="bad">Wrong cause: {% for f in c.false_causes %}<code>{{ f[0] }}</code> claimed <code>{{ f[1] }}</code>{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
   {% if c.no_evidence %}<p class="muted">{{ c.no_evidence | length }} incident{{ "s" if c.no_evidence | length != 1 }} had no evidence captured, so {{ "they weren't" if c.no_evidence | length != 1 else "it wasn't" }} replayed: {{ c.no_evidence | join(", ") }}.</p>{% endif %}
@@ -30,6 +32,11 @@
   {% endif %}
 </article>
 {% endfor %}
-<p class="muted">Measured with <code>{{ report.model_id }}</code>. Not measured yet: {{ report.not_measured | join(", ") }}.</p>
+{% if report.catalog_gaps %}
+<h2>Services the catalog doesn't route yet</h2>
+<ul class="reasons">{% for g in report.catalog_gaps %}<li><code>{{ g[0] }}</code>: {{ g[1] }}</li>{% endfor %}</ul>
+<p class="muted">Triage refuses these services until they're in <code>catalog/services.yaml</code> with a paging integration. Shadow replay measured their classes as if they were.</p>
+{% endif %}
+<p class="muted">Measured with <code>{{ report.model_id }}</code>.{% if report.not_measured %} Not measured yet: {{ report.not_measured | join(", ") }}.{% endif %}</p>
 {% endif %}
 {% endblock %}

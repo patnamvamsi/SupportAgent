@@ -737,6 +737,12 @@ class _UoW(Protocol):
     ) -> None: ...
 
 
+#: WP-O6c: the safe defaults shadow still runs RCA on: the case has a label and a
+#: service, and is held back only until readiness and calibration catch up.
+PROVE_LIVE_REASONS = frozenset(
+    {"class-not-ready", "low-calibrated-score", "unconfirmed-high-severity"}
+)
+
 #: WP-M05: how much redacted incident text the planner sees.
 _SUMMARY_CHARS = 1500
 _CANDIDATES = (
@@ -775,7 +781,14 @@ class _Gate(Protocol):
 
 
 class RcaJob:
-    """``rca.run``: RCA-lite for open, ``rca: lite``-routed cases; group leads only."""
+    """``rca.run``: RCA-lite for open, ``rca: lite``-routed cases; group leads only.
+
+    ``prove_live`` (WP-O6c, shadow mode only): also a case safe-defaulted with a
+    label it couldn't route on yet (:data:`PROVE_LIVE_REASONS`). Its artifact is
+    how a class whose evidence can't be replayed gets proven: readiness reads
+    it once the ticket resolves (``app.live_proof``). Nothing is proposed from
+    it; shadow has no gate.
+    """
 
     def __init__(  # noqa: PLR0913 — the ports plus the routing view
         self,
@@ -792,9 +805,13 @@ class RcaJob:
         tenant_id: str,
         max_per_run: int = 10,
         gate: _Gate | None = None,
+        prove_live: bool = False,
     ) -> None:
+        if prove_live and gate is not None:
+            raise ValueError("prove_live is shadow mode's: a gate would propose from it")  # noqa: TRY003
         self._uow = uow
         self._gate = gate
+        self._prove = prove_live
         self._service = service
         self._services = {s.name: s for s in catalog.services}
         self._buffer = buffer
@@ -807,7 +824,7 @@ class RcaJob:
         self._max = max_per_run
 
     def due(self) -> list[RcaCase]:
-        if not self._lite:
+        if not self._lite and not self._prove:
             return []
         with self._uow:
             conn = self._uow.connection
@@ -815,10 +832,11 @@ class RcaJob:
             out: list[RcaCase] = []
             for row in rows:
                 decision = json.loads(row["decision_json"] or "{}")
-                if (
-                    decision.get("outcome") != "routed"
-                    or decision.get("route_id") not in self._lite
-                ):
+                lite = (
+                    decision.get("outcome") == "routed" and decision.get("route_id") in self._lite
+                )
+                unready = self._prove and decision.get("reason") in PROVE_LIVE_REASONS
+                if not (lite or unready):
                     continue
                 out.append(
                     RcaCase(
@@ -958,6 +976,7 @@ def lite_route_ids(routes: Mapping[str, str]) -> frozenset[str]:
 
 
 __all__ = [
+    "PROVE_LIVE_REASONS",
     "Budget",
     "BufferedEvents",
     "DocPolicy",

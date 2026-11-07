@@ -1,0 +1,1 @@
+{"latency_ms": 4761, "raw_text": "{\n  \"classification\": \"request/capacity\",\n  \"severity\": \"P1\",\n  \"summary\": \"Warehouse WH_TRANSFORM is failing all queries because its resource monitor quota has been exceeded, preventing the warehouse from resuming.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 642, "tokens_out": 322}

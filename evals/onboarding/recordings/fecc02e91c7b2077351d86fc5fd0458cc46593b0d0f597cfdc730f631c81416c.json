@@ -1,0 +1,1 @@
+{"latency_ms": 7649, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P1\",\n  \"summary\": \"customer-insights is returning 502s from the ingress while the app container restarts, indicating the service is unavailable.\",\n  \"confidence\": 0.6\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 635, "tokens_out": 439}

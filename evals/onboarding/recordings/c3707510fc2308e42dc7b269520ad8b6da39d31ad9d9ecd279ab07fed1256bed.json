@@ -1,0 +1,1 @@
+{"latency_ms": 6922, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The ANALYTICS.DAILY_SALES dataset is stale and business reports are missing yesterday's orders, indicating a failed or missing daily batch run.\",\n  \"confidence\": 0.78\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 634, "tokens_out": 357}
