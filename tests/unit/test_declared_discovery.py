@@ -59,9 +59,9 @@ _LIVE = {
 
 def _facts() -> tuple[set[tuple[str, str, tuple[str, ...]]], set[tuple[str, str, str]]]:
     facts = structured_facts({}, {}, _LIVE, (), [("redis", "redis.info", _REDIS)])
-    nodes = {(f.id, f.kind, tuple(f.tech)) for f in facts if isinstance(f, NodeFact)}
-    edges = {(f.src, f.kind, f.dst) for f in facts if isinstance(f, EdgeFact)}
-    assert all(f.layer == 2 and f.extractor == "live_redis" for f in facts)  # type: ignore[union-attr]
+    nodes = {(f.id, str(f.kind), tuple(f.tech)) for f in facts if isinstance(f, NodeFact)}
+    edges = {(f.src, str(f.kind), f.dst) for f in facts if isinstance(f, EdgeFact)}
+    assert all(f.layer == 2 and f.extractor == "live_redis" for f in facts)
     return nodes, edges
 
 
