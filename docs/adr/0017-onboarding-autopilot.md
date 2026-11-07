@@ -49,7 +49,7 @@ The reference systems were how the framework got built. From here they are its r
   plugins:
     catalogs:
       - /srv/supportagent/catalog                       # a directory laid out like plugins/
-      # a git catalogue (url and pinned ref) is a follow-up; a checkout is a directory
+      - {git: https://github.com/acme/sa-plugins.git, ref: <full commit id>, path: catalog}   # delivered after WP-A2
     auto_install: first-party                           # none | first-party
   ```
 
@@ -104,7 +104,7 @@ A short history gives low Wilson lower bounds, so most labels stay under `calibr
 | WP | What | Done when |
 |---|---|---|
 | WP-A1 (*delivered*: `onboard run`, `onboard status`, `domain/autopilot.py`) | `onboard run` (one resumable command) and `onboard status`; `onboarding.json` steps with input digests | A reference system goes from `system.yaml` to readiness in one command; an interrupted run resumes; a no-change re-run does nothing |
-| WP-A2 (*delivered*: `plugins.catalogs`, `plugin install`, embedded packs and `tree_sha256`; git catalogues are a follow-up) | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
+| WP-A2 (*delivered*: `plugins.catalogs`, `plugin install`, embedded packs and `tree_sha256`; git catalogues at a pinned commit followed, with `plugin fetch`) | Plugin catalogues; sense over installed and available; install gated on the plugin's lab; pending approvals | System C onboards from a catalogue holding its three plugins, with `plugins/` lacking them, and reaches the same readiness |
 | WP-A3 (*delivered*: `domain/gaps.py`, the `gaps` step, `onboard gaps`, `plugin new`, the `lines` format) | Sensing the unknown (§3) with scaffolds | A fixture with a Go service and an unmapped CMDB class reports both gaps, with evidence |
 | WP-A4 (*delivered*: migration 0019, the top of `/ui/onboarding`) | The status page: what's needed, ranked by weight | `/ui/onboarding` shows one ranked list; acting on an item clears it on the next run |
 | WP-A5 (*delivered*: `fit_calibration`, triage prefers a table fitted with its own model) | Calibration fitted per system | The calibration table and gates are fitted from replay, and routing uses them |

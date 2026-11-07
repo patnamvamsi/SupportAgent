@@ -620,17 +620,41 @@ class KnowledgeConfig(DomainModel):
         return self
 
 
+class GitCatalog(DomainModel):
+    """A catalogue in git (ADR-0017 §2): a URL and a full commit id, never a branch or tag."""
+
+    git: str = Field(min_length=1)
+    ref: str = Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+    #: The catalogue's directory inside the repository (``""``: its root).
+    path: str = Field(default="", pattern=r"^(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)?$")
+
+    @field_validator("path")
+    @classmethod
+    def _inside(cls, value: str) -> str:
+        if ".." in value.split("/"):
+            raise ValueError("path must stay inside the repository")  # noqa: TRY003
+        return value
+
+    @property
+    def label(self) -> str:
+        return f"{self.git}@{self.ref[:12]}" + (f":{self.path}" if self.path else "")
+
+
 class PluginsConfig(DomainModel):
     """ADR-0017: where available plugins come from, and whether onboarding installs them.
 
     Each catalogue is a directory laid out like ``plugins/``, with its own pinned
-    ``index.yaml``. ``auto_install: first-party`` installs a detected first-party
-    plugin (after its lab runs here); otherwise each one waits for approval
+    ``index.yaml``, or a git repository at a pinned commit holding one
+    (:class:`GitCatalog`, fetched read-only into ``cache_dir``).
+    ``auto_install: first-party`` installs a detected first-party plugin (after
+    its lab runs here); otherwise each one waits for approval
     (``supportagent plugin install <id>``). Third-party plugins always wait.
     """
 
-    catalogs: list[str] = Field(default_factory=list)
+    catalogs: list[str | GitCatalog] = Field(default_factory=list)
     auto_install: Literal["none", "first-party"] = "none"
+    #: Where git catalogues are checked out (one directory per URL and commit).
+    cache_dir: str = "local/catalogs"
 
 
 class OnboardingConfig(DomainModel):
