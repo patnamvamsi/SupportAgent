@@ -203,6 +203,7 @@ from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.tools import ToolRegistry
+from supportagent.app.tracing import FlowTracer, TraceRun
 from supportagent.app.triage import TriageRunner, TriageService
 from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
 from supportagent.config.loader import (
@@ -258,6 +259,7 @@ from supportagent.domain.gaps import (
     unmapped_cmdb_classes,
 )
 from supportagent.domain.graph import SystemGraph
+from supportagent.domain.ids import IdPrefix
 from supportagent.domain.incident_map import Catalogue, IncidentMap, PastIncident, catalogue
 from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
 from supportagent.domain.model.alert import AlertEvent
@@ -268,6 +270,7 @@ from supportagent.domain.model.calibration import (
 )
 from supportagent.domain.model.case import Case
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
+from supportagent.domain.model.flow import Flow
 from supportagent.domain.model.knowledge import DocFrontMatter
 from supportagent.domain.model.plugin import Discovery, cause_hypothesis
 from supportagent.domain.model.preclass import RuleSet
@@ -373,6 +376,7 @@ from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
+from supportagent.ports.pii import PiiAnalyzer
 from supportagent.ports.tickets import RecordType, TicketSink, TicketSource
 from supportagent.ports.tools import Tool
 
@@ -1674,6 +1678,87 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         load_onboarding=lambda: onboarding_facts(config, engine, clock),
         pii=build_pii_analyzer(config),
     )
+
+
+def load_flow_file(path: Path) -> Flow:
+    """One flow file (ADR-0021 §2); ``ConfigError`` naming the file when it doesn't validate."""
+    try:
+        return Flow.model_validate(load_yaml_document(path))
+    except ValidationError as exc:
+        raise ConfigError(f"{path}: {exc.errors()[0]['msg']}") from exc  # noqa: TRY003
+
+
+def load_flows(config: AppConfig) -> dict[str, Flow]:
+    """Every flow in ``tracing.flows_dir`` by id, reviewed or not; none when it doesn't exist."""
+    root = Path(config.tracing.flows_dir)
+    flows: dict[str, Flow] = {}
+    for path in sorted(root.glob("*.yaml")) if root.is_dir() else []:
+        flow = load_flow_file(path)
+        if flow.flow != path.stem:
+            raise ConfigError(f"{path}: flow {flow.flow!r} must live in {flow.flow}.yaml")  # noqa: TRY003
+        flows[flow.flow] = flow
+    return flows
+
+
+def trace_object(  # noqa: PLR0913 — the question plus the seams tests replace
+    config: AppConfig,
+    flow_id: str,
+    object_id: str,
+    *,
+    at: datetime | None = None,
+    actor: str = "cli",
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    transport: httpx.BaseTransport | None = None,
+    clock: Clock | None = None,
+    pii: PiiAnalyzer | None = None,
+) -> TraceRun:
+    """``supportagent trace`` (ADR-0021): one object through one reviewed flow, audited."""
+    flow = load_flows(config).get(flow_id)
+    if flow is None:
+        raise ConfigError(f"no flow {flow_id!r} in {config.tracing.flows_dir}")  # noqa: TRY003
+    if flow.reads_records() and flow.flow not in config.tracing.record_flows:
+        raise ConfigError(  # noqa: TRY003
+            f"flow {flow.flow} reads business records: an admin must list it in "
+            "tracing.record_flows first (ADR-0021 §4)"
+        )
+    clock = clock or SystemClock()
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        uow = SqlUnitOfWork(db)
+        with uow:
+            events = _event_sink(uow, master_key, clock)
+            ids = UlidIdGenerator()
+            tools = build_tool_registry(
+                config,
+                events=events,
+                ids=ids,
+                clock=clock,
+                transport=transport,
+                credentials=bound_credentials(config, master_key),
+            )
+            tracer = FlowTracer(
+                tools=tools,
+                catalog=_build_catalog(config),
+                pii=pii if pii is not None else build_pii_analyzer(config),
+                events=events,
+                ids=ids,
+                clock=clock,
+            )
+            span = ids.new(IdPrefix.EVENT)
+            run = tracer.trace(
+                flow,
+                object_id,
+                TraceContext.new(config.tenant.id, f"trace_{span}", f"span_{span}"),
+                actor=actor,
+                at=at,
+            )
+            uow.commit()
+    finally:
+        if own:
+            db.dispose()
+    return run
 
 
 def build_pii_analyzer(config: AppConfig) -> PresidioAnalyzer | None:

@@ -23,6 +23,7 @@ from supportagent.entrypoints.cli import serve as serve_command
 from supportagent.entrypoints.cli import shadow as shadow_command
 from supportagent.entrypoints.cli import sop as sop_command
 from supportagent.entrypoints.cli import stats as stats_command
+from supportagent.entrypoints.cli import trace as trace_command
 from supportagent.entrypoints.cli import worker as worker_command
 
 
@@ -67,6 +68,9 @@ app.add_typer(extend_command.scenario_app, name="scenario")
 app.add_typer(extend_command.runbook_app, name="runbook")
 # ADR-0014 part 2 (BL-054): ``sop list`` and ``sop auto``.
 app.add_typer(sop_command.app, name="sop")
+# ADR-0021: transaction tracing.
+app.command("trace")(trace_command.trace)
+app.add_typer(trace_command.flow_app, name="flow")
 # ADR-0015 (WP-O1): ``plugin list|show|validate|index`` and ``onboard detect``.
 app.add_typer(plugin_command.plugin_app, name="plugin")
 app.add_typer(plugin_command.onboard_app, name="onboard")
