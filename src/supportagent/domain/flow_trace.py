@@ -17,7 +17,9 @@ nothing) or ``unknown`` (it couldn't run, or the stage has a correlation gap).
 A ``missing`` or ``unknown`` stage followed by a found one was passed, so it
 isn't where the object stopped; a missing one there is reported as a gap in
 correlation (the stage doesn't log the id). Stages found later than their
-``within_min`` are listed as ``late`` whatever the verdict.
+``within_min`` are listed as ``late`` whatever the verdict, but not after a
+stage that wasn't seen: its time is unknown, so the limit has nothing to
+count from.
 """
 
 from __future__ import annotations
@@ -72,6 +74,8 @@ def judge(flow: Flow, seen: Mapping[str, StageObservation], *, now: datetime) ->
     late: list[str] = []
     uncorrelated: list[str] = []
     prev_at: datetime | None = None
+    #: The previous stage wasn't seen, so ``prev_at`` isn't its time: no lateness here.
+    gap = False
     for i, (stage, o) in enumerate(zip(stages, obs, strict=True)):
         if o.state == "found":
             if o.rejected:
@@ -80,18 +84,21 @@ def judge(flow: Flow, seen: Mapping[str, StageObservation], *, now: datetime) ->
                 )
             if (
                 stage.within_min is not None
+                and not gap
                 and prev_at is not None
                 and o.at is not None
                 and o.at - prev_at > timedelta(minutes=stage.within_min)
             ):
                 late.append(stage.id)
             prev_at = o.at or prev_at
+            gap = False
             if stage.terminal:
                 break
             continue
         if i < last_found:
             if o.state == "missing":
                 uncorrelated.append(stage.id)
+            gap = True
             continue
         done = (tuple(late), tuple(uncorrelated))
         if o.state == "unknown":

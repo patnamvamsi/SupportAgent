@@ -22,3 +22,9 @@ entail:                    # BL-039: citation faithfulness of the entail checker
   min_cases: 20
   min_faithfulness: 0.95   # release gate, provisional
   max_false_support: 0     # a claim made sendable by evidence that doesn't show it: never
+trace:                     # ADR-0021 §6: transaction tracing, per flow fixture
+  min_cases: 20
+  max_wrong_stage: 0       # a wrong stopping stage is the trace's false cause: never
+  min_deviation_found: 0.90
+  max_pii_leaks: 0         # seeded personal data in any model request: never
+  min_answers_kept: 0.85   # live recording 2026-11-08: 0.96 (qwen3.8-27b)

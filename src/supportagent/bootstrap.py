@@ -152,7 +152,8 @@ from supportagent.adapters.tools.cron import CronStatusTool
 from supportagent.adapters.tools.gha import GitHubActionsTool
 from supportagent.adapters.tools.kubernetes import PodStatusTool
 from supportagent.adapters.tools.logs import LogsTool
-from supportagent.adapters.tools.loki import LokiSearchTool
+from supportagent.adapters.tools.loki import SCHEMA as LOKI_SCHEMA
+from supportagent.adapters.tools.loki import LokiSearchTool, render_logql, streams_result
 from supportagent.adapters.tools.mcp import McpBoundTool, McpHttpClient, verify_server
 from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.oracle import ORACLE_TOOLS, OracledbReader
@@ -246,6 +247,7 @@ from supportagent.domain.errors import (
     DomainValidationError,
     ExternalServiceError,
     LLMUnavailable,
+    ToolError,
 )
 from supportagent.domain.evidence import PlannedRead, capture, capture_plan
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
@@ -282,6 +284,7 @@ from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
 from supportagent.domain.onboarding import IngestedFiles, IngestedPage, TicketHistory
 from supportagent.domain.packs import Pack, PackScope, PackSet, labels_text
+from supportagent.domain.pii import PiiSpan
 from supportagent.domain.plugins import (
     Detection,
     DocPage,
@@ -296,6 +299,7 @@ from supportagent.domain.readiness import ReadinessPolicy
 from supportagent.domain.severity import Severity, SeverityStrategy, SourcePrioritySeverity
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.sop import step_scope
+from supportagent.domain.tiers import Tier, TrustClass
 from supportagent.domain.trace import TraceContext
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.worker.jobs import (
@@ -370,6 +374,7 @@ from supportagent.evals.readiness import (
 )
 from supportagent.evals.readiness import incident_scenario as history_scenario
 from supportagent.evals.scoring import CaseRun
+from supportagent.evals.trace_lab import TraceGates, TraceOutcome, TraceScenario, TraceSuite
 from supportagent.ports.access import AccessVerifier
 from supportagent.ports.clock import Clock
 from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
@@ -379,7 +384,7 @@ from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
 from supportagent.ports.pii import PiiAnalyzer
 from supportagent.ports.tickets import RecordType, TicketSink, TicketSource
-from supportagent.ports.tools import Tool
+from supportagent.ports.tools import Tool, ToolResult
 
 # ``src/supportagent/bootstrap.py`` → repo root (the checkout the user runs).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -2958,6 +2963,185 @@ def build_entail_pipeline(config: AppConfig, *, live: bool) -> EntailPipeline:
     )
     pipeline.caching = holder[0] if holder else None
     return pipeline
+
+
+#: ADR-0021 §6: the trace lab, one directory per flow fixture, and its recordings.
+TRACE_DIR = Path("evals/trace")
+_APP = re.compile(r'^\{app="([a-z0-9-]+)"\}')
+
+
+class _ScenarioLogs:
+    """``logs.search`` answering from one trace scenario's lines; a down app fails."""
+
+    name = "logs.search"
+    trust_class = TrustClass.READ
+    tier = Tier.T0
+    result_schema = LOKI_SCHEMA
+    literal_args = frozenset({"query", "window_min", "limit"})
+
+    def __init__(self, scenario: TraceScenario) -> None:
+        self._scenario = scenario
+
+    def run(self, args: Mapping[str, object], *, timeout_s: float) -> ToolResult:
+        query, window, _ = render_logql(args)
+        match = _APP.match(query)
+        app = match.group(1) if match else ""
+        if app in self._scenario.down:
+            raise ToolError(f"logs.search: the log store for {app} returned 503")  # noqa: TRY003
+        rows = [
+            (
+                int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()) * 10**9,
+                line,
+                {"app": app},
+            )
+            for ts, line in self._scenario.logs.get(app, [])
+            if self._scenario.object_id in line
+        ]
+        return streams_result(query, window, rows)
+
+
+class _SeededPii:
+    """The lab's PII analyser: the values a scenario seeded, wherever they appear."""
+
+    def __init__(self, scenario: TraceScenario) -> None:
+        self._seeded = [(p.value, p.entity) for p in scenario.pii]
+
+    def analyze(self, text: str) -> list[PiiSpan]:
+        spans: list[PiiSpan] = []
+        for value, entity in self._seeded:
+            start = text.find(value)
+            while start != -1:
+                spans.append(PiiSpan(start, start + len(value), entity, 1.0))
+                start = text.find(value, start + 1)
+        return spans
+
+
+class _CaptureRequests:
+    """Keeps the text of every request the provider is sent (the PII-leak gate reads it)."""
+
+    def __init__(self, inner: LLMProvider) -> None:
+        self._inner = inner
+        self.texts: list[str] = []
+
+    def complete_json(self, request: ProviderRequest) -> ProviderResponse:
+        self.texts.append(request.system + "\n" + request.user)
+        return self._inner.complete_json(request)
+
+
+class TraceLabPipeline:
+    """ADR-0021 §6: one flow's scenarios through the real tracer and explainer.
+
+    The logs are the scenario's; the model is the configured one (``live``), a
+    replay of recorded answers, or a scripted provider in tests. Every request
+    passes the redactor and is captured for the leak gate.
+    """
+
+    def __init__(
+        self,
+        config: AppConfig,
+        flow: Flow,
+        *,
+        provider: LLMProvider | None = None,
+        decorate: Callable[[LLMProvider], LLMProvider] | None = None,
+    ) -> None:
+        cfg = _lab_config(config)
+        slots = dict(cfg.llm.slots)
+        for slot in (SlotName.EXPLAIN_TRACE.value, SlotName.CHECK_TRACE.value):
+            slots.setdefault(slot, slots[SlotName.CLASSIFY.value])
+        self._config = cfg.model_copy(update={"llm": cfg.llm.model_copy(update={"slots": slots})})
+        self.flow = flow
+        self.model_id = slots[SlotName.EXPLAIN_TRACE.value].model_id
+        self._clock = ReplayClock()
+        self._ids = UlidIdGenerator()
+        holder: list[_CaptureRequests] = []
+
+        def capture(inner: LLMProvider) -> LLMProvider:
+            wrapped = _CaptureRequests(decorate(inner) if decorate else inner)
+            holder.append(wrapped)
+            return wrapped
+
+        self._llm = _build_llm(
+            self._config,
+            _NullEvents(),
+            self._ids,
+            self._clock,
+            provider,
+            decorate=capture,
+            resilient=False,
+        )
+        self._capture = holder[0]
+        names = sorted({s.component.split(":", 1)[-1] for s in flow.stages})
+        self._catalog = Catalog(version="lab", services=[ServiceEntry(name=n) for n in names])
+
+    def run(self, scenario: TraceScenario) -> TraceOutcome:
+        self._clock.set(datetime.fromisoformat(scenario.now.replace("Z", "+00:00")))
+        events = _NullEvents()
+        tools = ToolRegistry(
+            [_ScenarioLogs(scenario)], events=events, ids=self._ids, clock=self._clock, redact=str
+        )
+        tracer = FlowTracer(
+            tools=tools,
+            catalog=self._catalog,
+            pii=_SeededPii(scenario),
+            events=events,
+            ids=self._ids,
+            clock=self._clock,
+        )
+        trace = TraceContext(self._config.tenant.id, f"trace-{scenario.id}", "trace-lab")
+        run = tracer.trace(self.flow, scenario.object_id, trace, actor="lab")
+        self._capture.texts.clear()
+        answer = TraceExplainer(llm=self._llm, catalog=self._catalog).explain(
+            self.flow, run, trace, pseudonymise=run.pseudonymise
+        )
+        v = run.verdict
+        return TraceOutcome(
+            kind=v.kind,
+            stage=v.stage,
+            late=v.late,
+            reason=v.reason,
+            requests=tuple(self._capture.texts),
+            business_kept=len(answer.business),
+            dropped=answer.dropped,
+        )
+
+
+def load_trace_suites(config: AppConfig) -> tuple[list[tuple[Flow, TraceSuite]], TraceGates]:
+    """ADR-0021 §6: every flow fixture under ``evals/trace`` with its scenarios, and the gates."""
+    suites: list[tuple[Flow, TraceSuite]] = []
+    try:
+        for flow_file in sorted(TRACE_DIR.glob("*/flow.yaml")):
+            flow = load_flow_file(flow_file)
+            suite = TraceSuite.model_validate(
+                load_yaml_document(flow_file.parent / "scenarios.yaml")
+            )
+            if suite.flow != flow.flow:
+                raise ConfigError(  # noqa: TRY003
+                    f"{flow_file.parent}: scenarios are for {suite.flow}, not {flow.flow}"
+                )
+            suites.append((flow, suite))
+        gates = TraceGates.model_validate(
+            load_yaml_document(Path(config.paths.gates)).get("trace") or {}
+        )
+    except ValidationError as exc:
+        raise ConfigError(f"trace lab: {exc}") from exc  # noqa: TRY003
+    return suites, gates
+
+
+def build_trace_pipeline(
+    config: AppConfig, flow: Flow, *, live: bool
+) -> tuple[TraceLabPipeline, CachingLLMProvider]:
+    """``live`` calls the configured model and records; otherwise replay only."""
+    holder: list[CachingLLMProvider] = []
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        caching = CachingLLMProvider(inner, directory=TRACE_DIR / "recordings", snapshot_id="trace")
+        holder.append(caching)
+        return caching
+
+    pipeline = TraceLabPipeline(
+        config, flow, provider=None if live else _UnrecordedProvider(), decorate=cache
+    )
+    return pipeline, holder[0]
 
 
 def load_eval_suite(manifest_path: Path) -> tuple[list[EvalCase], Manifest]:

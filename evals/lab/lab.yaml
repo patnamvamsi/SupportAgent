@@ -50,6 +50,10 @@ llm:
       model_id: qwen/qwen3.8-27b
       timeout_s: 300
       max_output_tokens: 16000
+    explain_trace:                   # ADR-0021: a trace's cited answer; the model reasons first
+      model_id: qwen/qwen3.8-27b
+      timeout_s: 240
+      max_output_tokens: 8000
     # v0.1 RCA-lite slots (WP-110). Unconfigured, they fail closed: no proposed
     # plan (INCONCLUSIVE) and every claim tagged speculation.
     # propose_hypotheses: {model_id: claude-sonnet-4-5-20250929, timeout_s: 15, max_output_tokens: 200}

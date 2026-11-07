@@ -172,3 +172,10 @@ def test_no_time_limit_never_reads_as_stuck() -> None:
     seen = _seen(_found("submit", 0), StageObservation("settle", "missing"))
     v = judge(flow, seen, now=T0 + timedelta(days=3))
     assert (v.kind, v.reason) == ("in_progress", "no time limit declared")
+
+
+def test_no_lateness_is_judged_across_a_gap() -> None:
+    # Enrich wasn't seen; settle's limit counts from enrich, whose time is unknown.
+    seen = _seen(_found("submit", 0), StageObservation("enrich", "missing"), _found("settle", 90))
+    v = judge(_flow(), seen, now=T0 + timedelta(hours=3))
+    assert (v.kind, v.late, v.uncorrelated) == ("complete", (), ("enrich",))
