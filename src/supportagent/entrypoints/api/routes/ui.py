@@ -24,10 +24,13 @@ from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SessionUser
 from supportagent.app.stats import Mode as StatsMode
 from supportagent.app.stats import parse_window
+from supportagent.app.trace_answer import TraceAnswer
+from supportagent.app.tracing import TraceRun
 from supportagent.domain.autopilot import NEED_LABELS
 from supportagent.domain.errors import (
     AuthorizationDenied,
     ConcurrencyConflict,
+    ConfigError,
     DomainValidationError,
     NotFound,
     SupportAgentError,
@@ -516,6 +519,60 @@ def _requests(ctx: ApiContext) -> RequestReview:
     if ctx.request_review is None:
         raise NotFound("the request review is not configured")  # noqa: TRY003
     return ctx.request_review()
+
+
+def _trace_page(  # noqa: PLR0913 — the page plus its optional result and error
+    request: Request,
+    ctx: ApiContext,
+    user: SessionUser,
+    *,
+    flow: str = "",
+    object_id: str = "",
+    result: tuple[TraceRun, TraceAnswer | None] | None = None,
+    error: str | None = None,
+    status: int = 200,
+) -> Response:
+    flows = ctx.flows() if ctx.flows is not None else {}
+    run, answer = result if result is not None else (None, None)
+    return _render(
+        request,
+        ctx,
+        "trace.html",
+        user,
+        status=status,
+        error=error,
+        flows=flows,
+        flow=flow,
+        object_id=object_id,
+        run=run,
+        answer=answer,
+        stages={s.id: s for f in flows.values() for s in f.stages if f.flow == flow},
+    )
+
+
+@router.get("/ui/trace")
+def trace_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """ADR-0021: where is this business object, and is that where it should be?"""
+    return _page(request, ctx, Permission.TRACE, lambda user: _trace_page(request, ctx, user))
+
+
+@router.post("/ui/trace")
+async def trace_form(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """One trace, audited as the signed-in user; a refusal shows on the form."""
+
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        flow, object_id = form.get("flow", "").strip(), form.get("object_id", "").strip()
+        if ctx.trace is None:
+            raise NotFound("transaction tracing is not configured")  # noqa: TRY003
+        try:
+            result = ctx.trace(flow, object_id, f"user:{user.id}")
+        except (ConfigError, DomainValidationError) as exc:
+            return _trace_page(
+                request, ctx, user, flow=flow, object_id=object_id, error=str(exc), status=422
+            )
+        return _trace_page(request, ctx, user, flow=flow, object_id=object_id, result=result)
+
+    return await _post(request, ctx, Permission.TRACE, act)
 
 
 @router.get("/ui/onboarding")

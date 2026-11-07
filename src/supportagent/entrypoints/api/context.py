@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -16,7 +16,10 @@ from supportagent.app.replay import ReplayView
 from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SetupService
 from supportagent.app.stats import StatsService
+from supportagent.app.trace_answer import TraceAnswer
+from supportagent.app.tracing import TraceRun
 from supportagent.app.webhooks import WebhookService
+from supportagent.domain.model.flow import Flow
 from supportagent.domain.promotion import PromotionGate
 from supportagent.ports.clock import Clock
 from supportagent.ports.identity import IdentityProvider
@@ -56,3 +59,6 @@ class ApiContext:
     #: ADR-0017 (WP-A6): which calibration triage scores with (``fitted`` or
     #: ``artifact``), and why.
     calibration_in_use: Callable[[], tuple[str, str]] | None = None
+    #: ADR-0021: the reviewed flows, and one trace (flow, object id, who asks).
+    flows: Callable[[], Mapping[str, Flow]] | None = None
+    trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None

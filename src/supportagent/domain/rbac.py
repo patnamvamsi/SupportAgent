@@ -36,6 +36,8 @@ class Permission(StrEnum):
     DECIDE_PROPOSAL = "decide_proposal"
     ADMINISTER = "administer"
     REVIEW_KNOWLEDGE = "review_knowledge"
+    #: ADR-0021: trace a business object through a flow (reads production data).
+    TRACE = "trace"
 
 
 MATRIX: Mapping[Permission, frozenset[Role]] = {
@@ -44,6 +46,7 @@ MATRIX: Mapping[Permission, frozenset[Role]] = {
     Permission.DECIDE_PROPOSAL: frozenset({Role.APPROVER, Role.ADMIN}),
     Permission.ADMINISTER: frozenset({Role.ADMIN}),
     Permission.REVIEW_KNOWLEDGE: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
+    Permission.TRACE: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
 }
 
 

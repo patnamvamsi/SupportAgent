@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+{% block title %}Trace{% endblock %}
+{% block content %}
+<h1>Where is it?</h1>
+<p class="muted">Trace one business object through a reviewed flow: where it is, and whether that is where it should be. Each lookup is read-only and recorded with your name.</p>
+{% if not flows %}
+<p>No reviewed flows yet. Draft one with <code>supportagent onboard flows</code>, check it with <code>supportagent flow verify</code>, mark it reviewed and put it in <code>tracing.flows_dir</code>.</p>
+{% else %}
+<form method="post" action="/ui/trace" class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Flow
+    <select name="flow">{% for f in flows.values() %}
+      <option value="{{ f.flow }}" {% if f.flow == flow %}selected{% endif %}>{{ f.title }} ({{ f.object }})</option>
+    {% endfor %}</select>
+  </label>
+  <label>Id <input name="object_id" value="{{ object_id }}" required maxlength="128" autocomplete="off"></label>
+  <button type="submit">Trace</button>
+</form>
+{% endif %}
+{% if run %}
+<h2>{{ run.object_id }}: {{ run.verdict.kind | replace("_", " ") }}{% if run.verdict.stage and stages.get(run.verdict.stage) %} at {{ stages[run.verdict.stage].title }}{% endif %}</h2>
+{% if answer %}<p class="lead">{{ answer.summary }}</p>{% endif %}
+<div class="table-wrap"><table>
+  <thead><tr><th></th><th>Stage</th><th>Component</th><th>When</th><th>Note</th></tr></thead>
+  <tbody>{% for o in run.observations %}
+  <tr>
+    <td>{% if o.state == "found" %}✓{% elif o.state == "missing" %}·{% else %}?{% endif %}</td>
+    <td>{{ stages[o.stage].title if stages.get(o.stage) else o.stage }}</td>
+    <td><code>{{ stages[o.stage].component if stages.get(o.stage) else "" }}</code></td>
+    <td>{{ o.at.isoformat() if o.at else "" }}</td>
+    <td>{% if o.rejected %}rejected{% endif %}{% if o.reason %}<span class="warn">{{ o.reason }}</span>{% endif %}{% if o.stage in run.verdict.late %} late{% endif %}{% if o.stage in run.verdict.uncorrelated %} passed, but its log doesn't carry the id{% endif %}</td>
+  </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% if run.verdict.since %}<p>Waiting since {{ run.verdict.since.isoformat() }}.</p>{% endif %}
+{% if run.pii_error %}<p class="warn">Evidence was withheld from the model: {{ run.pii_error }}</p>{% endif %}
+{% if answer %}
+{% if answer.engineer %}
+<h3>For the engineer</h3>
+<ul>{% for s in answer.engineer %}<li>{{ s.text }} <span class="muted">[{{ s.cites | join(", ") }}]</span></li>{% endfor %}</ul>
+{% endif %}
+{% if answer.rca %}<p class="muted">Diagnosis on {{ answer.rca.get("service", "the component") }}: {{ answer.rca.get("outcome", answer.rca.get("skipped", "")) }}</p>{% endif %}
+{% if answer.dropped %}<p class="muted">{{ answer.dropped }} sentence(s) were dropped: the facts they cite don't support them.</p>{% endif %}
+<details><summary>Facts the answer may cite</summary>
+<ul>{% for f in answer.facts %}<li><code>{{ f.id }}</code> {{ f.text }}</li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% endif %}
+{% endblock %}
