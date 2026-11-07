@@ -246,7 +246,7 @@ from supportagent.domain.errors import (
 )
 from supportagent.domain.evidence import PlannedRead, capture, capture_plan
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
-from supportagent.domain.gap_plan import GapPlan
+from supportagent.domain.gap_plan import GapPlan, target_name
 from supportagent.domain.gap_plan import plan as gap_plan
 from supportagent.domain.gaps import (
     Gap,
@@ -5131,7 +5131,12 @@ def _readiness_needs(report: Mapping[str, object]) -> list[Need]:
     for gap in gaps if isinstance(gaps, list) else []:
         if isinstance(gap, list) and len(gap) == 2:  # noqa: PLR2004 — (service, why)
             out.append(
-                Need("config", f"catalog: {gap[0]}: {gap[1]}", 0.0, "edit catalog/services.yaml")
+                Need(
+                    "config",
+                    f"catalog: {gap[0]}: {gap[1]}",
+                    0.0,
+                    "supportagent onboard catalog drafts the entry: review it, add its paging",
+                )
             )
     return out
 
@@ -5366,6 +5371,115 @@ def _catalogue_needs(workspace: Path) -> list[Need]:
 
 
 # --- ADR-0017 (WP-A3): sensing the unknown ------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogDraftEntry:
+    """One service in a proposed catalog: ``new`` from the graph, or ``kept`` as configured."""
+
+    entry: ServiceEntry
+    status: Literal["new", "kept"]
+    #: What a person still has to do for it (a paging integration, a stack).
+    todo: tuple[str, ...] = ()
+
+
+_SERVING_KINDS = frozenset({"Service", "Job", "UI"})
+#: CMDB names (``CI1001``, ``Payments API``) to catalog names (``ci1001``, ``payments-api``).
+_SLUG = re.compile(r"[^a-z0-9-]+")
+
+
+def _catalog_name(raw: str) -> str:
+    name = _SLUG.sub("-", raw.lower()).strip("-")[:63]
+    return name if len(name) >= 2 and name[0].isalnum() else f"svc-{name}".strip("-")[:63]  # noqa: PLR2004
+
+
+def draft_catalog(
+    graph: SystemGraph, incident_cis: Sequence[str], configured: Sequence[ServiceEntry]
+) -> list[CatalogDraftEntry]:
+    """WP-O6c follow-up (ADR-0020 §5): the catalog onboarding implies, for review.
+
+    Every serving component in the graph and every CI the history names becomes
+    an entry with the stack, databases and namespace the graph gives it. A
+    service the configured catalog already has (by name or CMDB CI) keeps its
+    entry. Onboarding can't know a service's paging integration, and triage
+    refuses a service without one (ARCH §14), so each entry missing it says so.
+    """
+    serving = {target_name(n.id, n.tech) for n in graph.nodes.values() if n.kind in _SERVING_KINDS}
+    cis = set(incident_cis)
+    out: dict[str, CatalogDraftEntry] = {}
+    for raw in sorted(serving | cis):
+        known = next((e for e in configured if e.name == raw or raw in e.cmdb_ci), None)
+        if known is not None:
+            todo: tuple[str, ...] = (
+                () if known.paging_integration else ("add its paging_integration",)
+            )
+            if not known.stack:
+                todo += ("add its stack (it selects the packs)",)
+            out.setdefault(known.name, CatalogDraftEntry(known, "kept", todo))
+            continue
+        implied = service_entry(graph, raw)
+        entry = ServiceEntry.model_validate(
+            implied
+            | {
+                "name": _catalog_name(raw),
+                "cmdb_ci": [raw] if raw in cis else [],
+                "resources": [raw],
+            }
+        )
+        todo = ("add its paging_integration",) + (
+            () if entry.stack else ("add its stack (it selects the packs)",)
+        )
+        prior = out.get(entry.name)
+        if prior is not None:  # two CMDB names for one service
+            merged = sorted({*prior.entry.cmdb_ci, *entry.cmdb_ci})
+            entry = prior.entry.model_copy(update={"cmdb_ci": merged})
+        out[entry.name] = CatalogDraftEntry(entry, "new", todo)
+    return [out[name] for name in sorted(out)]
+
+
+def render_catalog_draft(entries: Sequence[CatalogDraftEntry], *, system: str) -> str:
+    """``catalog.proposed.yaml``: a catalog that loads, each entry annotated with what's left."""
+    lines = [
+        f"# The service catalog onboarding proposes for {system} (ADR-0020 §5).",
+        "# Review it, fill in each TODO, then copy it over the catalog paths.catalog names",
+        "# (catalog/services.yaml, or local/catalog.yaml in a local install). Triage",
+        "# refuses a service with no paging_integration (pagerduty:<service id> or",
+        "# opsgenie:<team>), so fill those first.",
+        "version: onboarding-proposed",
+        "services:",
+    ]
+    for item in entries:
+        lines.append(
+            f"  # {item.status}" + (f"; TODO: {'; '.join(item.todo)}" if item.todo else "")
+        )
+        body = item.entry.model_dump(mode="json", exclude_defaults=True)
+        dumped = dump_yaml([body]).splitlines()
+        lines += [f"  {line}" for line in dumped]
+    return "\n".join(lines) + "\n"
+
+
+def onboard_catalog(
+    config: AppConfig, workspace: Path, *, provider: LLMProvider | None = None
+) -> tuple[list[CatalogDraftEntry], Path]:
+    """``onboard catalog``: write ``catalog.proposed.yaml`` in the workspace, for review."""
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    plugins = load_plugins()
+    run = run_onboarding_pipeline(
+        workspace, plugins, OnboardingPipeline(config, provider=provider, decorate=cache)
+    )
+    try:
+        configured = _build_catalog(config).services
+    except (ConfigError, OSError):
+        configured = []
+    entries = draft_catalog(run.graph.graph, [i.ci for i in _past_incidents(workspace)], configured)
+    path = workspace / "catalog.proposed.yaml"
+    path.write_text(render_catalog_draft(entries, system=workspace.name), encoding="utf-8")
+    if entries:  # what's written is a catalog that loads, once its TODOs are done
+        Catalog.model_validate(load_yaml_document(path))
+    return entries, path
 
 
 def onboard_gaps(

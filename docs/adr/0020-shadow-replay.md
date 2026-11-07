@@ -44,7 +44,7 @@ Once the ticket resolves and onboarding maps it to a class, an incident with no 
 
 ### 5. Catalog gaps are configuration, not class failures
 
-Triage refuses a service that isn't in the catalog or has no paging integration, and onboarding doesn't write the catalog. Counting that against each class would hide what the replay measures, so shadow gives those services a placeholder integration and reports each one as a *catalog gap* and a *Complete the configuration* need.
+Triage refuses a service that isn't in the catalog or has no paging integration, and onboarding doesn't write the catalog. Counting that against each class would hide what the replay measures, so shadow gives those services a placeholder integration and reports each one as a *catalog gap* and a *Complete the configuration* need. `supportagent onboard catalog` drafts the missing entries from the graph, and leaves each paging integration for a person.
 
 ## Consequences
 
