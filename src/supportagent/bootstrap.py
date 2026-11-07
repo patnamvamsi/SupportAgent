@@ -24,6 +24,7 @@ import socket
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -251,6 +252,8 @@ from supportagent.domain.errors import (
 )
 from supportagent.domain.evidence import PlannedRead, capture, capture_plan
 from supportagent.domain.faults import LLM_FAULTS, SINK_FAULTS, Fault
+from supportagent.domain.flow_candidates import Candidate, Ticket, candidates, draft_flow
+from supportagent.domain.flow_trace import StageObservation
 from supportagent.domain.gap_plan import GapPlan, target_name
 from supportagent.domain.gap_plan import plan as gap_plan
 from supportagent.domain.gaps import (
@@ -1735,6 +1738,56 @@ def trace_object(  # noqa: PLR0913 — the question plus the seams tests replace
             "tracing.record_flows first (ADR-0021 §4)"
         )
     clock = clock or SystemClock()
+    with _tracing(config, engine, master_key, transport, clock, pii) as (
+        tracer,
+        tools,
+        events,
+        ids,
+    ):
+        span = ids.new(IdPrefix.EVENT)
+        context = TraceContext.new(config.tenant.id, f"trace_{span}", f"span_{span}")
+        run = tracer.trace(flow, object_id, context, actor=actor, at=at)
+        answer = None
+        if explain:
+            llm = _build_llm(config, events, ids, clock, llm_provider)
+            rca = config.rca
+            service = RcaService(
+                knowledge=build_rca_knowledge(config, tools.names),
+                tools=tools,
+                llm=llm,
+                events=events,
+                ids=ids,
+                clock=clock,
+                prior=rca.prior,
+                freeze=rca.freeze,
+                max_claims=rca.max_claims,
+                entail_budget_s=rca.entail_budget_s,
+            )
+            answer = TraceExplainer(
+                llm=llm,
+                catalog=_build_catalog(config),
+                rca=service.run,
+                budget=lambda: Budget.of(
+                    RcaBudget(
+                        max_tool_calls=rca.max_tool_calls,
+                        max_tokens=rca.max_tokens,
+                        max_hypotheses=rca.max_hypotheses,
+                    )
+                ),
+            ).explain(flow, run, context, pseudonymise=run.pseudonymise)
+    return run, answer
+
+
+@contextmanager
+def _tracing(  # noqa: PLR0913, PLR0917 — the database, its key and the seams tests replace
+    config: AppConfig,
+    engine: Engine | None,
+    master_key: bytes | None,
+    transport: httpx.BaseTransport | None,
+    clock: Clock,
+    pii: PiiAnalyzer | None,
+) -> Iterator[tuple[FlowTracer, ToolRegistry, EventSink, IdGenerator]]:
+    """A tracer over the configured tools, its events written when the block ends."""
     own = engine is None
     db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     try:
@@ -1758,42 +1811,113 @@ def trace_object(  # noqa: PLR0913 — the question plus the seams tests replace
                 ids=ids,
                 clock=clock,
             )
-            span = ids.new(IdPrefix.EVENT)
-            context = TraceContext.new(config.tenant.id, f"trace_{span}", f"span_{span}")
-            run = tracer.trace(flow, object_id, context, actor=actor, at=at)
-            answer = None
-            if explain:
-                llm = _build_llm(config, events, ids, clock, llm_provider)
-                rca = config.rca
-                service = RcaService(
-                    knowledge=build_rca_knowledge(config, tools.names),
-                    tools=tools,
-                    llm=llm,
-                    events=events,
-                    ids=ids,
-                    clock=clock,
-                    prior=rca.prior,
-                    freeze=rca.freeze,
-                    max_claims=rca.max_claims,
-                    entail_budget_s=rca.entail_budget_s,
-                )
-                answer = TraceExplainer(
-                    llm=llm,
-                    catalog=_build_catalog(config),
-                    rca=service.run,
-                    budget=lambda: Budget.of(
-                        RcaBudget(
-                            max_tool_calls=rca.max_tool_calls,
-                            max_tokens=rca.max_tokens,
-                            max_hypotheses=rca.max_hypotheses,
-                        )
-                    ),
-                ).explain(flow, run, context, pseudonymise=run.pseudonymise)
+            yield tracer, tools, events, ids
             uow.commit()
     finally:
         if own:
             db.dispose()
-    return run, answer
+
+
+@dataclass(frozen=True, slots=True)
+class StageCorrelation:
+    """ADR-0021 §3: how one stage's lookup did on objects that completed the flow."""
+
+    stage: str
+    found: int
+    missing: int
+    unknown: int
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def gap(self) -> bool:
+        """It never found a completed object: the stage doesn't log the id (or can't be read)."""
+        return self.found == 0
+
+
+def verify_flow(  # noqa: PLR0913 — the question plus the seams tests replace
+    config: AppConfig,
+    flow: Flow,
+    samples: Sequence[str],
+    *,
+    engine: Engine | None = None,
+    master_key: bytes | None = None,
+    transport: httpx.BaseTransport | None = None,
+    clock: Clock | None = None,
+) -> list[StageCorrelation]:
+    """``flow verify``: each stage's lookup against objects a person says completed the flow.
+
+    A stage that finds none of them is a correlation gap: at question time it
+    can only read "unknown". Drafts are verified too, so the reviewer sees
+    the gaps before marking the flow reviewed. Every lookup is audited.
+    """
+    if not samples:
+        raise ConfigError("flow verify needs at least one sample id (--sample)")  # noqa: TRY003
+    bad = [s for s in samples if not flow.accepts(s)]
+    if bad:
+        raise ConfigError(f"sample ids the flow doesn't accept: {', '.join(bad)}")  # noqa: TRY003
+    clock = clock or SystemClock()
+    seen: dict[str, list[StageObservation]] = {s.id: [] for s in flow.stages}
+    with _tracing(config, engine, master_key, transport, clock, None) as (tracer, _, _, ids):
+        for sample in samples:
+            span = ids.new(IdPrefix.EVENT)
+            context = TraceContext.new(config.tenant.id, f"verify_{span}", f"span_{span}")
+            run = tracer.trace(flow, sample, context, actor="verify", allow_draft=True)
+            for o in run.observations:
+                seen[o.stage].append(o)
+    return [
+        StageCorrelation(
+            stage=sid,
+            found=sum(1 for o in obs if o.state == "found"),
+            missing=sum(1 for o in obs if o.state == "missing"),
+            unknown=sum(1 for o in obs if o.state == "unknown"),
+            reasons=tuple(sorted({o.reason for o in obs if o.reason})),
+        )
+        for sid, obs in seen.items()
+    ]
+
+
+def onboard_flows(
+    config: AppConfig, workspace: Path, *, provider: LLMProvider | None = None
+) -> tuple[list[Candidate], list[Path]]:
+    """``onboard flows``: candidate flows from the history, and a draft of each, for review.
+
+    Writes ``flows.proposed/candidates.yaml`` and one unreviewed ``<object>.yaml``
+    per candidate whose tickets name at least two services of the graph.
+    """
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    run = run_onboarding_pipeline(
+        workspace, load_plugins(), OnboardingPipeline(config, provider=provider, decorate=cache)
+    )
+    graph = run.graph.graph
+    tickets = [
+        Ticket(i.number, f"{i.title}\n{i.description}", i.ci) for i in _past_incidents(workspace)
+    ]
+    found = candidates(tickets, graph)
+    out = workspace / "flows.proposed"
+    out.mkdir(exist_ok=True)
+    header = "# ADR-0021: candidate flows from the ticket history, most asked about first.\n"
+    (out / "candidates.yaml").write_text(
+        header + dump_yaml({"candidates": [c.as_dict() for c in found]}), encoding="utf-8"
+    )
+    written: list[Path] = []
+    for candidate in found:
+        if len(candidate.services) < 2:  # noqa: PLR2004 — a flow needs two stages
+            continue
+        flow_id = re.sub(r"[^a-z0-9-]+", "-", candidate.noun.lower()).strip("-") or "object"
+        draft = draft_flow(candidate, graph, flow_id=flow_id)
+        Flow.model_validate(draft)  # what's written loads, once its TODOs are done
+        path = out / f"{flow_id}.yaml"
+        path.write_text(
+            "# ADR-0021: an unreviewed draft. Name the stages, set within_min, check each\n"
+            "# lookup (`supportagent flow verify`), then set reviewed: true and copy it\n"
+            "# into tracing.flows_dir.\n" + dump_yaml(draft),
+            encoding="utf-8",
+        )
+        written.append(path)
+    return found, written
 
 
 def build_pii_analyzer(config: AppConfig) -> PresidioAnalyzer | None:

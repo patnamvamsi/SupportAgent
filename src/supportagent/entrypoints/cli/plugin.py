@@ -31,6 +31,7 @@ from supportagent.bootstrap import (
     onboard_cycle,
     onboard_drift,
     onboard_evidence,
+    onboard_flows,
     onboard_gaps,
     onboard_graph,
     onboard_incidents,
@@ -552,6 +553,35 @@ def onboard_status_command(
     typer.echo(f"  needed from you: {len(needs) or 'nothing'}")
     for need in needs:
         typer.echo(f"    {need['kind']:<8} {need['what']} -> {need['how']}")
+
+
+@onboard_app.command("flows")
+def onboard_flows_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An onboarded workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (the model)."
+    ),
+) -> None:
+    """Candidate flows from the ticket history, and a draft of each (ADR-0021 §2).
+
+    Ranks the business objects tickets ask about by id, with the services their
+    CIs belong to, and drafts an unreviewed flow for each one that names two or
+    more services, ordered by how data moves through the graph. Writes
+    flows.proposed/ in the workspace. Check a draft with `supportagent flow
+    verify`, finish its TODOs, and mark it reviewed before tracing with it.
+    """
+    try:
+        found, written = onboard_flows(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not found:
+        typer.echo("no business objects asked about by id in the history: write a flow yourself")
+    for c in found:
+        services = ", ".join(c.services) or "no graph service"
+        typer.echo(f"  {c.noun:<16} {c.pattern:<18} {c.tickets} ticket(s)  {services}")
+    for path in written:
+        typer.echo(f"wrote {path}: review it")
 
 
 @onboard_app.command("catalog")

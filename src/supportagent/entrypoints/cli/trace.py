@@ -20,7 +20,7 @@ import typer
 
 from supportagent.app.trace_answer import TraceAnswer
 from supportagent.app.tracing import TraceRun
-from supportagent.bootstrap import load_flow_file, load_flows, trace_object
+from supportagent.bootstrap import load_flow_file, load_flows, trace_object, verify_flow
 from supportagent.config.loader import load_config_default
 from supportagent.domain.errors import ConfigError, DomainValidationError, ExternalServiceError
 
@@ -134,3 +134,36 @@ def validate(paths: list[Path] = typer.Argument(..., help="Flow files.")) -> Non
         typer.echo(f"ok   {path}: {flow.flow}, {len(flow.stages)} stages")
     if failed:
         raise typer.Exit(2)
+
+
+@flow_app.command("verify")
+def verify(
+    path: Path = typer.Argument(..., help="A flow file (a draft or a reviewed flow)."),  # noqa: B008
+    sample: list[str] = typer.Option(  # noqa: B008
+        ..., "--sample", help="An id that completed the flow (repeatable; 3-5 recent ones)."
+    ),
+    config: Path = _CONFIG,
+) -> None:
+    """Check each stage's lookup against objects that completed the flow (ADR-0021 §3).
+
+    A stage that finds none of them is a correlation gap: it doesn't log the id
+    (or its lookup fails), and at question time it can only read "unknown".
+    Exit 0 no gaps, 1 a gap, 2 config or input problem.
+    """
+    try:
+        flow = load_flow_file(path)
+        report = verify_flow(load_config_default(config), flow, sample)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except ExternalServiceError as exc:
+        typer.echo(f"database error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for row in report:
+        mark = "GAP " if row.gap else "ok  "
+        why = f"  ({'; '.join(row.reasons)})" if row.reasons else ""
+        typer.echo(
+            f"{mark} {row.stage:<20} found {row.found}/{len(sample)}, "
+            f"missing {row.missing}, unknown {row.unknown}{why}"
+        )
+    raise typer.Exit(1 if any(r.gap for r in report) else 0)

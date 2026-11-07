@@ -107,7 +107,7 @@ class FlowTracer:
         self._ids = ids
         self._clock = clock
 
-    def trace(
+    def trace(  # noqa: PLR0913 — the question, who asks, when, and drafts
         self,
         flow: Flow,
         object_id: str,
@@ -115,9 +115,14 @@ class FlowTracer:
         *,
         actor: str,
         at: datetime | None = None,
+        allow_draft: bool = False,
     ) -> TraceRun:
-        """Trace ``object_id`` through ``flow``, as of ``at`` (default: now)."""
-        if not flow.reviewed:
+        """Trace ``object_id`` through ``flow``, as of ``at`` (default: now).
+
+        ``allow_draft`` is for ``flow verify`` only: a reviewer checks a draft's
+        lookups before marking it reviewed.
+        """
+        if not flow.reviewed and not allow_draft:
             raise DomainValidationError(f"flow {flow.flow} is an unreviewed draft")  # noqa: TRY003
         if not flow.accepts(object_id):
             raise DomainValidationError(  # noqa: TRY003
