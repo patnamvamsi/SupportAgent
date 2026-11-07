@@ -77,16 +77,18 @@ Point `onboard run` at a real ServiceNow scope, Confluence spaces and repositori
 
 That run, not the fixtures, decides what comes after.
 
-### 1.5 Transaction tracing (proposed, [ADR-0021](adr/0021-transaction-tracing.md))
+### 1.5 Transaction tracing (accepted, [ADR-0021](adr/0021-transaction-tracing.md))
 
 Answer "where is business object X, and is that where it should be?" for one reviewed business flow on the real system. Triage answers "what is wrong with this system?"; this covers the stuck object on healthy systems, which raises no alert.
 - **Flows as data:** onboarding drafts each flow's stages, the component per stage and the lookup that finds one ID at each stage. A person reviews it before it is used, because specs go stale.
 - **Correlation verified:** each stage's lookup is checked against sample IDs. A stage that can't find them is a correlation gap ("unknown" at question time, never "missing").
-- **Business data bounded:** declared queries keyed by one ID, a field allow-list before the model, every lookup audited, and an admin enables each flow.
+- **Candidate flows:** onboarding ranks the business objects tickets ask about most, and whether their IDs appear in logs. The maintainer picks the first.
+- **Logs and messages first:** a stage reads business records only where onboarding showed logs and messages can't establish it. Record reads use declared queries keyed by one ID, a field allow-list and an audit trail, and an admin enables each flow.
+- **PII:** every stage result, logs included, goes through Presidio (local, optional install) and is pseudonymised consistently before the model sees it. If the analyser is missing, tracing fails closed. The lab seeds PII and gates on none reaching a model request.
 - **The answer:** the actual timeline from tool results, the first deviation from the flow, RCA scoped to that component, then a short business-language summary, all cited. "Couldn't tell" names the missing stage.
 - **Its own lab:** 20–30 labelled questions per flow, with zero wrong-stage claims.
 
-Waits on 1.4 and on the maintainer's answers to the ADR's questions: accept or park; whether a flow may be used once its lab passes, before live calibration; which flow first; whether business records may be read at all.
+A flow is usable once its lab passes; the calibration floor doesn't apply. Fitting a flow waits on 1.4. The generic parts (the flow model, candidate flows, the PII layer, the lab) can be built on the reference systems first.
 
 ## 2. Operating what was added: control, monitoring, observability (WP-A6)
 
@@ -159,4 +161,4 @@ Delivered:
 
 ## Suggested order
 
-1.1 and 1.2 (delivered), which together unblock a real system; then 2 (control and observability, delivered); then 1.3 (delivered); then 1.4 on a real system as soon as one is available; then 1.5 (transaction tracing) on that system, if ADR-0021 is accepted. Section 3 fits around them.
+1.1 and 1.2 (delivered), which together unblock a real system; then 2 (control and observability, delivered); then 1.3 (delivered); then 1.4 on a real system as soon as one is available; then 1.5 (transaction tracing) on that system. Section 3 fits around them.
