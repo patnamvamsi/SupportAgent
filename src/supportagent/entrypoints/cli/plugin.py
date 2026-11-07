@@ -27,6 +27,7 @@ from supportagent.bootstrap import (
     install_and_record,
     load_plugins,
     onboard_bind,
+    onboard_catalog,
     onboard_cycle,
     onboard_drift,
     onboard_evidence,
@@ -551,6 +552,31 @@ def onboard_status_command(
     typer.echo(f"  needed from you: {len(needs) or 'nothing'}")
     for need in needs:
         typer.echo(f"    {need['kind']:<8} {need['what']} -> {need['how']}")
+
+
+@onboard_app.command("catalog")
+def onboard_catalog_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An onboarded workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (its catalog, the model)."
+    ),
+) -> None:
+    """Draft the service catalog onboarding implies (ADR-0020 §5), for you to review.
+
+    Each serving component and each CI the history names becomes an entry with the
+    stack, databases and namespace the graph gives it; services already in the
+    configured catalog keep theirs. Writes catalog.proposed.yaml in the workspace,
+    each entry marked with what's left (its paging integration).
+    """
+    try:
+        entries, path = onboard_catalog(load_config_default(config), workspace)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for item in entries:
+        todo = f"  TODO: {'; '.join(item.todo)}" if item.todo else ""
+        typer.echo(f"  {item.status:<4}  {item.entry.name:<28} {','.join(item.entry.stack)}{todo}")
+    typer.echo(f"wrote {path}: review it, then copy it over your catalog")
 
 
 @onboard_app.command("gaps")

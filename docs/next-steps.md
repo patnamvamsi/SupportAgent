@@ -64,7 +64,7 @@ Readiness runs the lab harness: the real classifier and RCA, with tools from evi
 - **Catalog gaps:** services the catalog wouldn't route are reported as a configuration need.
 
 **Follow-ups:**
-- Have onboarding propose the catalog from the graph. Today a person writes it.
+- ~~Have onboarding propose the catalog from the graph~~ (*done*): `supportagent onboard catalog` drafts `catalog.proposed.yaml` for review. The paging integration is left to a person.
 - Prove `onboard ingest --refresh` plus `onboard run` on a real system, on a schedule.
 - Alert storms in the replay: the histories hold tickets only.
 
