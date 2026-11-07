@@ -95,6 +95,7 @@ def test_wp015_dod_doctor_all_green_on_example_config(
         "packs",
         "onboarding",
         "knowledge",
+        "pii",
         "db",
         "servicenow.auth",
         "servicenow.journal_visibility",

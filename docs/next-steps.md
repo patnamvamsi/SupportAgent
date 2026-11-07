@@ -88,6 +88,9 @@ Answer "where is business object X, and is that where it should be?" for one rev
 - **The answer:** the actual timeline from tool results, the first deviation from the flow, RCA scoped to that component, then a short business-language summary, all cited. "Couldn't tell" names the missing stage.
 - **Its own lab:** 20–30 labelled questions per flow, with zero wrong-stage claims.
 
+Progress:
+- ~~The PII layer~~ (*done*, WP-T1): `pii.engine: presidio` (`supportagent[pii]` plus a spaCy model). Field allow-list first, then consistent per-question placeholders, with the traced ID kept. Fails closed, nothing fetched from the network, and `doctor` has a `pii` check.
+
 A flow is usable once its lab passes; the calibration floor doesn't apply. Fitting a flow waits on 1.4. The generic parts (the flow model, candidate flows, the PII layer, the lab) can be built on the reference systems first.
 
 ## 2. Operating what was added: control, monitoring, observability (WP-A6)

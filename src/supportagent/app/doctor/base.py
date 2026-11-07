@@ -28,6 +28,7 @@ from supportagent.ports.diagnostics import (
     RecordProbe,
     SchemaProbe,
 )
+from supportagent.ports.pii import PiiAnalyzer
 
 CheckStatus = Literal["pass", "warn", "fail"]
 
@@ -109,6 +110,8 @@ class DoctorContext:
     connector: ConnectorManifest = field(
         default_factory=lambda: ConnectorManifest("servicenow", frozenset(Capability))
     )
+    #: ADR-0021 §4a: the PII analyser (``None``: ``pii.engine`` is off).
+    pii: PiiAnalyzer | None = None
 
 
 class Check(Protocol):

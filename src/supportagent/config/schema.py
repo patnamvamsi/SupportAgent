@@ -17,6 +17,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.base import DomainModel
+from supportagent.domain.pii import valid_entity
 from supportagent.domain.severity import Severity
 from supportagent.domain.tiers import Tier, TrustClass, class_agrees_with_tier
 from supportagent.domain.webhook import validate_mapping
@@ -685,6 +686,75 @@ class OnboardingConfig(DomainModel):
     verify_interval_h: int = Field(default=24, ge=0, le=24 * 30)
 
 
+#: ADR-0021 §4a: Presidio's entity names that are on by default. Dates and URLs are
+#: left out: a trace's timeline needs its timestamps, and URLs are mostly endpoints.
+DEFAULT_PII_ENTITIES = (
+    "PERSON",
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "LOCATION",
+    "IBAN_CODE",
+    "CREDIT_CARD",
+    "CRYPTO",
+    "IP_ADDRESS",
+    "NRP",
+    "MEDICAL_LICENSE",
+    "US_SSN",
+    "US_BANK_NUMBER",
+    "US_PASSPORT",
+    "US_DRIVER_LICENSE",
+    "UK_NHS",
+)
+
+
+class PiiRecognizer(DomainModel):
+    """A deployment's own identifier (a customer or account number) as a regex."""
+
+    entity: str
+    regex: str = Field(min_length=1)
+    score: float = Field(default=0.6, gt=0.0, le=1.0)
+
+    @field_validator("entity")
+    @classmethod
+    def _entity(cls, value: str) -> str:
+        if not valid_entity(value):
+            raise ValueError(f"PII entity must be UPPER_SNAKE: {value!r}")  # noqa: TRY003
+        return value
+
+    @field_validator("regex")
+    @classmethod
+    def _compilable(cls, value: str) -> str:
+        try:
+            re.compile(value)
+        except re.error as exc:
+            raise ValueError(f"PII regex does not compile: {exc}") from exc  # noqa: TRY003
+        return value
+
+
+class PiiConfig(DomainModel):
+    """ADR-0021 §4a: PII detection before the model sees a traced object's data.
+
+    ``engine: off`` (the default) leaves tracing without evidence for the model:
+    the timeline still works, and nothing unanalysed is passed on.
+    """
+
+    engine: Literal["off", "presidio"] = "off"
+    entities: list[str] = Field(default_factory=lambda: list(DEFAULT_PII_ENTITIES))
+    min_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    language: str = Field(default="en", pattern=r"^[a-z]{2}$")
+    #: The spaCy model Presidio uses; ``en_core_web_sm`` is smaller and less accurate.
+    model: str = Field(default="en_core_web_lg", pattern=r"^[a-z]{2}_[a-z0-9_]+$")
+    recognizers: list[PiiRecognizer] = Field(default_factory=list)
+
+    @field_validator("entities")
+    @classmethod
+    def _entities(cls, value: list[str]) -> list[str]:
+        bad = [e for e in value if not valid_entity(e)]
+        if bad:
+            raise ValueError(f"PII entities must be UPPER_SNAKE: {bad}")  # noqa: TRY003
+        return value
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -721,6 +791,8 @@ class AppConfig(DomainModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     #: ADR-0017 (WP-A6): runtime switches for readiness routing and calibration.
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
+    #: ADR-0021 §4a: PII detection for transaction tracing (off by default).
+    pii: PiiConfig = Field(default_factory=PiiConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

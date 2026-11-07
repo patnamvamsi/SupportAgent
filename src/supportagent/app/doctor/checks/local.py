@@ -1,10 +1,10 @@
-"""Local checks (02 §4.1): ``config``, ``db``, ``paging``."""
+"""Local checks (02 §4.1): ``config``, ``db``, ``paging``, ``pii``, ..."""
 
 from __future__ import annotations
 
 from supportagent.app.doctor.base import CheckResult, DoctorContext
 from supportagent.config.validation import validate_bundle
-from supportagent.domain.errors import ConfigError
+from supportagent.domain.errors import ConfigError, PiiUnavailable
 from supportagent.domain.model.calibration import CalibrationTable
 
 
@@ -256,3 +256,31 @@ class OnboardingCheck:
         if warnings:
             return CheckResult(self.name, "warn", detail + " — " + "; ".join(warnings), data)
         return CheckResult(self.name, "pass", detail, data)
+
+
+class PiiCheck:
+    """ADR-0021 §4a: the PII analyser runs. Without it, tracing passes nothing to the model."""
+
+    name = "pii"
+    #: A made-up name and address; any working analyser finds both.
+    _PROBE = "Please call Jane Doe back at jane.doe@example.com about her refund."
+
+    def run(self, ctx: DoctorContext) -> CheckResult:
+        engine = ctx.config.pii.engine
+        if engine == "off" or ctx.pii is None:
+            return CheckResult(self.name, "pass", "off: traced data is never passed to the model")
+        try:
+            spans = ctx.pii.analyze(self._PROBE)
+        except PiiUnavailable as exc:
+            return CheckResult(self.name, "fail", f"{engine}: {exc}")
+        found = sorted({s.entity for s in spans})
+        if not found:
+            return CheckResult(
+                self.name,
+                "warn",
+                f"{engine} found nothing in a probe with a name and an email address; "
+                "check pii.entities and pii.min_score",
+            )
+        return CheckResult(
+            self.name, "pass", f"{engine}: found {', '.join(found)} in a probe", {"found": found}
+        )

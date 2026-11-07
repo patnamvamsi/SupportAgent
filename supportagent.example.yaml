@@ -135,3 +135,10 @@ retention:
 #   retention_days: {logs.search: 30, metrics.query: 15, changes.recent: 90, gha.recent_runs: 400}   # ADR-0018: older evidence is aged out
 #   credentials_vault: local/credentials.vault   # ADR-0019: bound credentials, sealed under the master key
 #   verify_interval_h: 24            # ADR-0019 §6: the worker re-checks bound credentials; 0 turns it off
+# pii:                               # ADR-0021 §4a: PII detection before the model sees traced data
+#   engine: presidio                 # off (default) | presidio (install supportagent[pii] and a spaCy model)
+#   model: en_core_web_lg            # python -m spacy download en_core_web_lg (en_core_web_sm: smaller, less accurate)
+#   min_score: 0.5
+#   entities: [PERSON, EMAIL_ADDRESS, PHONE_NUMBER, LOCATION, IBAN_CODE, CREDIT_CARD]   # Presidio names
+#   recognizers:                     # the system's own identifiers
+#     - {entity: CUSTOMER_ID, regex: 'CUST-\d{8}', score: 0.8}

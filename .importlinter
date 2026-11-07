@@ -107,6 +107,7 @@ modules =
     supportagent.adapters.fakes
     supportagent.adapters.install
     supportagent.adapters.gitsource
+    supportagent.adapters.pii
 
 [importlinter:contract:adapters-no-app]
 name = adapters-no-app
