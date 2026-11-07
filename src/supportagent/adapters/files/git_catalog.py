@@ -26,7 +26,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 — git, with a fixed argument list and no shell
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from secrets import token_hex
@@ -87,7 +87,7 @@ def _git(args: Sequence[str]) -> str:
     config = [part for item in _GIT_CONFIG for part in ("-c", item)]
     verb = args[2] if args[0] == "-C" else args[0]
     try:
-        done = subprocess.run(  # noqa: S603 — a fixed git argv, no shell
+        done = subprocess.run(  # noqa: S603  # nosec B603 — a fixed git argv, no shell
             [git, *config, *args],
             capture_output=True,
             text=True,
