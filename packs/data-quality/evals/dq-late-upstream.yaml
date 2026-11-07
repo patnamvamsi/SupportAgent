@@ -1,0 +1,30 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: dq-late-upstream
+pack: data-quality
+split: tune
+description: The CDC connector feeding RAW.ORDERS failed; the daily build ran on nothing.
+incident:
+  subject: Yesterday's revenue shows zero
+  priority: '2'
+  body: REVENUE_DAILY last loaded 30 hours ago; finance sees zero for yesterday.
+service:
+  name: revenue-build
+  stack:
+  - snowflake
+  - snowflake-task
+world:
+  data.freshness:
+    result:
+      datasets:
+      - name: ANALYTICS.REVENUE_DAILY
+        hours_late: 30.0
+        upstream: orders-cdc-sink
+        upstream_state: FAILED
+truth:
+  classification: data/freshness
+  severity: P2
+  root_cause: data_late_upstream
+  verdict: SUPPORTED
+  must_cite:
+  - data.freshness
+why: The dataset is 30 hours late and the connector feeding it is FAILED.

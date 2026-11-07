@@ -2,15 +2,15 @@
   "model_id": "qwen/qwen3.8-27b",
   "systems": {
     "customer-analytics": {
-      "data-late-upstream": "untestable",
-      "data-schema-drift": "untestable",
-      "kafka-consumer-lag": "untestable",
+      "data-late-upstream": "ready",
+      "data-schema-drift": "not_ready",
+      "kafka-consumer-lag": "ready",
       "request-access": "not_ready",
-      "snowflake-credit-quota": "untestable",
-      "snowflake-task-failure": "untestable",
-      "snowflake-warehouse-queuing": "untestable",
-      "spark-executor-oom": "untestable",
-      "streamlit-app-crash": "untestable"
+      "snowflake-credit-quota": "ready",
+      "snowflake-task-failure": "not_ready",
+      "snowflake-warehouse-queuing": "ready",
+      "spark-executor-oom": "ready",
+      "streamlit-app-crash": "ready"
     },
     "payments-platform": {
       "jvm-connection-pool-exhaustion": "not_ready",

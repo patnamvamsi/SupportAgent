@@ -1,0 +1,1 @@
+{"latency_ms": 4899, "raw_text": "{\n  \"classification\": \"app/config\",\n  \"severity\": \"P1\",\n  \"summary\": \"The Insights app is down after a configuration change, with containers repeatedly restarting.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 763, "tokens_out": 224}

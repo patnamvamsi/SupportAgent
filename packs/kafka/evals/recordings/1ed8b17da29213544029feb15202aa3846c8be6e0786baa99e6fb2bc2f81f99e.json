@@ -1,0 +1,1 @@
+{"latency_ms": 7664, "raw_text": "{\"classification\":\"stream/lag\",\"severity\":\"P3\",\"summary\":\"Clickstream was reported an hour behind at 07:00 and needs verification whether the delay persists.\",\"confidence\":0.7}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 680, "tokens_out": 371}

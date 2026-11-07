@@ -1,0 +1,10 @@
+# A data job failed. On Snowflake, did the service's task fail on its own SQL?
+id: runbook:snowflake-task
+applies_when: {classification: batch/failure}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: task
+    hypothesis: snowflake_task_failure
+    tool: snowflake.task_history
+    args: {service: "$service.name"}
+    check: "result.tasks.exists(t, t.state == 'FAILED')"

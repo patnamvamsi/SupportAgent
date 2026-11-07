@@ -1,0 +1,12 @@
+# Data is stale. Walk lineage up: a dataset that is hours late while the
+# upstream feeding it isn't running (a failed connector or feed) is a late
+# upstream. A late dataset whose upstream runs is the build's own problem.
+id: runbook:data-freshness
+applies_when: {classification: data/freshness}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: upstream
+    hypothesis: data_late_upstream
+    tool: data.freshness
+    args: {service: "$service.name"}
+    check: "result.datasets.exists(d, double(d.hours_late) >= 6.0 && d.upstream_state != 'RUNNING')"

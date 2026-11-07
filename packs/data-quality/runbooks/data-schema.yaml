@@ -1,0 +1,10 @@
+# Records are rejected or dead-lettered: was an incompatible schema registered?
+id: runbook:data-schema
+applies_when: {classification: data/schema_drift}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: schema
+    hypothesis: data_schema_drift
+    tool: data.schema_changes
+    args: {service: "$service.name"}
+    check: "result.changes.exists(c, !c.compatible)"

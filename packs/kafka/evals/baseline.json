@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "kafka-lag-catching-up": true,
+    "kafka-lag-rebalance": true,
+    "kafka-no-cause": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "kafka",
+  "samples": 1,
+  "v": 1
+}

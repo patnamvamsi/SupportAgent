@@ -1,0 +1,1 @@
+{"latency_ms": 4965, "raw_text": "{\n  \"classification\": \"data/schema_drift\",\n  \"severity\": \"P3\",\n  \"summary\": \"A small number of order events were rejected to the dead-letter topic, indicating possible schema mismatch or invalid payloads in ingestion.\",\n  \"confidence\": 0.8\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 802, "tokens_out": 240}

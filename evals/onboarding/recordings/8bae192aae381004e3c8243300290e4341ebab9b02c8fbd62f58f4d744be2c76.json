@@ -1,0 +1,1 @@
+{"latency_ms": 21804, "raw_text": "{\n  \"classification\": \"warehouse/queuing\",\n  \"severity\": \"P2\",\n  \"summary\": \"BI dashboards are slow because queries are queued on warehouse WH_BI.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 774, "tokens_out": 274}

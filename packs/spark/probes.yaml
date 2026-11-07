@@ -1,0 +1,6 @@
+# One probe per pack hypothesis (ARCH §5).
+probes:
+  spark_executor_oom:
+    tool: spark.applications
+    args: {service: "$service.name"}
+    check: "result.apps.exists(a, a.state == 'FAILED' && a.executor_losses.exists(e, e.reason.contains('memory') || e.reason.contains('OutOfMemoryError')))"

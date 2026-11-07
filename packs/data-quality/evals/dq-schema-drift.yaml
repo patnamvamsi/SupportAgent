@@ -1,0 +1,35 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: dq-schema-drift
+pack: data-quality
+split: tune
+description: A producer removed a field without compatibility; the registry rejects new records.
+incident:
+  subject: Orders ingest rejecting records
+  priority: '2'
+  body: The connector dead-letters every orders event since 10:05.
+service:
+  name: orders-cdc
+  stack:
+  - kafka
+  - kafka-connect
+  - snowflake
+world:
+  data.schema_changes:
+    result:
+      changes:
+      - subject: events.orders-value
+        version: 14
+        compatible: false
+        change: removed required field discount_code
+      - subject: events.orders-value
+        version: 13
+        compatible: true
+        change: added optional field channel
+truth:
+  classification: data/schema_drift
+  severity: P2
+  root_cause: data_schema_drift
+  verdict: SUPPORTED
+  must_cite:
+  - data.schema_changes
+why: Version 14 removed a required field and was incompatible.

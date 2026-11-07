@@ -1,11 +1,13 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: streamlit
-version: 0.1.0
+version: 0.2.0
 description: Streamlit data apps (crashes, memory, slow queries behind pages).
 core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/streamlit/evals)
 provides:
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: streamlit/app_crash, description: "The Streamlit app's process crashes or is OOMKilled, usually from loading too much data into memory in a page."}
+  pack: streamlit   # hypotheses, probes, runbooks and its lab (packs/streamlit)
   needs: [k8s.pod_status, snowflake.query_history]
   extractors:
     - {match: "**/app.py", extract: app_reads}

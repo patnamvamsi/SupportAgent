@@ -1,0 +1,1 @@
+{"latency_ms": 4125, "raw_text": "{\n  \"classification\": \"warehouse/queuing\",\n  \"severity\": \"P2\",\n  \"summary\": \"Report dashboards are slow because queries are queued on WH_REPORTS, indicating warehouse saturation or queuing rather than a full outage.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 773, "tokens_out": 210}

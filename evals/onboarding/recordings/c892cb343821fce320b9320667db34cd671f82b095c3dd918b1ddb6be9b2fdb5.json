@@ -1,0 +1,1 @@
+{"latency_ms": 3475, "raw_text": "{\n  \"classification\": \"stream/lag\",\n  \"severity\": \"P2\",\n  \"summary\": \"The RAW.CLICKSTREAM clickstream is lagging by 240 minutes, causing the real-time dashboard to show stale data.\",\n  \"confidence\": 0.92\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 804, "tokens_out": 159}

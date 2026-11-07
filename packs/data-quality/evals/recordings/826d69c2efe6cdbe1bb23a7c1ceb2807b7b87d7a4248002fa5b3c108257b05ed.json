@@ -1,0 +1,1 @@
+{"latency_ms": 4240, "raw_text": "{\n  \"classification\": \"data/freshness\",\n  \"severity\": \"P2\",\n  \"summary\": \"The REVENUE_DAILY table is stale at 26 hours old, indicating an expected refresh did not complete.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 765, "tokens_out": 192}

@@ -1,0 +1,1 @@
+{"latency_ms": 3676, "raw_text": "{\n  \"classification\": \"stream/lag\",\n  \"severity\": \"P2\",\n  \"summary\": \"The live dashboard is stale because clickstream data in the warehouse is three hours behind real time, indicating streaming ingestion lag.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 669, "tokens_out": 214}

@@ -1,0 +1,5 @@
+# One hypothesis per data-quality plugin cause (`data/<cause>` -> `data_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: data_late_upstream
+  - id: data_schema_drift

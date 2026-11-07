@@ -1,0 +1,11 @@
+# Streamed data lands late: is the consumer group behind its topic, and still
+# falling further behind? Steady or shrinking lag is catching up, not the cause.
+id: runbook:kafka-lag
+applies_when: {classification: stream/lag}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: lag
+    hypothesis: kafka_consumer_lag
+    tool: kafka.consumer_lag
+    args: {service: "$service.name"}
+    check: "result.groups.exists(g, g.lag >= 100000 && g.trend == 'rising')"

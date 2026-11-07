@@ -1,0 +1,32 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: kafka-no-cause
+pack: kafka
+split: holdout
+description: A report of late data while every consumer group is current.
+incident:
+  subject: Is the clickstream late?
+  priority: '4'
+  body: A user thinks today's clicks look low.
+service:
+  name: clicks-ingest
+  stack:
+  - kafka
+  - spark
+  - spark-streaming
+world:
+  kafka.consumer_lag:
+    result:
+      cluster: events-msk
+      groups:
+      - group: clicks-ingest
+        topic: events.clicks
+        lag: 120
+        trend: steady
+truth:
+  classification: stream/lag
+  severity: P4
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - kafka_consumer_lag
+why: 'Lag is negligible and steady: the data isn''t late.'

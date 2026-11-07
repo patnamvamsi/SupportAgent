@@ -27,7 +27,6 @@ incident_classes:
   - INCB0038
 - id: spark-executor-oom
   labels:
-  - job/failure
   - batch/failure
   cause: spark/executor_oom
   incidents:
@@ -50,7 +49,6 @@ incident_classes:
   - INCB0041
 - id: snowflake-task-failure
   labels:
-  - job/failure
   - batch/failure
   cause: snowflake/task_failure
   incidents:

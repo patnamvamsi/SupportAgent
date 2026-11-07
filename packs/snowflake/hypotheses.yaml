@@ -1,0 +1,6 @@
+# One hypothesis per snowflake plugin cause (`snowflake/<cause>` -> `snowflake_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: snowflake_task_failure
+  - id: snowflake_warehouse_queuing
+  - id: snowflake_credit_quota

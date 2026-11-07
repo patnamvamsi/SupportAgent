@@ -1,8 +1,9 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: kafka
-version: 0.1.2
+version: 0.2.0
 description: Kafka topics, consumer groups and Kafka Connect (lag, rebalances, connector failures, schema compatibility).
 core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/kafka/evals)
 provides:
   labels:   # WP-O4: what the incident map can call a problem
     - {id: stream/lag, description: "A streaming consumer falls behind its topic: consumer lag grows and data arrives late."}
@@ -10,12 +11,29 @@ provides:
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: kafka/consumer_lag, description: "A consumer group falls behind its topic (slow or lost consumers, rebalances, stalled checkpoints) and lag grows."}
     - {id: kafka/broker_unavailable, description: "A Kafka broker or the cluster is down or unreachable; producers and consumers fail."}
+  pack: kafka   # hypotheses, probes, runbooks and its lab (packs/kafka)
   capabilities:
-    kafka.consumer_lag: {description: "Lag per consumer group and partition"}
+    kafka.consumer_lag:
+      description: Lag per consumer group on each topic, and whether it is growing
+      result_schema:
+        type: object
+        required: [cluster, groups]
+        properties:
+          cluster: {type: string}
+          groups:
+            type: array
+            items:
+              type: object
+              required: [group, topic, lag, trend]
+              properties:
+                group: {type: string}
+                topic: {type: string}
+                lag: {type: integer}
+                trend: {type: string, enum: [rising, steady, falling]}
     kafka.topic_health: {description: "Partitions, ISR, broker status"}
     kafka.connect_status: {description: "Connector and task status"}
   backends:
-    - {capability: "kafka.*", first_party: kafka, access: kafka_ro}
+    - {capability: "kafka.*", mcp: {image: "ghcr.io/acme/kafka-mcp:0.1", tools: [consumer_lag, topic_health, connect_status]}, access: kafka_ro}
   extractors:
     - {match: "**/*.py", extract: kafka_topics_and_groups}
     - {match: "**/connector.json", extract: connect_topics_and_tables}

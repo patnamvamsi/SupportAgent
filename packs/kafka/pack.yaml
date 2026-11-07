@@ -1,0 +1,14 @@
+# Kafka (ADR-0015 §2, ADR-0016): the kafka plugin's knowledge.
+# kafka.consumer_lag comes from the plugin's MCP server (a declared schema).
+id: kafka
+version: 0.1.0
+description: Kafka consumer groups and topics (lag that grows while data arrives late).
+applies_to:
+  stack: [kafka]
+plan_order: 20
+taxonomy: taxonomy.yaml
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [kafka.consumer_lag]
+evals: evals/

@@ -1,8 +1,14 @@
-# Placeholder (ADR-0011 §1): loads and is reported by doctor, but is never
-# selected for a case until it has knowledge and passes its lab gates.
+# Snowflake (ADR-0015 §2, ADR-0016): the snowflake plugin's knowledge. Task
+# history, warehouse load and resource monitors come from its MCP server.
 id: snowflake
-version: 0.0.0
-description: Snowflake warehouses, tasks and pipelines.
-placeholder: true
+version: 0.1.0
+description: Snowflake warehouses, tasks and credits (queuing, task failures, resource monitors).
 applies_to:
   stack: [snowflake]
+plan_order: 20
+taxonomy: taxonomy.yaml
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [snowflake.task_history, snowflake.warehouse_load, snowflake.resource_monitors]
+evals: evals/

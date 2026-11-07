@@ -1,0 +1,12 @@
+{
+  "cases": {
+    "dq-late-but-upstream-runs": true,
+    "dq-late-upstream": true,
+    "dq-schema-compatible": true,
+    "dq-schema-drift": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "data-quality",
+  "samples": 1,
+  "v": 1
+}

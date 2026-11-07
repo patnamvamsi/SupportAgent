@@ -1,0 +1,40 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: sf-no-cause
+pack: snowflake
+split: holdout
+description: Slow pages while the warehouse is idle and the quota is fine.
+incident:
+  subject: Dashboard feels slow
+  priority: '4'
+  body: One user says the sales page is slow today.
+service:
+  name: sales-dashboards
+  stack:
+  - snowflake
+  - streamlit
+  - kubernetes
+  k8s_namespace: bi
+  k8s_selector: app=sales-dashboards
+world:
+  snowflake.warehouse_load:
+    result:
+      warehouses:
+      - name: WH_REPORTS
+        avg_running: 1.2
+        avg_queued_load: 0.0
+        state: STARTED
+  snowflake.resource_monitors:
+    result:
+      monitors:
+      - name: RM_BI
+        used_pct: 40.0
+        suspended: []
+truth:
+  classification: warehouse/queuing
+  severity: P4
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - snowflake_warehouse_queuing
+  - snowflake_credit_quota
+why: Nothing queues and the quota is well under its limit.

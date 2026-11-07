@@ -303,7 +303,7 @@ SYSTEM_B = [
     ),
     IncidentClass(
         "spark-executor-oom",
-        ["job/failure", "batch/failure"],
+        ["batch/failure"],
         "spark/executor_oom",
         6,
         ["batch-features"],
@@ -348,7 +348,7 @@ SYSTEM_B = [
     ),
     IncidentClass(
         "snowflake-task-failure",
-        ["job/failure", "batch/failure"],
+        ["batch/failure"],
         "snowflake/task_failure",
         5,
         ["daily-sales-task"],

@@ -59,12 +59,12 @@ supportagent eval onboarding                              # the lab; the plugins
 | kubernetes (evaluated) | pods, restarts, OOMKills, rollouts | `k8s_ro`: get/list/watch in one namespace |
 | grafana | logs (Loki) and metrics (Prometheus) through mcp-grafana | `grafana_ro`: Viewer |
 | github | deploys and merges as evidence | `github_ro`: a read-only fine-grained token |
-| kafka | consumer lag, topics, Kafka Connect | `kafka_ro`: DESCRIBE ACLs |
-| snowflake | queuing, tasks, credits | `snowflake_ro`: `ACCOUNT_USAGE`, `USAGE` and `MONITOR` |
-| spark | executor OOM, skew, streaming progress | `spark_history_ro`: the History Server, read-only |
-| streamlit | app crashes and memory | none |
+| kafka (evaluated, data only) | consumer groups falling behind; served by a Kafka MCP server | `kafka_ro`: DESCRIBE ACLs |
+| snowflake (evaluated, data only) | task failures, warehouse queuing, credit quotas; served by a Snowflake MCP server | `snowflake_ro`: `ACCOUNT_USAGE`, `USAGE` and `MONITOR` |
+| spark (evaluated, data only) | executors lost to memory; served by a Spark History Server MCP server | `spark_history_ro`: the History Server, read-only |
+| streamlit (evaluated, data only) | a page that loads too much and is OOMKilled (through `k8s.pod_status`) | none |
 | airflow | DAG and task failures | `airflow_ro`: Viewer |
-| data-quality | freshness, volume, schema drift along lineage | none |
+| data-quality (evaluated, data only) | late upstream data along lineage, incompatible schema changes; served by its MCP server | none |
 | python-postgres | the evaluated python-postgres pack | none |
 | nodejs (evaluated, data only) | event loop, V8 heap, outbound HTTP | none: uses logs and metrics |
 | mongodb (evaluated, data only) | unindexed queries, the driver's pool, elections; served by a MongoDB MCP server | `mongodb_ro`: `clusterMonitor` and `read` on the database |

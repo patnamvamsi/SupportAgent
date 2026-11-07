@@ -4,17 +4,17 @@
 plugins:
   - {id: airflow, version: 0.1.1, sha256: 8ee7e1813b42817d39fa3f4ed6d6f8605bbfcaa6ada4a6bae7fda6889241ed13}
   - {id: angular, version: 0.1.0, sha256: 1ccc924dc33d967964991e7cc5f7ac3ab87c3f1be04f509332252f73ba683b39}
-  - {id: data-quality, version: 0.1.0, sha256: a8fcbd04eaed0aa22d63266ed7030f4341c22005c82ed38e0ada55958c9eaaa2}
+  - {id: data-quality, version: 0.2.0, sha256: 03361cb1805a24699afff6a37f91635b7b20955e121ea9eb1f34890680b308ad}
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
   - {id: java-spring, version: 0.2.0, sha256: 954a8342a4d76df33711412aaab3ef8b9df1a203236cbfd9482ee83191adf503}
-  - {id: kafka, version: 0.1.2, sha256: 62b00abdad50f5eb52e14922e1ee8f1120ac9352e5b7d4bd94a0523702147120}
+  - {id: kafka, version: 0.2.0, sha256: aa8c6a209d985d8f3c018328984025cdb5444daa5cd4892032183eeff5ecd367}
   - {id: kubernetes, version: 0.2.1, sha256: 1040e6b755feb8188d9c49084536e302c5b6fd1dd0350cf787be4b0874950aa1}
   - {id: mongodb, version: 0.1.1, sha256: 901d6a4c341a7d3ecae512ac39377ca411ea3a6ac9e06f1517af69df7d4e0ff2}
   - {id: nodejs, version: 0.1.0, sha256: 54115eb4da788ca1521fe2d33557bd71b500b0478d1acdc5f5847b39a034b278}
   - {id: oracle, version: 0.2.2, sha256: 65a94403760c0f9bcbe3213dacdd2c47fb42f674f2109105bce5e9dc0c8a5394}
   - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}
   - {id: rabbitmq, version: 0.1.1, sha256: b8005117f917f3dbb1c6ff2267081d8d1a01f60491960be9faa196f44f63026c}
-  - {id: snowflake, version: 0.1.1, sha256: 716b8dcac693ef6bfff735ef7fa3393e5a0e3eb109b2f79676b6f9b1c772588a}
-  - {id: spark, version: 0.1.0, sha256: 86e48d615740096ceada0319f806347ce2156c541278f099c2060ff5ff45bfce}
-  - {id: streamlit, version: 0.1.0, sha256: 11ea2cc09762bb34c86ecd3ed999e2600729f1479a4a80c2e176b7591b2846be}
+  - {id: snowflake, version: 0.2.0, sha256: 184deb9dd4b83b3535df01f12898c650b11552b9fc9686955734a149b4d2abb2}
+  - {id: spark, version: 0.2.0, sha256: 2260c289a4df69bf5c33d2e6a48364f9cd2cacaba0890dfc797ac4b8e7952fd2}
+  - {id: streamlit, version: 0.2.0, sha256: 20681842789e744f7715c251c97849685490584b0c98ceee1dd82ab64d4bdade}

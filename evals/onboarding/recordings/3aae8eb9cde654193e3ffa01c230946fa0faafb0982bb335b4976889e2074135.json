@@ -1,0 +1,1 @@
+{"latency_ms": 4710, "raw_text": "{\n  \"classification\": \"stream/lag\",\n  \"severity\": \"P2\",\n  \"summary\": \"The Clickstream consumer is 240 minutes behind, causing delayed data in RAW.CLICKSTREAM.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 802, "tokens_out": 202}

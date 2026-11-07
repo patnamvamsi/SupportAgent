@@ -1,0 +1,32 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: kafka-lag-rebalance
+pack: kafka
+split: tune
+description: A broker restart starts a rebalance storm; the consumer group falls behind.
+incident:
+  subject: Live dashboard hours behind
+  priority: '2'
+  body: Clickstream in the warehouse is three hours behind real time.
+service:
+  name: clicks-ingest
+  stack:
+  - kafka
+  - spark
+  - spark-streaming
+world:
+  kafka.consumer_lag:
+    result:
+      cluster: events-msk
+      groups:
+      - group: clicks-ingest
+        topic: events.clicks
+        lag: 2350000
+        trend: rising
+truth:
+  classification: stream/lag
+  severity: P2
+  root_cause: kafka_consumer_lag
+  verdict: SUPPORTED
+  must_cite:
+  - kafka.consumer_lag
+why: 'Lag in the millions and still rising: the consumer can''t keep up.'

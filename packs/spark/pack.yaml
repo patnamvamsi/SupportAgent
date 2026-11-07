@@ -1,8 +1,13 @@
-# Placeholder (ADR-0011 §1): loads and is reported by doctor, but is never
-# selected for a case until it has knowledge and passes its lab gates.
+# Spark (ADR-0015 §2, ADR-0016): the spark plugin's knowledge. Applications and
+# the executors they lost come from its Spark History Server MCP server.
 id: spark
-version: 0.0.0
-description: Apache Spark and Databricks jobs.
-placeholder: true
+version: 0.1.0
+description: Apache Spark batch jobs (executors lost to memory, often from skew).
 applies_to:
   stack: [spark, databricks]
+plan_order: 30
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [spark.applications]
+evals: evals/

@@ -1,0 +1,15 @@
+# Data quality (ADR-0015 §2, ADR-0016): the data-quality plugin's knowledge.
+# data.freshness and data.schema_changes come from its MCP server, which reads
+# lineage, load times and the schema registry.
+id: data-quality
+version: 0.1.0
+description: Freshness along lineage and incompatible schema changes, for analytics platforms.
+applies_to:
+  stack: [snowflake, kafka-connect, dbt]
+plan_order: 15   # a missing upstream explains the stale or failed build downstream
+taxonomy: taxonomy.yaml
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [data.freshness, data.schema_changes]
+evals: evals/

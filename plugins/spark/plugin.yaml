@@ -1,20 +1,42 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: spark
-version: 0.1.0
+version: 0.2.0
 description: Apache Spark batch and streaming jobs (executor OOM, skew, stalled streaming queries).
 core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/spark/evals)
 provides:
-  labels:   # WP-O4: what the incident map can call a problem
-    - {id: job/failure, description: "A batch or scheduled job fails outright and its output is not produced."}
+  labels: []   # a failed job is the core batch/failure label
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: spark/executor_oom, description: "Spark executors run out of memory (ExecutorLostFailure, container killed for exceeding memory), often from data skew."}
     - {id: spark/shuffle_failure, description: "A Spark job fails fetching shuffle blocks (FetchFailedException) after executor or disk loss."}
   pack: spark
   capabilities:
-    spark.applications: {description: "Applications, jobs and stages (Spark History Server REST)"}
+    spark.applications:
+      description: The service's recent applications, their state, and the executors each lost and why
+      result_schema:
+        type: object
+        required: [apps]
+        properties:
+          apps:
+            type: array
+            items:
+              type: object
+              required: [name, state, failure, executor_losses]
+              properties:
+                name: {type: string}
+                state: {type: string, enum: [RUNNING, SUCCEEDED, FAILED]}
+                failure: {type: string}
+                executor_losses:
+                  type: array
+                  items:
+                    type: object
+                    required: [executor, reason]
+                    properties:
+                      executor: {type: string}
+                      reason: {type: string}
     spark.streaming_progress: {description: "Structured Streaming query progress"}
   backends:
-    - {capability: "spark.*", first_party: spark_history, access: spark_history_ro}
+    - {capability: "spark.*", mcp: {image: "ghcr.io/acme/spark-history-mcp:0.1", tools: [applications, streaming_progress]}, access: spark_history_ro}
   extractors:
     - {match: "**/*.py", extract: spark_reads_and_writes}
     - {match: "**/deploy/emr.yaml", extract: emr_cluster}

@@ -1,0 +1,29 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: sf-task-failure
+pack: snowflake
+split: tune
+description: A task's SQL no longer compiles after a column it reads was renamed.
+incident:
+  subject: Revenue build failed
+  priority: '2'
+  body: 'TASK_BUILD_REVENUE failed: SQL compilation error: invalid identifier ''NET_AMT''.'
+service:
+  name: revenue-build
+  stack:
+  - snowflake
+  - snowflake-task
+world:
+  snowflake.task_history:
+    result:
+      tasks:
+      - name: ANALYTICS.TASK_BUILD_REVENUE
+        state: FAILED
+        error: 'SQL compilation error: invalid identifier ''NET_AMT'''
+truth:
+  classification: batch/failure
+  severity: P2
+  root_cause: snowflake_task_failure
+  verdict: SUPPORTED
+  must_cite:
+  - snowflake.task_history
+why: The task itself failed with a compilation error.

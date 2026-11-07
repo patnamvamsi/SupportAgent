@@ -1,0 +1,4 @@
+# One hypothesis per spark plugin cause it can test (`spark/<cause>` -> `spark_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: spark_executor_oom
