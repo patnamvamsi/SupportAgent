@@ -142,3 +142,6 @@ retention:
 #   entities: [PERSON, EMAIL_ADDRESS, PHONE_NUMBER, LOCATION, IBAN_CODE, CREDIT_CARD]   # Presidio names
 #   recognizers:                     # the system's own identifiers
 #     - {entity: CUSTOMER_ID, regex: 'CUST-\d{8}', score: 0.8}
+# tracing:                           # ADR-0021: where is this business object? (`supportagent trace`)
+#   flows_dir: local/flows           # reviewed flow files, <id>.yaml (`supportagent flow validate`)
+#   record_flows: []                 # flows allowed to read business records (an admin's decision)

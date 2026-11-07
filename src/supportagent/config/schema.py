@@ -755,6 +755,18 @@ class PiiConfig(DomainModel):
         return value
 
 
+class TracingConfig(DomainModel):
+    """ADR-0021: transaction tracing.
+
+    ``flows_dir`` holds the reviewed flow files (``<id>.yaml``); onboarding's
+    drafts are copied there once a person has reviewed them. A flow that reads
+    business records is refused until an admin lists it in ``record_flows``.
+    """
+
+    flows_dir: str = "local/flows"
+    record_flows: list[str] = Field(default_factory=list)
+
+
 class AppConfig(DomainModel):
     """Resolved `supportagent.yaml` v1 (02 §1)."""
 
@@ -793,6 +805,8 @@ class AppConfig(DomainModel):
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
     #: ADR-0021 §4a: PII detection for transaction tracing (off by default).
     pii: PiiConfig = Field(default_factory=PiiConfig)
+    #: ADR-0021: where flows live, and which may read business records.
+    tracing: TracingConfig = Field(default_factory=TracingConfig)
 
     @model_validator(mode="after")
     def _webhook_sources_unique(self) -> AppConfig:

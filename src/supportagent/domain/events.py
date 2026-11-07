@@ -30,3 +30,6 @@ class EventKind(StrEnum):
     #: a step, a plugin installed or disabled, an access or graph decision, a
     #: readiness assessment, a calibration fit, drift found.
     ONBOARDING = "onboarding"
+    #: ADR-0021: one business object traced through a flow: who asked, the flow,
+    #: the id, the stages read, the verdict and the PII counts (never values).
+    TRACE = "trace"

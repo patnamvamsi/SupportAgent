@@ -90,6 +90,7 @@ Answer "where is business object X, and is that where it should be?" for one rev
 
 Progress:
 - ~~The PII layer~~ (*done*, WP-T1): `pii.engine: presidio` (`supportagent[pii]` plus a spaCy model). Field allow-list first, then consistent per-question placeholders, with the traced ID kept. Fails closed, nothing fetched from the network, and `doctor` has a `pii` check.
+- ~~Flows and the tracer~~ (*done*, WP-T2): flow files in `tracing.flows_dir` (`supportagent flow list` / `validate`). `supportagent trace FLOW ID` gives the timeline and a verdict from tool results only, audited as a `trace` event. A flow that reads records is refused until it is listed in `tracing.record_flows`. Next: the answer (scoped RCA and a cited summary), the lab, and onboarding's candidate flows and correlation checks.
 
 A flow is usable once its lab passes; the calibration floor doesn't apply. Fitting a flow waits on 1.4. The generic parts (the flow model, candidate flows, the PII layer, the lab) can be built on the reference systems first.
 
