@@ -1,0 +1,41 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: sf-warehouse-queuing
+pack: snowflake
+split: tune
+description: Month-start dashboard refreshes saturate the BI warehouse.
+incident:
+  subject: Dashboards take minutes to load
+  priority: '3'
+  body: Pages take 2-3 minutes; query history shows QUEUED on WH_REPORTS.
+service:
+  name: sales-dashboards
+  stack:
+  - snowflake
+  - streamlit
+  - kubernetes
+  k8s_namespace: bi
+  k8s_selector: app=sales-dashboards
+world:
+  snowflake.warehouse_load:
+    result:
+      warehouses:
+      - name: WH_REPORTS
+        avg_running: 7.8
+        avg_queued_load: 3.4
+        state: STARTED
+  snowflake.resource_monitors:
+    result:
+      monitors:
+      - name: RM_BI
+        used_pct: 62.0
+        suspended: []
+truth:
+  classification: warehouse/queuing
+  severity: P3
+  root_cause: snowflake_warehouse_queuing
+  verdict: SUPPORTED
+  must_cite:
+  - snowflake.warehouse_load
+  must_not_claim:
+  - snowflake_credit_quota
+why: Queued load is 3.4 on WH_REPORTS; the quota is at 62%.

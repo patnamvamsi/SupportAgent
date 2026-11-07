@@ -1,0 +1,10 @@
+version: 1.0.0
+labels:
+  - id: warehouse/queuing
+    description: >-
+      Queries queue on a saturated Snowflake warehouse; dashboards and loads are
+      slow or time out.
+  - id: warehouse/credit_quota
+    description: >-
+      A Snowflake warehouse won't run any query because a resource monitor's credit
+      quota is used up and it suspended the warehouse.

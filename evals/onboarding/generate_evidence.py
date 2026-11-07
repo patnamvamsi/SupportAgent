@@ -437,7 +437,199 @@ BUILDERS_C: dict[str, Callable[..., World]] = {
 }
 
 
-BY_SYSTEM = {"system-a": BUILDERS, "system-c": BUILDERS_C}
+# --- System B: an analytics platform on Kafka, Snowflake, Spark and Streamlit ----------------
+
+B_NAMESPACE = "analytics-apps"
+
+
+def b_lag(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    lag = rnd.randint(30, 250) * 10_000  # 300k-2.5M messages behind, still growing
+    groups = [
+        {"group": "stream-ingest", "topic": "events.clickstream", "lag": lag, "trend": "rising"}
+    ]
+    return {"kafka.consumer_lag": {"result": {"cluster": "analytics-msk", "groups": groups}}}
+
+
+def b_late_upstream(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    notes = inc.get("close_notes", "")
+    upstream = "orders-cdc-ingest" if "orders-cdc-ingest" in notes else "snowflake-sink-orders"
+    late = float(rnd.choice([24, 30, 48]))
+    return {
+        "data.freshness": {
+            "result": {
+                "datasets": [
+                    {
+                        "name": "ANALYTICS.DAILY_SALES",
+                        "hours_late": late,
+                        "upstream": upstream,
+                        "upstream_state": "FAILED",
+                    },
+                ]
+            }
+        },
+        # the build ran on time, on an empty RAW.ORDERS: it didn't fail
+        "snowflake.task_history": {
+            "result": {
+                "tasks": [
+                    {"name": "ANALYTICS.TASK_BUILD_DAILY_SALES", "state": "SUCCEEDED", "error": ""}
+                ]
+            }
+        },
+    }
+
+
+def b_executor_oom(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    reason = (
+        "Container killed by YARN for exceeding memory limits. "
+        "12.6 GB of 12 GB physical memory used"
+        if "YARN" in inc["description"]
+        else "ExecutorLostFailure (executor exited caused by one of the running tasks): "
+        "java.lang.OutOfMemoryError"
+    )
+    losses = [
+        {"executor": str(rnd.randint(2, 20)), "reason": reason} for _ in range(rnd.randint(1, 3))
+    ]
+    app = {
+        "name": f"batch-features-{at:%Y-%m-%d}",
+        "state": "FAILED",
+        "failure": "Job aborted due to stage failure",
+        "executor_losses": losses,
+    }
+    return {"spark.applications": {"result": {"apps": [app]}}}
+
+
+def b_queuing(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    queued = round(rnd.uniform(1.5, 4.0), 1)
+    return {
+        "snowflake.warehouse_load": {
+            "result": {
+                "warehouses": [
+                    {
+                        "name": "WH_BI",
+                        "avg_running": round(rnd.uniform(6, 9), 1),
+                        "avg_queued_load": queued,
+                        "state": "STARTED",
+                    }
+                ]
+            }
+        },
+        "snowflake.resource_monitors": {
+            "result": {
+                "monitors": [
+                    {
+                        "name": "RM_ANALYTICS",
+                        "used_pct": float(rnd.randint(40, 85)),
+                        "suspended": [],
+                    }
+                ]
+            }
+        },
+    }
+
+
+def b_task_failure(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    text = inc["description"]
+    error = (
+        "SQL compilation error: invalid identifier 'DISCOUNT_AMT'"
+        if "DISCOUNT_AMT" in text
+        else "Number of columns in insert does not match columns in table"
+    )
+    return {
+        "snowflake.task_history": {
+            "result": {
+                "tasks": [
+                    {"name": "ANALYTICS.TASK_BUILD_DAILY_SALES", "state": "FAILED", "error": error}
+                ]
+            }
+        },
+        # the table is stale because the build failed; its upstream delivered
+        "data.freshness": {
+            "result": {
+                "datasets": [
+                    {
+                        "name": "ANALYTICS.DAILY_SALES",
+                        "hours_late": 26.0,
+                        "upstream": "snowflake-sink-orders",
+                        "upstream_state": "RUNNING",
+                    }
+                ]
+            }
+        },
+    }
+
+
+def b_schema_drift(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    notes = inc.get("close_notes", "")
+    subject = (
+        "cdc.customers-value"
+        if "cdc.customers" in inc["short_description"]
+        else "events.orders-value"
+    )
+    change = "removed a field" if "removed" in notes else "added a required field"
+    version = rnd.randint(8, 30)
+    changes = [
+        {"subject": subject, "version": version, "compatible": False, "change": change},
+        {
+            "subject": subject,
+            "version": version - 1,
+            "compatible": True,
+            "change": "added an optional field",
+        },
+    ]
+    return {"data.schema_changes": {"result": {"changes": changes}}}
+
+
+def b_app_crash(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    return {
+        "k8s.pod_status": pods(
+            inc["cmdb_ci"],
+            2,
+            restarts=rnd.randint(3, 8),
+            termination="OOMKilled",
+            namespace=B_NAMESPACE,
+        )
+    }
+
+
+def b_credit_quota(inc: dict[str, Any], at: datetime, rnd: random.Random) -> World:
+    return {
+        "snowflake.resource_monitors": {
+            "result": {
+                "monitors": [
+                    {"name": "RM_ANALYTICS", "used_pct": 100.0, "suspended": ["WH_TRANSFORM"]}
+                ]
+            }
+        },
+        # suspended: it runs nothing, so nothing queues on it
+        "snowflake.warehouse_load": {
+            "result": {
+                "warehouses": [
+                    {
+                        "name": "WH_TRANSFORM",
+                        "avg_running": 0.0,
+                        "avg_queued_load": 0.0,
+                        "state": "SUSPENDED",
+                    }
+                ]
+            }
+        },
+    }
+
+
+BUILDERS_B: dict[str, Callable[..., World]] = {
+    "stream-consumer-lag": b_lag,
+    "late-upstream-data": b_late_upstream,
+    "spark-executor-oom": b_executor_oom,
+    "warehouse-queuing": b_queuing,
+    "snowflake-task-failure": b_task_failure,
+    "cdc-schema-drift": b_schema_drift,
+    "streamlit-app-crash": b_app_crash,
+    "credit-quota": b_credit_quota,
+    # noise: access requests leave no evidence.
+}
+
+
+BY_SYSTEM = {"system-a": BUILDERS, "system-b": BUILDERS_B, "system-c": BUILDERS_C}
 _NEED_CHANGES = (deploy, c_deploy)
 
 

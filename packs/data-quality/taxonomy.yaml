@@ -1,0 +1,11 @@
+# Labels for data that is stale or doesn't fit (a failed job is the core batch/failure).
+version: 1.0.0
+labels:
+  - id: data/freshness
+    description: >-
+      Data in a table or dashboard is stale: the expected load didn't arrive or
+      didn't run, so reports show yesterday's numbers or zeros.
+  - id: data/schema_drift
+    description: >-
+      Records no longer match the expected schema (a field renamed, removed or
+      added), so ingestion rejects them or they land in a dead-letter queue.

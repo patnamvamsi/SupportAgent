@@ -1,0 +1,37 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: spark-executor-oom
+pack: spark
+split: tune
+description: Executors exceed memory on a skewed join; the job fails after retries.
+incident:
+  subject: Feature build failed
+  priority: '3'
+  body: 'Job failed after 3 retries: Container killed by YARN for exceeding memory limits.'
+service:
+  name: feature-build
+  stack:
+  - spark
+  - pyspark
+  - emr
+world:
+  spark.applications:
+    result:
+      apps:
+      - name: feature-build-2026-01-01
+        state: FAILED
+        failure: Job aborted due to stage failure
+        executor_losses:
+        - executor: '7'
+          reason: Container killed by YARN for exceeding memory limits. 12.4 GB of 12 GB physical memory
+            used
+        - executor: '9'
+          reason: Container killed by YARN for exceeding memory limits. 12.1 GB of 12 GB physical memory
+            used
+truth:
+  classification: batch/failure
+  severity: P3
+  root_cause: spark_executor_oom
+  verdict: SUPPORTED
+  must_cite:
+  - spark.applications
+why: Two executors killed for exceeding memory.

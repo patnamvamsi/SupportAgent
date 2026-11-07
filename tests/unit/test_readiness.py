@@ -284,12 +284,18 @@ def test_system_a_knowledge_and_evidence_make_most_of_its_history_ready() -> Non
     assert report.ready and report.ready_share >= report.bar
 
 
-def test_system_b_has_no_evaluated_knowledge_yet() -> None:
+def test_system_b_is_ready_from_plugins_that_are_only_data() -> None:
+    """Kafka, Snowflake, Spark, Streamlit and data-quality knowledge (data only) proves every cause.
+
+    The traps hold: a late upstream's build succeeded on empty data, a failed task's
+    upstream delivered, and a suspended warehouse queues nothing.
+    """
     report = _report("system-b")
-    testable = [c for c in report.classes if c.status != "untestable"]
-    assert [c.cause for c in testable] == [None]  # only the no-cause class: it abstains
-    assert not report.ready and report.false_causes == 0
-    assert all("skeleton" in c.reasons[0] for c in report.classes if c.status == "untestable")
+    assert report.false_causes == 0
+    for cls in report.classes:
+        if cls.cause is not None:
+            assert cls.status == "ready", (cls.class_id, report.lines())
+    assert report.ready
 
 
 def test_system_c_is_ready_from_plugins_that_are_only_data() -> None:

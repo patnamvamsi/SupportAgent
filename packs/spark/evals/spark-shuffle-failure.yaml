@@ -1,0 +1,33 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: spark-shuffle-failure
+pack: spark
+split: tune
+description: The job fails fetching shuffle blocks after a node is lost; no executor ran out of memory.
+incident:
+  subject: Feature build failed
+  priority: '3'
+  body: 'Job aborted: FetchFailedException from a lost node.'
+service:
+  name: feature-build
+  stack:
+  - spark
+  - pyspark
+  - emr
+world:
+  spark.applications:
+    result:
+      apps:
+      - name: feature-build-2026-01-01
+        state: FAILED
+        failure: 'FetchFailedException: Failed to connect to ip-10-0-3-17'
+        executor_losses:
+        - executor: '4'
+          reason: Executor heartbeat timed out after the node was decommissioned
+truth:
+  classification: batch/failure
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - spark_executor_oom
+why: 'A lost node, not memory: the executor loss names no memory limit.'

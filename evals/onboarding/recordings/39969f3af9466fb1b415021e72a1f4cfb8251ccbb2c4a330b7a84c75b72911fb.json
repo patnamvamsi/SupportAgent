@@ -1,0 +1,1 @@
+{"latency_ms": 6772, "raw_text": "{\n  \"classification\": \"batch/failure\",\n  \"severity\": \"P2\",\n  \"summary\": \"The run_batch_features Airflow/Spark batch job failed with an ExecutorLostFailure caused by executor OOM.\",\n  \"confidence\": 0.9\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 778, "tokens_out": 324}

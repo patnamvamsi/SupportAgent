@@ -1,0 +1,7 @@
+# A streaming consumer's label (queue/backlog is the python pack's Celery one).
+version: 1.0.0
+labels:
+  - id: stream/lag
+    description: >-
+      A streaming consumer (a Kafka consumer group, a streaming job) falls behind
+      its topic: lag grows and the data it lands arrives late.

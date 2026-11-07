@@ -1,0 +1,32 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: dq-late-but-upstream-runs
+pack: data-quality
+split: tune
+description: 'The table is stale but its upstream is healthy: the build itself didn''t run.'
+incident:
+  subject: Revenue table not refreshed
+  priority: '3'
+  body: REVENUE_DAILY is 26 hours old.
+service:
+  name: revenue-build
+  stack:
+  - snowflake
+  - snowflake-task
+world:
+  data.freshness:
+    result:
+      datasets:
+      - name: ANALYTICS.REVENUE_DAILY
+        hours_late: 26.0
+        upstream: orders-cdc-sink
+        upstream_state: RUNNING
+truth:
+  classification: data/freshness
+  also_acceptable:
+  - batch/failure
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - data_late_upstream
+why: Upstream delivered; something downstream of it failed, and this pack can't say what.

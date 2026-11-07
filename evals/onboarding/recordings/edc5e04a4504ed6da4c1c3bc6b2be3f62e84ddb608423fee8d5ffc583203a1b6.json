@@ -1,0 +1,1 @@
+{"latency_ms": 10982, "raw_text": "{\"hypotheses\": [\"streamlit_app_crash\", \"recent_change_push\", \"k8s_node_pressure\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 285, "tokens_out": 554}

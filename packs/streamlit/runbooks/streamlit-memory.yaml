@@ -1,0 +1,11 @@
+# The app is down or restarting: were its pods OOMKilled? A page that loads a
+# whole table into memory does that; a crash for another reason doesn't.
+id: runbook:streamlit-memory
+applies_when: {classification: app/memory}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: oom
+    hypothesis: streamlit_app_crash
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.oomkilled > 0"

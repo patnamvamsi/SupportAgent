@@ -1,0 +1,1 @@
+{"latency_ms": 10256, "raw_text": "{\"hypotheses\": [\"recent_change_push\", \"capacity_decay\", \"dependency_failure\"]}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 285, "tokens_out": 437}

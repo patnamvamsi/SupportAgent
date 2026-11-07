@@ -1,0 +1,31 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: dq-schema-compatible
+pack: data-quality
+split: holdout
+description: Records fail, but every recent schema change was compatible.
+incident:
+  subject: Some orders events in the DLQ
+  priority: '3'
+  body: A handful of orders events landed in the dead-letter topic.
+service:
+  name: orders-cdc
+  stack:
+  - kafka
+  - kafka-connect
+  - snowflake
+world:
+  data.schema_changes:
+    result:
+      changes:
+      - subject: events.orders-value
+        version: 13
+        compatible: true
+        change: added optional field channel
+truth:
+  classification: data/schema_drift
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - data_schema_drift
+why: 'The only change was compatible: not schema drift.'

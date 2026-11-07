@@ -1,0 +1,1 @@
+{"latency_ms": 10528, "raw_text": "{\n  \"classification\": \"deploy/failure\",\n  \"severity\": \"P4\",\n  \"summary\": \"An overnight alert suggests a feature build may have failed, likely a build or release pipeline issue, but impact and root cause are unclear.\",\n  \"confidence\": 0.4\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 634, "tokens_out": 486}

@@ -1,0 +1,1 @@
+{"latency_ms": 6255, "raw_text": "{\n  \"classification\": \"data/schema_drift\",\n  \"severity\": \"P2\",\n  \"summary\": \"The orders ingestion connector has been dead-lettering all events since 10:05, suggesting rejected records likely due to schema or contract mismatch.\",\n  \"confidence\": 0.86\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 803, "tokens_out": 335}

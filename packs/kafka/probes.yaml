@@ -1,0 +1,6 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  kafka_consumer_lag:
+    tool: kafka.consumer_lag
+    args: {service: "$service.name"}
+    check: "result.groups.exists(g, g.lag >= 100000 && g.trend == 'rising')"

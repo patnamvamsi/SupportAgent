@@ -1,8 +1,9 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: data-quality
-version: 0.1.0
+version: 0.2.0
 description: Data freshness, volume and schema drift for analytics platforms (walks lineage upstream).
 core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/data-quality/evals)
 provides:
   labels:   # WP-O4: what the incident map can call a problem
     - {id: data/freshness, description: "Data in a table or dashboard is stale: the expected load didn't arrive or didn't run."}
@@ -11,6 +12,42 @@ provides:
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: data/late_upstream, description: "An upstream source or load didn't deliver on time (a failed connector or feed), so downstream builds run on missing data."}
     - {id: data/schema_drift, description: "A producer changed a message or record schema incompatibly; ingestion (connectors, the schema registry) rejects the records."}
+  pack: data-quality   # hypotheses, probes, runbooks and its lab (packs/data-quality)
+  capabilities:
+    data.freshness:
+      description: When each dataset the service builds or reads last loaded, and the state of the upstream that feeds it
+      result_schema:
+        type: object
+        required: [datasets]
+        properties:
+          datasets:
+            type: array
+            items:
+              type: object
+              required: [name, hours_late, upstream, upstream_state]
+              properties:
+                name: {type: string}
+                hours_late: {type: number}
+                upstream: {type: string}
+                upstream_state: {type: string, enum: [RUNNING, FAILED, PAUSED, UNKNOWN]}
+    data.schema_changes:
+      description: Recent schema versions registered for the service's subjects, and whether each was compatible
+      result_schema:
+        type: object
+        required: [changes]
+        properties:
+          changes:
+            type: array
+            items:
+              type: object
+              required: [subject, version, compatible, change]
+              properties:
+                subject: {type: string}
+                version: {type: integer}
+                compatible: {type: boolean}
+                change: {type: string}
+  backends:   # reads lineage, load times and the schema registry through the platform's own credentials
+    - {capability: "data.*", mcp: {image: "ghcr.io/acme/data-quality-mcp:0.1", tools: [freshness, schema_changes]}}
   needs: [snowflake.query_history, snowflake.task_history, kafka.consumer_lag, airflow.dag_runs]
 detectors:
   min_score: 1.5

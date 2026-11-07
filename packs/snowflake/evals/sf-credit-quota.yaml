@@ -1,0 +1,39 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: sf-credit-quota
+pack: snowflake
+split: tune
+description: The resource monitor used its monthly credits and suspended the warehouse.
+incident:
+  subject: All queries failing on WH_ETL
+  priority: '2'
+  body: Warehouse WH_ETL cannot be resumed because resource monitor RM_ETL has exceeded its quota.
+service:
+  name: revenue-build
+  stack:
+  - snowflake
+  - snowflake-task
+world:
+  snowflake.resource_monitors:
+    result:
+      monitors:
+      - name: RM_ETL
+        used_pct: 100.0
+        suspended:
+        - WH_ETL
+  snowflake.warehouse_load:
+    result:
+      warehouses:
+      - name: WH_ETL
+        avg_running: 0.0
+        avg_queued_load: 0.0
+        state: SUSPENDED
+truth:
+  classification: warehouse/credit_quota
+  severity: P2
+  root_cause: snowflake_credit_quota
+  verdict: SUPPORTED
+  must_cite:
+  - snowflake.resource_monitors
+  must_not_claim:
+  - snowflake_warehouse_queuing
+why: 'The quota is used up and the warehouse is suspended: nothing runs, so nothing queues.'

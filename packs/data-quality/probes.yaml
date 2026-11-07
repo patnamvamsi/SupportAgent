@@ -1,0 +1,10 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  data_late_upstream:
+    tool: data.freshness
+    args: {service: "$service.name"}
+    check: "result.datasets.exists(d, double(d.hours_late) >= 6.0 && d.upstream_state != 'RUNNING')"
+  data_schema_drift:
+    tool: data.schema_changes
+    args: {service: "$service.name"}
+    check: "result.changes.exists(c, !c.compatible)"

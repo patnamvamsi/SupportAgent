@@ -1,0 +1,1 @@
+{"latency_ms": 12297, "raw_text": "{\n  \"classification\": \"data/schema_drift\",\n  \"severity\": \"P3\",\n  \"summary\": \"Daily sales build task failed with an insert column-count mismatch, suggesting a source or destination schema drift in the batch load.\",\n  \"confidence\": 0.72\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 765, "tokens_out": 511}

@@ -1,0 +1,17 @@
+# Slow or failing queries. A warehouse suspended by its resource monitor runs
+# nothing, so it queues nothing: check the quota first, then queuing.
+id: runbook:snowflake-warehouse
+applies_when: {classification: warehouse}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: quota
+    hypothesis: snowflake_credit_quota
+    tool: snowflake.resource_monitors
+    args: {service: "$service.name"}
+    check: "result.monitors.exists(m, double(m.used_pct) >= 100.0)"
+    stop_if: true
+  - id: queuing
+    hypothesis: snowflake_warehouse_queuing
+    tool: snowflake.warehouse_load
+    args: {service: "$service.name"}
+    check: "result.warehouses.exists(w, double(w.avg_queued_load) >= 1.0)"

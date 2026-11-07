@@ -1,13 +1,13 @@
 # ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
 id: snowflake
-version: 0.1.1
+version: 0.2.0
 description: Snowflake warehouses, tasks and credits (queuing, task failures, resource monitors).
 core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/snowflake/evals)
 provides:
   labels:   # WP-O4: what the incident map can call a problem
     - {id: warehouse/queuing, description: "Queries queue on a saturated Snowflake warehouse; dashboards and loads are slow."}
     - {id: warehouse/credit_quota, description: "A resource monitor's credit quota is reached and the warehouse is suspended."}
-    - {id: job/failure, description: "A batch or scheduled job fails outright and its output is not produced."}
   causes:   # WP-O4: what the incident map can name as a cause
     - {id: snowflake/warehouse_queuing, description: "A Snowflake warehouse is too small for concurrent load and queries queue (QUEUED in query history)."}
     - {id: snowflake/task_failure, description: "A Snowflake task fails on its own SQL: a compilation error or column mismatch, for instance after a table it reads changed."}
@@ -15,11 +15,54 @@ provides:
   pack: snowflake
   capabilities:
     snowflake.query_history: {description: "Queries, queued and failed (ACCOUNT_USAGE.QUERY_HISTORY)"}
-    snowflake.task_history: {description: "Task runs and errors (TASK_HISTORY)"}
-    snowflake.warehouse_load: {description: "Warehouse load and queuing (WAREHOUSE_LOAD_HISTORY)"}
-    snowflake.resource_monitors: {description: "Credit quotas and suspensions"}
+    snowflake.task_history:
+      description: The service's task runs in the window, with their state and error (TASK_HISTORY)
+      result_schema:
+        type: object
+        required: [tasks]
+        properties:
+          tasks:
+            type: array
+            items:
+              type: object
+              required: [name, state, error]
+              properties:
+                name: {type: string}
+                state: {type: string, enum: [SUCCEEDED, FAILED, SKIPPED, CANCELLED]}
+                error: {type: string}
+    snowflake.warehouse_load:
+      description: Average running and queued load per warehouse, and its state (WAREHOUSE_LOAD_HISTORY)
+      result_schema:
+        type: object
+        required: [warehouses]
+        properties:
+          warehouses:
+            type: array
+            items:
+              type: object
+              required: [name, avg_running, avg_queued_load, state]
+              properties:
+                name: {type: string}
+                avg_running: {type: number}
+                avg_queued_load: {type: number}
+                state: {type: string, enum: [STARTED, SUSPENDED]}
+    snowflake.resource_monitors:
+      description: Credit quotas, how much of each is used, and the warehouses it suspended
+      result_schema:
+        type: object
+        required: [monitors]
+        properties:
+          monitors:
+            type: array
+            items:
+              type: object
+              required: [name, used_pct, suspended]
+              properties:
+                name: {type: string}
+                used_pct: {type: number}
+                suspended: {type: array, items: {type: string}}
   backends:
-    - {capability: "snowflake.*", first_party: snowflake, access: snowflake_ro}
+    - {capability: "snowflake.*", mcp: {image: "ghcr.io/acme/snowflake-mcp:0.1", tools: [query_history, task_history, warehouse_load, resource_monitors]}, access: snowflake_ro}
   extractors:
     - {match: "**/*.sql", extract: tasks_tables_warehouses}
   discovery:   # ADR-0016: what read-only discovery's result becomes in the graph (layer 2)

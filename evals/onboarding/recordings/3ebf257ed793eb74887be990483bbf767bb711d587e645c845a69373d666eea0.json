@@ -1,0 +1,1 @@
+{"latency_ms": 6864, "raw_text": "{\n  \"classification\": \"request/access\",\n  \"severity\": \"P2\",\n  \"summary\": \"The Insights app is returning ingress 502 errors with an app container restarting, indicating users may be unable to access the service.\",\n  \"confidence\": 0.64\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 767, "tokens_out": 334}

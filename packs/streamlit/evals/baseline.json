@@ -1,0 +1,10 @@
+{
+  "cases": {
+    "streamlit-crash-not-oom": true,
+    "streamlit-oom": false
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "streamlit",
+  "samples": 1,
+  "v": 1
+}

@@ -1,0 +1,13 @@
+# Streamlit (ADR-0015 §2, ADR-0016): the streamlit plugin's knowledge. Its pods
+# come from k8s.pod_status (the kubernetes plugin's capability).
+id: streamlit
+version: 0.1.0
+description: Streamlit data apps (a page that loads too much and is OOMKilled).
+applies_to:
+  stack: [streamlit]
+plan_order: 40
+hypotheses: hypotheses.yaml
+runbooks: runbooks/
+probes: probes.yaml
+tools: [k8s.pod_status]
+evals: evals/

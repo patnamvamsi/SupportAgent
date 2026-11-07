@@ -1,0 +1,1 @@
+{"latency_ms": 3961, "raw_text": "{\n  \"classification\": \"data/freshness\",\n  \"severity\": \"P2\",\n  \"summary\": \"The daily sales dashboard is showing stale data because DAILY_SALES last loaded yesterday at 02:00 and yesterday is appearing as zero.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 777, "tokens_out": 231}

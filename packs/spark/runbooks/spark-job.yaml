@@ -1,0 +1,11 @@
+# A Spark job failed: did it lose executors to memory (a container killed for
+# exceeding its limit, an OutOfMemoryError)? A shuffle fetch failure is not that.
+id: runbook:spark-job
+applies_when: {classification: batch/failure}
+budget: {max_tool_calls: 5, max_tokens: 3000, max_hypotheses: 3}
+steps:
+  - id: executors
+    hypothesis: spark_executor_oom
+    tool: spark.applications
+    args: {service: "$service.name"}
+    check: "result.apps.exists(a, a.state == 'FAILED' && a.executor_losses.exists(e, e.reason.contains('memory') || e.reason.contains('OutOfMemoryError')))"

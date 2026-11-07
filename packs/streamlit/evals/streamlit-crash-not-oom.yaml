@@ -1,0 +1,51 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: streamlit-crash-not-oom
+pack: streamlit
+split: holdout
+description: The app crashes on start from a bad secret; nothing ran out of memory.
+incident:
+  subject: Insights app down
+  priority: '3'
+  body: The app's containers keep restarting after the config change.
+service:
+  name: insights
+  stack:
+  - streamlit
+  - snowflake
+  - kubernetes
+  k8s_namespace: bi
+  k8s_selector: app=insights
+world:
+  k8s.pod_status:
+    result:
+      namespace: bi
+      selector: app=insights
+      pods:
+      - name: insights-7c9d-a
+        phase: Running
+        ready: false
+        restarts: 6
+        last_termination: Error
+        reason: null
+        waiting: CrashLoopBackOff
+      - name: insights-7c9d-b
+        phase: Running
+        ready: false
+        restarts: 6
+        last_termination: Error
+        reason: null
+        waiting: CrashLoopBackOff
+      restarts_total: 12
+      oomkilled: 0
+      not_ready: 2
+truth:
+  classification: app/memory
+  also_acceptable:
+  - app/config
+  - deploy/failure
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - streamlit_app_crash
+why: The pods exit with Error, not OOMKilled.

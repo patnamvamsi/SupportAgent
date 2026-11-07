@@ -1,0 +1,4 @@
+# One hypothesis per streamlit plugin cause (`streamlit/<cause>` -> `streamlit_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: streamlit_app_crash

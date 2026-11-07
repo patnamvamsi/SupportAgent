@@ -1,0 +1,1 @@
+{"latency_ms": 5644, "raw_text": "{\n  \"classification\": \"data/freshness\",\n  \"severity\": \"P2\",\n  \"summary\": \"Business reports for ANALYTICS.DAILY_SALES are missing yesterday's orders, indicating stale analytics data due to a missing or failed load.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 764, "tokens_out": 260}

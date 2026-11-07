@@ -1,0 +1,1 @@
+{"latency_ms": 5813, "raw_text": "{\n  \"classification\": \"data/freshness\",\n  \"severity\": \"P2\",\n  \"summary\": \"The Streamlit app is showing zero for yesterday because DAILY_SALES data has not refreshed and is still stale from the last load.\",\n  \"confidence\": 0.88\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 779, "tokens_out": 307}

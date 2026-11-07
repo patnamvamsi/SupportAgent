@@ -1,0 +1,1 @@
+{"latency_ms": 4917, "raw_text": "{\"classification\":\"stream/lag\",\"severity\":\"P3\",\"summary\":\"User reports today's clickstream looks low, suggesting possible delayed or incomplete click data arrival.\",\"confidence\":0.55}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 668, "tokens_out": 248}

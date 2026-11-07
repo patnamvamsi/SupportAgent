@@ -1,0 +1,1 @@
+{"latency_ms": 6068, "raw_text": "{\n  \"classification\": \"warehouse/credit_quota\",\n  \"severity\": \"P2\",\n  \"summary\": \"WH_ETL is failing all queries because resource monitor RM_ETL has exceeded its credit quota and suspended the warehouse.\",\n  \"confidence\": 0.99\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 774, "tokens_out": 303}

@@ -1,0 +1,1 @@
+{"latency_ms": 5446, "raw_text": "{\n  \"classification\": \"data/schema_drift\",\n  \"severity\": \"P2\",\n  \"summary\": \"CDC customer and order events are failing deserialization and accumulating in the dead-letter topic, indicating likely schema or payload drift.\",\n  \"confidence\": 0.87\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 800, "tokens_out": 236}

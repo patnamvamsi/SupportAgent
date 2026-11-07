@@ -1,0 +1,32 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: kafka-lag-catching-up
+pack: kafka
+split: tune
+description: Lag was high overnight but is falling now; the consumer is catching up.
+incident:
+  subject: Clickstream was delayed this morning
+  priority: '3'
+  body: Clickstream was an hour behind at 07:00; checking if it's still late.
+service:
+  name: clicks-ingest
+  stack:
+  - kafka
+  - spark
+  - spark-streaming
+world:
+  kafka.consumer_lag:
+    result:
+      cluster: events-msk
+      groups:
+      - group: clicks-ingest
+        topic: events.clicks
+        lag: 180000
+        trend: falling
+truth:
+  classification: stream/lag
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - kafka_consumer_lag
+why: 'Falling lag is a consumer catching up, not one falling behind: nothing to claim now.'

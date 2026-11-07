@@ -1,0 +1,12 @@
+{
+  "cases": {
+    "sf-credit-quota": true,
+    "sf-no-cause": false,
+    "sf-task-failure": true,
+    "sf-warehouse-queuing": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "snowflake",
+  "samples": 1,
+  "v": 1
+}

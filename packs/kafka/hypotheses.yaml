@@ -1,0 +1,4 @@
+# One hypothesis per kafka plugin cause it can test (`kafka/<cause>` -> `kafka_<cause>`).
+version: 1.0.0
+hypotheses:
+  - id: kafka_consumer_lag

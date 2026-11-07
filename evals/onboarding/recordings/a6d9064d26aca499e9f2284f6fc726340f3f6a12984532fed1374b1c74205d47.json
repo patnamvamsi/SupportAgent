@@ -1,0 +1,1 @@
+{"latency_ms": 6837, "raw_text": "{\n  \"classification\": \"stream/lag\",\n  \"severity\": \"P2\",\n  \"summary\": \"The Kafka consumer for events.clickstream is lagging about 90 minutes behind RAW.CLICKSTREAM, causing delayed landing of clickstream data.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 805, "tokens_out": 318}

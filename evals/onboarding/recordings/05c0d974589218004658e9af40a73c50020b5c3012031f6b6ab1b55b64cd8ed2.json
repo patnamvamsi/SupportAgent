@@ -1,0 +1,1 @@
+{"latency_ms": 6554, "raw_text": "{\n  \"classification\": \"stream/lag\",\n  \"severity\": \"P2\",\n  \"summary\": \"Kafka consumer for events.clickstream is 240 minutes behind, indicating growing streaming lag and delayed clickstream data.\",\n  \"confidence\": 0.95\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 806, "tokens_out": 308}

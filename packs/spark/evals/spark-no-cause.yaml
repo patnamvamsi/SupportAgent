@@ -1,0 +1,31 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: spark-no-cause
+pack: spark
+split: holdout
+description: A report of a failed job that in fact succeeded on retry.
+incident:
+  subject: Did the feature build fail?
+  priority: '4'
+  body: An alert fired for the feature build overnight.
+service:
+  name: feature-build
+  stack:
+  - spark
+  - pyspark
+  - emr
+world:
+  spark.applications:
+    result:
+      apps:
+      - name: feature-build-2026-01-01
+        state: SUCCEEDED
+        failure: ''
+        executor_losses: []
+truth:
+  classification: batch/failure
+  severity: P4
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - spark_executor_oom
+why: 'The application succeeded: nothing failed.'

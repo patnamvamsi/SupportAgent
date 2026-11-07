@@ -1,0 +1,48 @@
+# Lab scenario (ADR-0011 §5, ADR-0016). Edit only with a `why` note.
+id: streamlit-oom
+pack: streamlit
+split: tune
+description: A new page loads a whole table into a DataFrame; the pods are OOMKilled.
+incident:
+  subject: Insights app down
+  priority: '3'
+  body: 502 from the ingress; the app's containers keep restarting.
+service:
+  name: insights
+  stack:
+  - streamlit
+  - snowflake
+  - kubernetes
+  k8s_namespace: bi
+  k8s_selector: app=insights
+world:
+  k8s.pod_status:
+    result:
+      namespace: bi
+      selector: app=insights
+      pods:
+      - name: insights-7c9d-a
+        phase: Running
+        ready: false
+        restarts: 6
+        last_termination: OOMKilled
+        reason: null
+        waiting: CrashLoopBackOff
+      - name: insights-7c9d-b
+        phase: Running
+        ready: false
+        restarts: 6
+        last_termination: OOMKilled
+        reason: null
+        waiting: CrashLoopBackOff
+      restarts_total: 12
+      oomkilled: 2
+      not_ready: 2
+truth:
+  classification: app/memory
+  severity: P3
+  root_cause: streamlit_app_crash
+  verdict: SUPPORTED
+  must_cite:
+  - k8s.pod_status
+why: Both pods were OOMKilled.

@@ -289,7 +289,9 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
     packs = _pack_set(config)
     assert {p.id for p in packs.packs} == {
         "common",
+        "data-quality",
         "java-spring",
+        "kafka",
         "kubernetes",
         "mongodb",
         "nodejs",
@@ -298,13 +300,14 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
         "rabbitmq",
         "spark",
         "snowflake",
+        "streamlit",
     }
     legacy = load_pack_set(
         taxonomy=Path(config.paths.taxonomy),
         hypotheses=Path(config.paths.hypotheses),
         runbooks=Path(config.paths.runbooks),
     )
-    for stack in ([], ["golang"], ["spark"]):  # no evaluated pack matches: exactly common
+    for stack in ([], ["golang"], ["erlang"]):  # no evaluated pack matches: exactly common
         active = packs.active(stack)
         assert labels_text(packs.taxonomy(active).labels) == labels_text(legacy.taxonomy().labels)
         assert packs.rule_set(active) == legacy.rule_set()
@@ -329,5 +332,5 @@ def test_doctor_reports_packs_and_their_eval_status() -> None:
     res = PacksCheck().run(ctx)
     assert res.status == "pass", res.detail
     assert "python-postgres 1.2.0: evaluated; used by checkout-api" in res.detail
-    assert "spark 0.0.0: placeholder, never selected" in res.detail
+    assert "spark 0.1.0: evaluated; used by no service" in res.detail  # System B's knowledge
     assert "tools not available" not in res.detail, "WP-M04 ships every tool the pack names"

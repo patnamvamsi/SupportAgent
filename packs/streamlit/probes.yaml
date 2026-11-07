@@ -1,0 +1,6 @@
+# One probe per pack hypothesis (ARCH §5).
+probes:
+  streamlit_app_crash:
+    tool: k8s.pod_status
+    args: {namespace: "$service.k8s_namespace", selector: "$service.k8s_selector"}
+    check: "result.oomkilled > 0"

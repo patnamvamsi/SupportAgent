@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "spark-executor-oom": true,
+    "spark-no-cause": false,
+    "spark-shuffle-failure": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "spark",
+  "samples": 1,
+  "v": 1
+}

@@ -1,0 +1,14 @@
+# One probe per pack hypothesis (ARCH §5). Thresholds are provisional.
+probes:
+  snowflake_task_failure:
+    tool: snowflake.task_history
+    args: {service: "$service.name"}
+    check: "result.tasks.exists(t, t.state == 'FAILED')"
+  snowflake_warehouse_queuing:
+    tool: snowflake.warehouse_load
+    args: {service: "$service.name"}
+    check: "result.warehouses.exists(w, double(w.avg_queued_load) >= 1.0)"
+  snowflake_credit_quota:
+    tool: snowflake.resource_monitors
+    args: {service: "$service.name"}
+    check: "result.monitors.exists(m, double(m.used_pct) >= 100.0)"
