@@ -17,6 +17,7 @@ from supportagent.app.doctor.checks.local import (
     OnboardingCheck,
     PacksCheck,
     PagingCheck,
+    PiiCheck,
 )
 from supportagent.app.doctor.connectors import connector_doctor
 
@@ -33,6 +34,7 @@ def default_checks(connector: str = "servicenow") -> list[Check]:
         PacksCheck(),
         OnboardingCheck(),
         KnowledgeCheck(),
+        PiiCheck(),
         DbCheck(),
         *plugin.checks,
         ConnectorCheck(),

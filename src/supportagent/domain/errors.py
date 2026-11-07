@@ -161,3 +161,11 @@ class ToolError(ExternalServiceError):
 class HistoryUnavailable(ToolError):
     """ADR-0018: the store no longer holds the past this read asked for (aged out, or
     the newest page of history doesn't reach back that far). Reported, never guessed."""
+
+
+class PiiUnavailable(SupportAgentError):
+    """The PII analyser can't run (not installed, model missing, an engine error).
+
+    Callers fail closed (ADR-0021 §4a): nothing that wasn't analysed reaches
+    the model.
+    """

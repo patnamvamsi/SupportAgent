@@ -118,6 +118,7 @@ from supportagent.adapters.llm.redact import Redactor
 from supportagent.adapters.paging.noop import RoutedPaging
 from supportagent.adapters.paging.opsgenie import OpsgeniePaging
 from supportagent.adapters.paging.pagerduty import PagerDutyPaging
+from supportagent.adapters.pii.presidio import PiiRecognizerSpec, PresidioAnalyzer
 from supportagent.adapters.resilience.breaker import (
     CircuitBreaker,
     CircuitBreakerLLMProvider,
@@ -1671,6 +1672,21 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         mcp_servers=_mcp_probes(config, transport),
         load_knowledge=lambda: build_knowledge_index(config, transport=transport, strict=True),
         load_onboarding=lambda: onboarding_facts(config, engine, clock),
+        pii=build_pii_analyzer(config),
+    )
+
+
+def build_pii_analyzer(config: AppConfig) -> PresidioAnalyzer | None:
+    """ADR-0021 §4a: the configured PII analyser, loaded on first use; ``None`` when off."""
+    pii = config.pii
+    if pii.engine == "off":
+        return None
+    return PresidioAnalyzer(
+        entities=pii.entities,
+        min_score=pii.min_score,
+        language=pii.language,
+        model=pii.model,
+        recognizers=[PiiRecognizerSpec(r.entity, r.regex, r.score) for r in pii.recognizers],
     )
 
 
