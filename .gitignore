@@ -25,6 +25,8 @@ build/
 *.db-shm
 .env
 .env.*
+# Reference-system repos' example env files are onboarding fixtures (no secrets).
+!evals/onboarding/*/sources/git/*/.env.example
 
 # Eval caches (artifacts like calibration.json ARE committed)
 evals/.cache/
