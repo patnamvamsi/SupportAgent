@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine, text
 
+from supportagent.adapters.cel.check import CelCheck
 from supportagent.adapters.crypto.aead import Aead
 from supportagent.adapters.db.repos.blobs import SqlKeyStore
 from supportagent.adapters.db.repos.events import SqlEventSink
@@ -30,7 +31,11 @@ from supportagent.app.queries import AdminQueries, auto_timeline
 from supportagent.app.rca import BufferedEvents, DocPolicy, Knowledge, RcaJob, RcaService
 from supportagent.app.setup import SetupService
 from supportagent.domain.auto import AutoConditions
-from supportagent.domain.errors import ConcurrencyConflict, DomainValidationError
+from supportagent.domain.errors import (
+    CheckUnevaluated,
+    ConcurrencyConflict,
+    DomainValidationError,
+)
 from supportagent.domain.events import EventKind
 from supportagent.domain.model.catalog import Catalog
 from supportagent.domain.model.runbook import RcaBudget
@@ -221,6 +226,38 @@ def test_conditions_hold_so_the_step_is_sent_on_the_grant(
         ).scalar_one()
     payload = json.loads(raw)
     assert payload["revert"] == "retraction_note" and payload["rca_artifact"].startswith("rca")
+
+
+def test_a_check_that_could_not_be_evaluated_never_sends_on_the_grant(
+    db: Engine, master_key: bytes, clock: Any, ids: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#102: a CEL timeout once read as "didn't hold"; it must never read as "held" either.
+
+    The auto condition reads RCA's positive checks. A check that couldn't be
+    evaluated leaves its step not run, so nothing is positive and nothing is sent.
+    """
+
+    def timed_out(self: CelCheck, *_: object) -> tuple[bool, str]:
+        raise CheckUnevaluated(f"check timed out after 1000 ms: {self.expression}")  # noqa: TRY003
+
+    monkeypatch.setattr(CelCheck, "is_satisfied_by", timed_out)
+    _seed(db)
+    _grant(db, _conditions("recent_change_push", services=("payroll-api",)))
+    w = _world(db, master_key, clock, ids)
+
+    w.job.run_once()
+
+    assert _sends(db) == []
+    with db.connect() as conn:
+        artifact = conn.execute(text("SELECT outcome, artifact_json FROM rca_artifacts")).one()
+        executed = conn.execute(
+            text("SELECT COUNT(*) FROM proposals WHERE status = 'executed'")
+        ).scalar_one()
+    assert executed == 0
+    assert artifact[0] == "INCONCLUSIVE"
+    steps = json.loads(artifact[1])["evidence"]
+    assert steps and not any(step["ran"] for step in steps)
+    assert all("timed out" in step["why"] for step in steps)
 
 
 @pytest.mark.parametrize(
