@@ -43,6 +43,9 @@ llm:
     # plan (INCONCLUSIVE) and every claim tagged speculation.
     # propose_hypotheses: {model_id: claude-sonnet-4-5-20250929, timeout_s: 15, max_output_tokens: 200}
     # entail: {model_id: claude-sonnet-4-5-20250929, timeout_s: 10, max_output_tokens: 50}
+    # ADR-0021 trace answers. Unconfigured, `supportagent trace` gives the template answer only.
+    # explain_trace: {model_id: claude-sonnet-4-5-20250929, timeout_s: 30, max_output_tokens: 800}
+    # check_trace: {model_id: claude-sonnet-4-5-20250929, timeout_s: 10, max_output_tokens: 50}
   daily_budget_tokens: 2000000       # v0.1 enforces; v0.0 logs only
   deprecation_feed: null             # v0.1: provider model-retirement feed (YAML); warns at T-90
 redaction:

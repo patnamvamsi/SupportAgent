@@ -110,6 +110,9 @@ class FlowStage(DomainModel):
     within_min: int | None = Field(default=None, ge=1)
     rejection: Rejection | None = None
     terminal: bool = False
+    #: The incident class RCA tests when the object stops here (its runbook);
+    #: none: RCA proposes a plan for the component.
+    rca_class: str | None = Field(default=None, pattern=r"^[a-z0-9_-]+/[a-z0-9_-]+$")
 
 
 class FlowKey(DomainModel):

@@ -20,7 +20,7 @@ an argument the tool doesn't take literally, or the call failed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -56,6 +56,9 @@ class TraceRun:
     #: Distinct values pseudonymised per entity (never the values).
     pii_counts: Mapping[str, int] = field(default_factory=dict)
     pii_error: str | None = None
+    #: The question's pseudonymiser, for text derived later (RCA's claims), so the
+    #: same value keeps its placeholder; ``None`` when PII couldn't be checked.
+    pseudonymise: Callable[[str], str] | None = field(default=None, compare=False, repr=False)
 
     def as_dict(self) -> dict[str, object]:
         v = self.verdict
@@ -141,8 +144,17 @@ class FlowTracer:
                     if value is not None:
                         keys[f"key.{key.name}"] = value
         verdict = judge(flow, {o.stage: o for o in observations}, now=now)
-        evidence, counts, error = self._guard(flow, object_id, raw)
-        run = TraceRun(flow.flow, object_id, tuple(observations), verdict, evidence, counts, error)
+        evidence, counts, error, guard = self._guard(flow, object_id, raw)
+        run = TraceRun(
+            flow.flow,
+            object_id,
+            tuple(observations),
+            verdict,
+            evidence,
+            counts,
+            error,
+            guard.text if guard is not None else None,
+        )
         self._audit(run, trace, actor=actor, read=sorted(raw), records=flow.reads_records())
         return run
 
@@ -215,9 +227,9 @@ class FlowTracer:
 
     def _guard(
         self, flow: Flow, object_id: str, raw: Mapping[str, Mapping[str, object]]
-    ) -> tuple[dict[str, Mapping[str, object]], dict[str, int], str | None]:
+    ) -> tuple[dict[str, Mapping[str, object]], dict[str, int], str | None, PiiGuard | None]:
         if self._pii is None:
-            return {}, {}, "no PII analyser is configured (pii.engine: off)"
+            return {}, {}, "no PII analyser is configured (pii.engine: off)", None
         guard = PiiGuard(self._pii, keep=[object_id])
         fields = {s.id: s.lookup.fields for s in flow.stages}
         try:
@@ -225,8 +237,8 @@ class FlowTracer:
                 sid: guard.clean(data, fields[sid]) for sid, data in raw.items()
             }
         except PiiUnavailable as exc:
-            return {}, {}, str(exc)
-        return evidence, guard.pseudonyms.counts, None
+            return {}, {}, str(exc), None
+        return evidence, guard.pseudonyms.counts, None, guard
 
 
 def _fill(template: str, keys: Mapping[str, str]) -> str:

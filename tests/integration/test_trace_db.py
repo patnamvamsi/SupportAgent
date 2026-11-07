@@ -105,9 +105,16 @@ def _kinds(db: Engine) -> list[str]:
 def test_trace_end_to_end(tmp_path: Path, db: Engine, master_key: bytes) -> None:
     config = _setup(tmp_path)
     assert list(load_flows(config)) == ["trade-settlement"]
-    run = trace_object(
-        config, "trade-settlement", "T-1234", engine=db, master_key=master_key, pii=RegexAnalyzer()
+    run, answer = trace_object(
+        config,
+        "trade-settlement",
+        "T-1234",
+        engine=db,
+        master_key=master_key,
+        pii=RegexAnalyzer(),
+        explain=False,
     )
+    assert answer is None
     # No time limit on settlement: waiting there, never called stuck.
     assert (run.verdict.kind, run.verdict.stage) == ("in_progress", "settle")
     assert [o.state for o in run.observations] == ["found", "found", "missing"]
@@ -116,7 +123,9 @@ def test_trace_end_to_end(tmp_path: Path, db: Engine, master_key: bytes) -> None
     assert _kinds(db).count("tool_call") == 3
     assert _kinds(db).count("trace") == 1
 
-    rejected = trace_object(config, "trade-settlement", "T-9999", engine=db, master_key=master_key)
+    rejected, _ = trace_object(
+        config, "trade-settlement", "T-9999", engine=db, master_key=master_key, explain=False
+    )
     assert (rejected.verdict.kind, rejected.verdict.stage) == ("rejected", "enrich")
     assert rejected.evidence == {}  # pii.engine is off: nothing for the model
 
@@ -128,7 +137,9 @@ def test_record_flows_need_an_admin(tmp_path: Path, db: Engine, master_key: byte
     allowed = config.model_copy(
         update={"tracing": config.tracing.model_copy(update={"record_flows": ["trade-settlement"]})}
     )
-    run = trace_object(allowed, "trade-settlement", "T-1234", engine=db, master_key=master_key)
+    run, _ = trace_object(
+        allowed, "trade-settlement", "T-1234", engine=db, master_key=master_key, explain=False
+    )
     assert run.verdict.stage == "settle"
 
 
@@ -143,3 +154,55 @@ def test_flow_cli_validates(tmp_path: Path) -> None:
     assert res.exit_code == 2
     assert "ok   " in res.output and "trade-settlement, 3 stages" in res.output
     assert "FAIL " in res.output
+
+
+class _SlotProvider:
+    """A provider answering each trace slot by its prompt; it keeps every request."""
+
+    def __init__(self) -> None:
+        self.requests: list[Any] = []
+
+    def complete_json(self, request: Any) -> Any:
+        from supportagent.ports.llm import ProviderResponse  # noqa: PLC0415
+
+        self.requests.append(request)
+        if "explain where one business object is" in request.system:
+            body = (
+                '{"engineer": [{"text": "Trade T-1234 was submitted and enriched; '
+                'settlement has no record of it.", "cites": ["S1", "S2", "S3"]}], '
+                '"business": [{"text": "Your trade was accepted but has not reached '
+                'settlement yet.", "cites": ["V"]}]}'
+            )
+        elif "check whether facts support one sentence" in request.system:
+            body = '{"verdict": "supports"}'
+        else:
+            body = '{"hypotheses": []}'
+        return ProviderResponse(
+            raw_text=body, resolved_model="fake-model", tokens_in=1, tokens_out=1, latency_ms=1
+        )
+
+
+def test_explained_trace_sends_no_pii_to_the_model(
+    tmp_path: Path, db: Engine, master_key: bytes
+) -> None:
+    base = _setup(tmp_path)
+    slot = base.llm.slots["classify"]
+    slots = {**base.llm.slots, "explain_trace": slot, "check_trace": slot}
+    config = base.model_copy(update={"llm": base.llm.model_copy(update={"slots": slots})})
+    provider = _SlotProvider()
+    run, answer = trace_object(
+        config,
+        "trade-settlement",
+        "T-1234",
+        engine=db,
+        master_key=master_key,
+        pii=RegexAnalyzer(),
+        llm_provider=provider,
+    )
+    assert answer is not None
+    assert answer.summary == "Your trade was accepted but has not reached settlement yet."
+    assert [s.cites for s in answer.engineer] == [["S1", "S2", "S3"]]
+    sent = " ".join(r.system + r.user for r in provider.requests)
+    assert "<PERSON_1>" in sent  # the evidence reached the model, pseudonymised
+    assert "Jane" not in sent and "Doe" not in sent
+    assert run.verdict.kind == "in_progress"

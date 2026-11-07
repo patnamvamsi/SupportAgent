@@ -203,6 +203,7 @@ from supportagent.app.spend import SpendBreaker
 from supportagent.app.stats import StatsService
 from supportagent.app.sync import SyncService
 from supportagent.app.tools import ToolRegistry
+from supportagent.app.trace_answer import TraceAnswer, TraceExplainer
 from supportagent.app.tracing import FlowTracer, TraceRun
 from supportagent.app.triage import TriageRunner, TriageService
 from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
@@ -1712,8 +1713,14 @@ def trace_object(  # noqa: PLR0913 — the question plus the seams tests replace
     transport: httpx.BaseTransport | None = None,
     clock: Clock | None = None,
     pii: PiiAnalyzer | None = None,
-) -> TraceRun:
-    """``supportagent trace`` (ADR-0021): one object through one reviewed flow, audited."""
+    explain: bool = True,
+    llm_provider: LLMProvider | None = None,
+) -> tuple[TraceRun, TraceAnswer | None]:
+    """``supportagent trace`` (ADR-0021): one object through one reviewed flow, audited.
+
+    With ``explain``, RCA runs on the component where the object stopped and the
+    model writes a cited answer over the trace's facts (``TraceExplainer``).
+    """
     flow = load_flows(config).get(flow_id)
     if flow is None:
         raise ConfigError(f"no flow {flow_id!r} in {config.tracing.flows_dir}")  # noqa: TRY003
@@ -1747,18 +1754,41 @@ def trace_object(  # noqa: PLR0913 — the question plus the seams tests replace
                 clock=clock,
             )
             span = ids.new(IdPrefix.EVENT)
-            run = tracer.trace(
-                flow,
-                object_id,
-                TraceContext.new(config.tenant.id, f"trace_{span}", f"span_{span}"),
-                actor=actor,
-                at=at,
-            )
+            context = TraceContext.new(config.tenant.id, f"trace_{span}", f"span_{span}")
+            run = tracer.trace(flow, object_id, context, actor=actor, at=at)
+            answer = None
+            if explain:
+                llm = _build_llm(config, events, ids, clock, llm_provider)
+                rca = config.rca
+                service = RcaService(
+                    knowledge=build_rca_knowledge(config, tools.names),
+                    tools=tools,
+                    llm=llm,
+                    events=events,
+                    ids=ids,
+                    clock=clock,
+                    prior=rca.prior,
+                    freeze=rca.freeze,
+                    max_claims=rca.max_claims,
+                    entail_budget_s=rca.entail_budget_s,
+                )
+                answer = TraceExplainer(
+                    llm=llm,
+                    catalog=_build_catalog(config),
+                    rca=service.run,
+                    budget=lambda: Budget.of(
+                        RcaBudget(
+                            max_tool_calls=rca.max_tool_calls,
+                            max_tokens=rca.max_tokens,
+                            max_hypotheses=rca.max_hypotheses,
+                        )
+                    ),
+                ).explain(flow, run, context, pseudonymise=run.pseudonymise)
             uow.commit()
     finally:
         if own:
             db.dispose()
-    return run
+    return run, answer
 
 
 def build_pii_analyzer(config: AppConfig) -> PresidioAnalyzer | None:
