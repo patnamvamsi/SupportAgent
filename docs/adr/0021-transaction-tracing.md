@@ -1,6 +1,6 @@
 # 0021. Transaction tracing: where is this business object, and is that where it should be?
 
-- **Status:** proposed (2026-11-08; roadmap item 1.5 in `docs/next-steps.md`, after the first real system)
+- **Status:** accepted (2026-11-08; roadmap item 1.5 in `docs/next-steps.md`, after the first real system)
 - **Date:** 2026-11-08
 - **Code PR:** none yet
 - **Builds on:** ADR-0011 §4 (the graph guides, tools prove), ADR-0015 (onboarding), ADR-0016 (plugins are data), ADR-0018 (live evidence), ADR-0019 (bound read-only credentials), ADR-0020 (readiness and the calibration floor)
@@ -19,7 +19,7 @@ Several problems the write-up glosses over shape this decision:
 
 The write-up also suggests LangGraph, Neo4j and several cooperating agents. None of those solves the problems above, and the existing graph, tool and lab machinery already covers what they would do.
 
-## Decision (proposed)
+## Decision
 
 ### 1. A separate read-only capability, alongside triage
 
@@ -35,7 +35,7 @@ A **flow** declares one business process as data, in the system's onboarding wor
 - the time each stage should take, and which stages are terminal;
 - optionally, the condition under which a stage is skipped or the object is rejected on purpose.
 
-Onboarding drafts flows from the docs, code and graph, the way `onboard catalog` drafts the catalog. Each draft cites the documents it came from and is marked unreviewed. **Only a flow a person has reviewed is used.** A stale spec then produces a draft someone corrects, not a wrong answer.
+Onboarding first proposes **candidate flows** from the ticket history: the business objects tickets ask about most ("order 123 not shipped", "trade XYZ123 not settled"), with how often, which components the resolutions named, and whether the IDs in those tickets show up in the system's logs. The maintainer picks one. Onboarding then drafts that flow from the docs, code and graph, the way `onboard catalog` drafts the catalog. Each draft cites the documents it came from and is marked unreviewed. **Only a flow a person has reviewed is used.** A stale spec then produces a draft someone corrects, not a wrong answer.
 
 The graph gains `Process` and `Stage` nodes, with a `performed_by` edge to the components. It stays the existing graph: no separate graph database.
 
@@ -45,13 +45,27 @@ Onboarding checks each stage's lookup against a handful of sample IDs a person s
 
 At question time, a stage with a correlation gap reads "unknown", never "missing". The agent may derive a secondary key from an earlier stage (an order ID becoming a message key) only where the flow declares that mapping.
 
-### 4. Business-record reads are their own access class
+### 4. Logs and messages first; business records only when they aren't enough (maintainer's decision)
+
+Each stage's lookup is a log query or a message search where it can be. A flow may declare a business-record lookup for a stage only when onboarding showed that logs and messages can't establish that stage: the sample IDs aren't found there, or the stage's outcome (a status column, a rejection reason) is recorded only in the database. Onboarding reports this per stage as a need ("stage *booking* can only be established from `trades.status`"), so a person sees why a record read is asked for before granting one.
 
 A credential for business data is bound like any other (ADR-0019), and must also meet these rules:
 - **Declared queries only.** Every lookup is a flow stage's declared query, parameterised by one ID. There is no free-form query, and nothing that lists or scans records.
 - **Field allow-list.** Each stage declares the fields the model may see. Everything else is dropped before the model sees the result, and the existing secret redaction still applies.
 - **Audit.** Every lookup is an event on the case timeline: who asked, which flow, which ID, which stages were read.
 - **Opt-in per flow.** A flow that reads business records stays off until an admin enables it, as with grants.
+
+### 4a. PII is detected and pseudonymised before the model sees anything (maintainer's decision)
+
+Logs and messages carry personal data as often as database rows do, so this applies to **every** stage result, not only record reads:
+- **Detection:** [Microsoft Presidio](https://microsoft.github.io/presidio/) (MIT, runs locally, no data leaves the deployment), behind the existing secret-detector port. It adds PII classes (person, address, national ID, IBAN, account number and so on) to the closed detector set. Each deployment chooses which classes are on and may add recognisers for its own identifiers. The current regex detectors keep running alongside it.
+- **Pseudonymised, consistently:** a value becomes a stable placeholder (`<PERSON_1>`) for the whole question, so the model can still tell that two stages saw the same customer. The map stays in memory, as with secrets today (INV-06), and is never stored, logged or sent.
+- **The traced ID is allowed through:** the object's own ID is the one value the model must see. Values the flow marks as keys pass through too, unless they are themselves PII, in which case the model sees a placeholder and the lookup uses the real value.
+- **The field allow-list runs first:** fields not on it never reach detection or the model.
+- **Fails closed:** if the analyser isn't installed or errors, no stage result reaches the model. The answer says tracing is unavailable and why. A flow can't be enabled while `doctor` reports the analyser missing.
+- **Recorded:** per-class counts of what was pseudonymised go on the case timeline, never the values.
+- **Packaging:** Presidio and its language model are an optional install (`supportagent[pii]`), so deployments that never trace don't carry them. The image used for tracing includes them.
+- **Measured:** the flow lab includes records and log lines seeded with PII. A gate requires that none of it appears in any recorded model request.
 
 ### 5. The answer: a timeline, the first deviation, then the cause
 
@@ -68,7 +82,7 @@ A lab per flow: 20–30 labelled questions with recorded tool results, covering 
 - the first deviation found in at least 90% of the stuck cases;
 - every "couldn't tell" answer names the missing stage.
 
-**Open: whether the calibration floor applies.** ADR-0020 holds a class back until about 16 live incidents per label, so a new system takes weeks to earn routing. Tracing doesn't route or propose, so this ADR proposes that a flow is usable once its lab passes, without waiting for live calibration. That would make tracing useful from the first day on a new system, while routing builds its proof in shadow. The maintainer decides.
+**The calibration floor doesn't apply (maintainer's decision).** ADR-0020 holds a class back until about 16 live incidents per label. Tracing doesn't route or propose, so a flow is usable once its lab passes. Tracing is useful from the first day on a new system, while routing builds its proof in shadow. Resolved live questions still feed the flow's lab, as resolved cases feed calibration.
 
 ### 7. Not doing
 
@@ -85,9 +99,9 @@ A lab per flow: 20–30 labelled questions with recorded tool results, covering 
 - The model sees business fields it never saw before: more tokens per question, and a new reason for local models in regulated deployments.
 - It depends on the real system (roadmap 1.4). Flows should be fitted to a real system's processes and logs, not a synthetic one. The reference systems would each get one flow as a regression fixture, as they do today for classes.
 
-## Questions for the maintainer
+## Maintainer's decisions (2026-11-08)
 
-1. Accept the direction, or park it?
-2. Calibration (§6): may a flow be used once its lab passes, before live calibration?
-3. Which flow on the real system to start with. One flow first, end to end.
-4. Whether business-record reads are acceptable on that system at all, or tracing starts from logs and messages only.
+1. **Direction:** accepted.
+2. **Calibration:** a flow is usable once its own lab passes (§6).
+3. **First flow:** chosen on the real system from the candidates onboarding proposes (§2).
+4. **Data:** logs and messages first, business records only where they can't establish a stage (§4), with PII detected and pseudonymised by Presidio before the model sees anything (§4a).
