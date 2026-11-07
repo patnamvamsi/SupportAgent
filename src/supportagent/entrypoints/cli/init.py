@@ -36,6 +36,7 @@ from supportagent.config.local_install import (
     FrontierAnswers,
     LlmAnswers,
     LlmKind,
+    OnboardAnswers,
     PagerDutyAnswers,
     ServiceAnswer,
     ServiceNowAnswers,
@@ -45,6 +46,7 @@ from supportagent.config.local_install import (
     render_config,
     render_env,
     render_realm,
+    render_system,
     service_name,
 )
 from supportagent.config.schema import is_floating_alias
@@ -113,6 +115,7 @@ class _Wizard:
         pagerduty = _retrying(self.pagerduty)
         if pagerduty is not None:
             services = self.pagerduty_services(services)
+        onboard = self.onboard(team, servicenow)
         user, email, password = self.sign_in()
         return Answers(
             team_name=team,
@@ -126,6 +129,7 @@ class _Wizard:
             keycloak_port=keycloak_port,
             confluence=confluence,
             pagerduty=pagerduty,
+            onboard=onboard,
             previous=self.env,
         )
 
@@ -134,7 +138,7 @@ class _Wizard:
     def llm(self) -> LlmAnswers:
         prev = self.prev.get("llm", {})
         _section(
-            "1/5  Language model",
+            "1/6  Language model",
             "SupportAgent sends redacted ticket text to this model to classify incidents\n"
             "and check root-cause claims.",
         )
@@ -234,7 +238,7 @@ class _Wizard:
     def servicenow(self) -> tuple[ServiceNowAnswers, tuple[ServiceAnswer, ...]]:
         prev = self.prev.get("servicenow", {})
         _section(
-            "2/5  ServiceNow",
+            "2/6  ServiceNow",
             "SupportAgent starts in shadow mode: it reads incidents and records what it\n"
             "would do, and never writes to ServiceNow until you promote it.",
         )
@@ -337,7 +341,7 @@ class _Wizard:
 
     def confluence(self) -> ConfluenceAnswers | None:
         prev = self.prev.get("confluence") or {}
-        _section("3/5  Confluence (optional)", "Team docs RCA can cite as guidance, read-only.")
+        _section("3/6  Confluence (optional)", "Team docs RCA can cite as guidance, read-only.")
         if not typer.confirm("  Connect a Confluence space?", default=bool(prev)):
             self.prev["confluence"] = None
             return None
@@ -365,7 +369,7 @@ class _Wizard:
     def pagerduty(self) -> PagerDutyAnswers | None:
         prev = self.prev.get("pagerduty") or {}
         _section(
-            "4/5  PagerDuty (optional)",
+            "4/6  PagerDuty (optional)",
             "Lets SupportAgent attach its findings to an open page. It never creates one.",
         )
         if not typer.confirm("  Connect PagerDuty?", default=bool(prev)):
@@ -387,10 +391,70 @@ class _Wizard:
             out.append(replace(svc, pagerduty_service=pid))
         return tuple(out)
 
+    # -- onboarding (ADR-0017) --------------------------------------------------
+
+    def onboard(self, team: str, servicenow: ServiceNowAnswers) -> OnboardAnswers | None:
+        prev = self.prev.get("onboard") or {}
+        _section(
+            "5/6  Onboard this system (optional)",
+            "SupportAgent reads the system's past incidents, docs and repositories (read-only),\n"
+            "works out what it needs, and lists anything you have to provide.",
+        )
+        if servicenow.kind == "demo":
+            typer.echo("  Skipped: the demo ServiceNow has no history to onboard.")
+            return None
+        if not typer.confirm("  Onboard a system now?", default=bool(prev)):
+            self.prev["onboard"] = None
+            return None
+        name = _ask("System name", prev.get("system_name", team))
+        groups = _ask(
+            "ServiceNow assignment groups that handle its incidents (comma-separated)",
+            ",".join(prev.get("assignment_groups", [])) or None,
+        )
+        business = _ask(
+            "ServiceNow business service (Enter for none)", prev.get("business_service") or ""
+        )
+        repos = _ask(
+            "Repositories, like github:acme/* (comma-separated; Enter for none)",
+            ",".join(prev.get("repos", [])),
+        )
+        repo_list = tuple(r.strip() for r in repos.split(",") if r.strip())
+        token = (
+            self.secret("GitHub token (read-only, fine-grained)", "GITHUB_TOKEN")
+            if repo_list
+            else None
+        )
+        catalog = _ask(
+            "Plugin catalogue: a directory, or a git URL (Enter for none)",
+            prev.get("catalog") or "",
+        )
+        ref = path = None
+        if (catalog and "://" in catalog) or catalog.startswith("git@"):
+            ref = _ask(
+                "The catalogue's commit id (a full commit, never a branch)", prev.get("catalog_ref")
+            )
+            path = _ask(
+                "Its directory in the repository (Enter for the root)",
+                prev.get("catalog_path") or "",
+            )
+        answers = OnboardAnswers(
+            system_id=service_name(name),
+            system_name=name,
+            assignment_groups=tuple(g.strip() for g in groups.split(",") if g.strip()),
+            business_service=business or None,
+            repos=repo_list,
+            github_token=token,
+            catalog=catalog or None,
+            catalog_ref=ref or None,
+            catalog_path=path or "",
+        )
+        self.prev["onboard"] = _public_onboard(answers)
+        return answers
+
     def sign_in(self) -> tuple[str, str, str]:
         prev = self.prev.get("admin", {})
         _section(
-            "5/5  Your sign-in",
+            "6/6  Your sign-in",
             "A bundled Keycloak handles sign-in. The first person to sign in is the admin.",
         )
         user = _ask("User name", prev.get("user", "admin"))
@@ -493,6 +557,7 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
             keycloak_port=raw.get("keycloak_port", keycloak_port),
             confluence=ConfluenceAnswers(**raw["confluence"]) if raw.get("confluence") else None,
             pagerduty=PagerDutyAnswers(**raw["pagerduty"]) if raw.get("pagerduty") else None,
+            onboard=_onboard_from(raw.get("onboard")),
             previous=env,
         )
     except (KeyError, TypeError) as exc:
@@ -520,6 +585,9 @@ def _write(out: Path, answers: Answers) -> None:
     env_path.chmod(0o600)
     (out / "supportagent.yaml").write_text(render_config(answers), encoding="utf-8")
     (out / "catalog.yaml").write_text(render_catalog(answers), encoding="utf-8")
+    system = render_system(answers)
+    if system is not None:  # an earlier system.yaml is kept when this run onboards nothing
+        (out / "system.yaml").write_text(system, encoding="utf-8")
     # Keycloak's container user reads the realm on first start; local/ is git-ignored.
     realm = out / "keycloak" / "supportagent-realm.json"
     realm.write_text(render_realm(answers, generated), encoding="utf-8")
@@ -553,8 +621,33 @@ def _public(answers: Answers) -> dict[str, Any]:
             else None
         ),
         "pagerduty": {"from_email": answers.pagerduty.from_email} if answers.pagerduty else None,
+        "onboard": _public_onboard(answers.onboard) if answers.onboard else None,
         "admin": {"user": answers.admin_user, "email": answers.admin_email},
     }
+
+
+def _public_onboard(onboard: OnboardAnswers) -> dict[str, Any]:
+    out = asdict(onboard)
+    out.pop("github_token")
+    return out
+
+
+def _onboard_from(raw: dict[str, Any] | None) -> OnboardAnswers | None:
+    """``onboard`` in an answers file: groups and repos as lists, the token included."""
+    if not raw:
+        return None
+    name = raw.get("system_name") or raw["system_id"]
+    return OnboardAnswers(
+        system_id=raw.get("system_id") or service_name(name),
+        system_name=name,
+        assignment_groups=tuple(raw["assignment_groups"]),
+        business_service=raw.get("business_service"),
+        repos=tuple(raw.get("repos", ())),
+        github_token=raw.get("github_token"),
+        catalog=raw.get("catalog"),
+        catalog_ref=raw.get("catalog_ref"),
+        catalog_path=raw.get("catalog_path", ""),
+    )
 
 
 # --- small helpers ---------------------------------------------------------------------

@@ -142,7 +142,9 @@ Delivered:
 - ~~Live discovery declared by plugins~~ (*done*): `provides.discovery` maps a live capability's result onto the graph as data. The six core mappings moved into the kubernetes, oracle, kafka, snowflake and airflow plugins, and the three reference systems' structured facts are identical before and after.
 - ~~Fix two flaky tests~~ (*done*, #102 and its follow-up). Both came from one bug: a CEL check that ran out of its 50 ms budget read as "didn't hold". That happened whenever another thread held the interpreter lock, such as the MCP server in the canary test. The canary's clean run then missed a cause, and SOP auto mode's positive check went missing. Now the budget is 1 s, and a timeout is a step that didn't run. `test_sop_auto_db` pins that a check that couldn't be evaluated never sends on a grant.
 - Knowledge for System B's stack (Kafka, Snowflake, Spark, Airflow, data quality), done the ADR-0016 way: plugins as data, packs with labs.
-- The installer: `./install.sh` should offer `plugins.catalogs` and `onboard run` as its last step, and start each MCP server a plugin needs with its bound credential (ADR-0019 §5).
+- The installer:
+  - ~~catalogues and onboarding~~ (*done*): the wizard's optional *Onboard this system* writes `local/system.yaml` and `plugins.catalogs`, and `./install.sh` runs `onboard run` as its last step (`./install.sh onboard` again).
+  - Still open: start each MCP server a plugin needs with its bound credential (ADR-0019 §5). It waits for a real system to name the servers: the reference plugins' images are placeholders, and each server takes its credential its own way, which the plugin manifest would have to declare.
 
 ## Suggested order
 

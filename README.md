@@ -30,10 +30,11 @@ cd SupportAgent
    | ServiceNow | Instance URL and an integration user (basic auth or OAuth client credentials), **or the demo instance** | For a real instance it reads your recent incidents and offers their CIs as the services to watch. The demo needs nothing and sends a sample incident every 5 minutes. |
    | Confluence (optional) | The space URL, your Atlassian email, an [API token](https://id.atlassian.com/manage-profile/security/api-tokens) | Paste the space URL from your browser; it finds the space key itself. |
    | PagerDuty (optional) | A REST API key and a From email | SupportAgent only attaches notes to pages that are already open. It never creates one. |
+   | Onboard this system (optional) | The ServiceNow assignment groups that handle its incidents (and its business service), its repositories (`github:acme/*`) with a read-only token, and optionally a plugin catalogue: a directory, or a git URL and a full commit id | Writes `local/system.yaml`, with the Confluence space you gave. Not offered with the demo instance. |
    | Your sign-in | A user name and a password (or let it generate one) | A bundled Keycloak handles sign-in. The first person to sign in becomes the admin. |
 
 4. **Calibrates your model** on 27 built-in cases. This takes about a minute with a hosted API, and up to about 15 minutes with a large local model.
-5. **Starts everything** and prints where to sign in:
+5. **Starts everything**. If you chose to onboard a system, it then runs `onboard run` (read-only) and lists what onboarding needs from you: access to grant, plugins to provide, things to review. `./install.sh onboard` runs it again once you've acted. Then it prints where to sign in:
 
    ```
    Open      http://localhost:8800/ui
@@ -74,6 +75,7 @@ To skip the questions, pass the answers as a JSON file. Leave the secrets out of
 | `./install.sh stop` / `start` / `restart` | Stops it or brings it back. Your data stays. |
 | `./install.sh reconfigure` | Asks the questions again, with your current answers as the defaults. Generated secrets are kept, so your data stays readable. |
 | `./install.sh calibrate` | Runs the calibration again: do this after changing the model |
+| `./install.sh onboard` | Onboards the system in `local/system.yaml` again (read-only) and lists what it still needs. Re-run it after you grant access or add a plugin. |
 | `./install.sh uninstall [--purge]` | Deletes the containers, database and sign-in data. `--purge` deletes `local/` too. |
 
 ## When something is wrong: `./install.sh doctor`

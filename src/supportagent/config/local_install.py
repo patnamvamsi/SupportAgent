@@ -98,6 +98,41 @@ class PagerDutyAnswers:
 
 
 @dataclass(frozen=True, slots=True)
+class OnboardAnswers:
+    """The system ``onboard run`` reads (ADR-0015 §1), written as ``local/system.yaml``."""
+
+    system_id: str
+    system_name: str
+    assignment_groups: tuple[str, ...]
+    business_service: str | None = None
+    #: ``github:<owner>/<name glob>`` each.
+    repos: tuple[str, ...] = ()
+    github_token: str | None = field(default=None, repr=False)
+    #: A catalogue directory, or a git URL with its commit (``catalog_ref``).
+    catalog: str | None = None
+    catalog_ref: str | None = None
+    catalog_path: str = ""
+
+
+#: The files onboarding reads from each repository (config that names the stack).
+REPO_PATHS: tuple[str, ...] = (
+    "**/pom.xml",
+    "**/build.gradle*",
+    "**/application*.yml",
+    "**/application*.properties",
+    "**/package.json",
+    "**/requirements*.txt",
+    "**/pyproject.toml",
+    "**/go.mod",
+    "**/Dockerfile",
+    "**/docker-compose*.yml",
+    "**/helm/**",
+    "**/k8s/**",
+    "**/*.env.example",
+)
+
+
+@dataclass(frozen=True, slots=True)
 class Answers:
     team_name: str
     llm: LlmAnswers
@@ -110,6 +145,8 @@ class Answers:
     keycloak_port: int = 8880
     confluence: ConfluenceAnswers | None = None
     pagerduty: PagerDutyAnswers | None = None
+    #: ADR-0017: the system to onboard, and where plugins come from (optional).
+    onboard: OnboardAnswers | None = None
     #: Values from an earlier run (``local/.env``): generated secrets are kept.
     previous: Mapping[str, str] = field(default_factory=dict)
 
@@ -181,6 +218,8 @@ def render_env(answers: Answers, generated: Mapping[str, str]) -> str:
         values["CONFLUENCE_API_TOKEN"] = answers.confluence.token
     if answers.pagerduty is not None:
         values["PAGERDUTY_TOKEN"] = answers.pagerduty.token
+    if answers.onboard is not None and answers.onboard.github_token:
+        values["GITHUB_TOKEN"] = answers.onboard.github_token
     lines = [
         "# SupportAgent local install: written by `supportagent init` (./install.sh).",
         "# Secrets live only here. Keep it private (chmod 600) and never commit it.",
@@ -316,12 +355,72 @@ def render_config(answers: Answers) -> str:
             "      token_env: CONFLUENCE_API_TOKEN",
             "      max_pages: 200",
         ]
+    out += _plugins_block(answers.onboard)
     out += [
         "retention:",
         "  events_days: 395",
         "  comms_days: 395",
         "  alerts_days: 90",
     ]
+    return "\n".join(out) + "\n"
+
+
+def _plugins_block(onboard: OnboardAnswers | None) -> list[str]:
+    """ADR-0017: where onboarding finds plugins it can install (a directory or a git commit)."""
+    if onboard is None or not onboard.catalog:
+        return []
+    q = json.dumps
+    if onboard.catalog_ref:
+        entry = f"{{git: {q(onboard.catalog)}, ref: {q(onboard.catalog_ref)}"
+        entry += f", path: {q(onboard.catalog_path)}}}" if onboard.catalog_path else "}"
+    else:
+        entry = q(onboard.catalog)
+    return [
+        "plugins:                             # ADR-0017: plugins onboarding may install",
+        f"  catalogs: [{entry}]",
+        "  auto_install: none                 # each one waits for `supportagent plugin install`",
+    ]
+
+
+def render_system(answers: Answers) -> str | None:
+    """``local/system.yaml``: the system ``onboard run`` reads (ADR-0015 §1), or ``None``.
+
+    ServiceNow and Confluence are the ones already configured; repositories
+    are read with ``GITHUB_TOKEN``. Every secret stays in ``local/.env``.
+    """
+    onboard = answers.onboard
+    if onboard is None:
+        return None
+    q = json.dumps
+    out = [
+        "# The system to onboard (ADR-0015 §1): written by `supportagent init` (./install.sh).",
+        "# ./install.sh onboard reads it. Onboarding is read-only: it never writes to a source.",
+        "system:",
+        f"  id: {q(onboard.system_id)}",
+        f"  name: {q(onboard.system_name)}",
+        "sources:",
+        "  servicenow:",
+    ]
+    if onboard.business_service:
+        out.append(f"    business_service: {q(onboard.business_service)}")
+    out += [
+        f"    assignment_groups: [{', '.join(q(g) for g in onboard.assignment_groups)}]",
+        "    history: 12mo",
+    ]
+    if answers.confluence is not None:
+        c = answers.confluence
+        out += [
+            "  confluence:",
+            f"    - {{space: {q(c.space_key)}, base_url: {q(c.base_url)}, "
+            "user_env: CONFLUENCE_USER, token_env: CONFLUENCE_API_TOKEN}",
+        ]
+    if onboard.repos:
+        out.append("  git:")
+        for repo in onboard.repos:
+            out.append(f"    - repo: {q(repo)}")
+            out.append(f"      paths: [{', '.join(q(p) for p in REPO_PATHS)}]")
+            if onboard.github_token:
+                out.append("      token_env: GITHUB_TOKEN")
     return "\n".join(out) + "\n"
 
 
@@ -422,10 +521,12 @@ __all__ = [
     "GENERATED",
     "INTEGRATION_USER",
     "REALM",
+    "REPO_PATHS",
     "Answers",
     "ConfluenceAnswers",
     "FrontierAnswers",
     "LlmAnswers",
+    "OnboardAnswers",
     "PagerDutyAnswers",
     "ServiceAnswer",
     "ServiceNowAnswers",
@@ -435,6 +536,7 @@ __all__ = [
     "render_config",
     "render_env",
     "render_realm",
+    "render_system",
     "service_name",
     "tenant_id",
 ]
