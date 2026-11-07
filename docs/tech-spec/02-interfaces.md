@@ -157,6 +157,7 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | Case view | `/ui/cases/{id}` | v0.0 | Decision and reason, LLM suggestion when safe-defaulted, proposals, sends, timeline from events |
 | Grants | `/ui/grants` | v0.0 | Requested / approved / revoked |
 | Users | `/ui/users` | v0.1 | Users, roles and role scopes; assign / remove (admin, WP-103) |
+| Trace | `/ui/trace` | ADR-0021 | Pick a reviewed flow and an id; the trace runs as the signed-in user (`trace` permission: analyst and up) and shows the timeline, the verdict and the checked answer. The timeline shows no log lines, and in the answer personal data appears as placeholders (`<PERSON_1>`). A refusal (unknown flow, an id the flow doesn't accept, a records flow not enabled) shows on the form |
 | Stats | `/ui/stats` | v0.0 | Shadow counterfactual; v0.1 adds approval-fatigue and promotion-gate panels |
 | Owner drafts | case view panel | v0.1 | Cadence drafts under `human_owned` |
 

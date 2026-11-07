@@ -3303,6 +3303,8 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     promotion_gate: PromotionGate | None = None,
     semantics: TicketSemantics | None = None,
     calibration_in_use: Callable[[], tuple[str, str]] | None = None,
+    flows: Callable[[], Mapping[str, Flow]] | None = None,
+    trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -3420,6 +3422,8 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         onboarding_status=onboarding_status,
         onboarding_history=onboarding_history,
         calibration_in_use=calibration_in_use,
+        flows=flows,
+        trace=trace,
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3467,6 +3471,10 @@ def build_api_context(
         semantics=ticket_semantics(config),
         promotion_gate=_promotion_gate(config),
         calibration_in_use=lambda: calibration_source(config, engine, clock),
+        flows=lambda: {k: f for k, f in load_flows(config).items() if f.reviewed},
+        trace=lambda flow, object_id, actor: trace_object(
+            config, flow, object_id, actor=actor, engine=engine, master_key=key, clock=clock
+        ),
     )
 
 

@@ -94,7 +94,8 @@ Progress:
 - ~~The answer~~ (*done*, WP-T3): RCA runs on the component where the object stopped, and its causes are pseudonymised with the same placeholders. The model sees numbered facts only. Each sentence must cite facts and pass `check_trace`, and the template answer needs no model. An end-to-end test checks that no PII reaches a model request.
 - ~~The lab~~ (*done*, WP-T4): `supportagent eval trace` runs each flow fixture's labelled scenarios (`evals/trace`; System C's shipment flow, 25 scenarios) through the real tracer and explainer. Gates: no wrong stopping stage, stuck objects found, every can't-tell naming its stage, no seeded PII in any model request, and the share of answers kept. Recorded live with Qwen; CI replays it. The judge doesn't count lateness after a stage that wasn't seen.
 - ~~Candidate flows~~ (*done*, WP-T5): `supportagent onboard flows` ranks what tickets ask about by id and drafts an unreviewed flow per candidate, its stages in graph order. `supportagent flow verify FILE --sample ID…` finds the stages that can't see completed objects (correlation gaps).
-- Next: the trace page in the UI. Then fitting a first flow on the real system (1.4).
+- ~~The trace page~~ (*done*, WP-T6): `/ui/trace` traces with a reviewed flow as the signed-in user, under a new `trace` permission (analyst, approver, admin).
+- Next: fitting a first flow on the real system (1.4): `onboard flows`, pick a candidate, `flow verify`, write its lab.
 
 A flow is usable once its lab passes; the calibration floor doesn't apply. Fitting a flow waits on 1.4. The generic parts (the flow model, candidate flows, the PII layer, the lab) can be built on the reference systems first.
 
