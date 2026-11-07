@@ -138,7 +138,7 @@ Delivered:
 
 ## 3. Smaller follow-ups (any order)
 
-- Git catalogues: a URL and a pinned ref, fetched read-only into a cache.
+- ~~Git catalogues~~ (*done*): `plugins.catalogs` accepts `{git, ref, path}`. The ref must be a full commit id. The commit is fetched shallowly and read-only into `plugins.cache_dir`, checked against the pin, and stripped of `.git`. `supportagent plugin fetch` fetches it, or onboarding does when it senses; `doctor` never fetches.
 - Live discovery declared by plugins: mapping a capability's result onto the graph is still per capability in core.
 - ~~Fix two flaky tests~~ (*done*, #102 and its follow-up). Both came from one bug: a CEL check that ran out of its 50 ms budget read as "didn't hold". That happened whenever another thread held the interpreter lock, such as the MCP server in the canary test. The canary's clean run then missed a cause, and SOP auto mode's positive check went missing. Now the budget is 1 s, and a timeout is a step that didn't run. `test_sop_auto_db` pins that a check that couldn't be evaluated never sends on a grant.
 - Knowledge for System B's stack (Kafka, Snowflake, Spark, Airflow, data quality), done the ADR-0016 way: plugins as data, packs with labs.

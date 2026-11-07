@@ -124,7 +124,10 @@ retention:
   comms_days: 395
   alerts_days: 90
 # plugins:                           # ADR-0017: where available plugins come from
-#   catalogs: [/srv/supportagent/catalog]   # laid out like plugins/, with its own pinned index.yaml
+#   catalogs:                        # each laid out like plugins/, with its own pinned index.yaml
+#     - /srv/supportagent/catalog      # a directory
+#     - {git: https://github.com/acme/sa-plugins.git, ref: <full commit id>, path: catalog}   # a commit, never a branch
+#   cache_dir: local/catalogs        # where git catalogues are checked out (`supportagent plugin fetch`)
 #   auto_install: none               # none | first-party (installed after its lab passes here)
 # onboarding:                        # ADR-0017 (WP-A6): what onboarding's results change at runtime
 #   routing: enforce                 # enforce | report (readiness measured, not gating triage)

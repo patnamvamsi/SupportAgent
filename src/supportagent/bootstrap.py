@@ -61,6 +61,7 @@ from supportagent.adapters.db.repos.webhooks import SqlNonceStore, WebhookInbox
 from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.demo_servicenow import build as _build_demo_servicenow
 from supportagent.adapters.fakes.faults import FaultInjectingTicketSink, FaultInjectingTool
+from supportagent.adapters.files import git_catalog
 from supportagent.adapters.files._yaml import dump_yaml
 from supportagent.adapters.files.calibration_loader import load_calibration
 from supportagent.adapters.files.catalog_loader import load_catalog
@@ -1657,11 +1658,15 @@ def onboarding_facts(config: AppConfig, engine: Engine, clock: Clock) -> Onboard
     root = plugins_root()
     plugins = load_plugins(root)
     catalogs: list[tuple[str, int | None, str]] = []
-    for catalog in config.plugins.catalogs:
+    # doctor reads, never fetches: a git catalogue not fetched yet says so
+    for label, directory, error in catalog_dirs(config, fetch=False):
+        if directory is None:
+            catalogs.append((label, None, error))
+            continue
         try:
-            catalogs.append((catalog, len(load_registry(Path(catalog))), ""))
+            catalogs.append((label, len(load_registry(directory)), ""))
         except (ConfigError, OSError) as exc:
-            catalogs.append((catalog, None, str(exc)))
+            catalogs.append((label, None, str(exc)))
     declared = {
         name: p.manifest.id
         for p in plugins
@@ -5111,11 +5116,60 @@ class Installed:
     detail: str
 
 
-def load_catalogs(config: AppConfig) -> list[LoadedPlugin]:
-    """Every plugin the configured catalogues offer (each verified against its own index)."""
-    out: list[LoadedPlugin] = []
+def catalog_dirs(config: AppConfig, *, fetch: bool) -> list[tuple[str, Path | None, str]]:
+    """Each configured catalogue as ``(label, directory, error)``.
+
+    A git catalogue (ADR-0017 §2) is its verified checkout at the pinned commit:
+    fetched now when ``fetch``, otherwise only if it's already in the cache.
+    ``directory`` is ``None`` when there isn't one, and ``error`` says why.
+    """
+    cache = Path(config.plugins.cache_dir)
+    out: list[tuple[str, Path | None, str]] = []
     for catalog in config.plugins.catalogs:
-        out.extend(load_registry(Path(catalog)))
+        if isinstance(catalog, str):
+            out.append((catalog, Path(catalog), ""))
+            continue
+        try:
+            checkout = (
+                git_catalog.fetch(cache, catalog.git, catalog.ref)
+                if fetch
+                else git_catalog.cached(cache, catalog.git, catalog.ref)
+            )
+        except ConfigError as exc:
+            out.append((catalog.label, None, str(exc)))
+            continue
+        if checkout is None:
+            out.append((catalog.label, None, "not fetched yet: supportagent plugin fetch"))
+        else:
+            out.append((catalog.label, checkout / catalog.path, ""))
+    return out
+
+
+def fetch_catalogs(config: AppConfig) -> list[tuple[str, int | None, str]]:
+    """``plugin fetch``: each catalogue fetched if needed, and how many plugins it offers."""
+    out: list[tuple[str, int | None, str]] = []
+    for label, directory, error in catalog_dirs(config, fetch=True):
+        if directory is None:
+            out.append((label, None, error))
+            continue
+        try:
+            out.append((label, len(load_registry(directory)), ""))
+        except (ConfigError, OSError) as exc:
+            out.append((label, None, str(exc)))
+    return out
+
+
+def load_catalogs(config: AppConfig) -> list[LoadedPlugin]:
+    """Every plugin the configured catalogues offer (each verified against its own index).
+
+    A git catalogue is fetched when it isn't cached yet; one that can't be is a
+    ``ConfigError``, like a directory that doesn't load.
+    """
+    out: list[LoadedPlugin] = []
+    for label, directory, error in catalog_dirs(config, fetch=True):
+        if directory is None:
+            raise ConfigError(f"catalogue {label}: {error}")  # noqa: TRY003
+        out.extend(load_registry(directory))
     return out
 
 
@@ -5200,7 +5254,7 @@ def _sense_digest(workspace: Path, config: AppConfig) -> str:
     """What sensing reads: the sources, the installed plugins and every catalogue."""
     indexes = [
         plugins_root() / "index.yaml",
-        *(Path(c) / "index.yaml" for c in config.plugins.catalogs),
+        *(d / "index.yaml" for _, d, _ in catalog_dirs(config, fetch=False) if d is not None),
     ]
     sources = [
         (path, sha)
@@ -5210,6 +5264,8 @@ def _sense_digest(workspace: Path, config: AppConfig) -> str:
     return digest(
         sources,
         [(str(i), hashlib.sha256(i.read_bytes()).hexdigest()) for i in indexes if i.is_file()],
+        # a git catalogue's pin, fetched or not: a new commit re-runs sensing
+        [(f"catalogue:{label}", "") for label, _, _ in catalog_dirs(config, fetch=False)],
     )
 
 

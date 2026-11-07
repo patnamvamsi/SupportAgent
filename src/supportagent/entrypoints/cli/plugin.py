@@ -22,6 +22,7 @@ from supportagent.app.request_review import request_id
 from supportagent.bootstrap import (
     AUTOPILOT_STATE,
     detect_plugins,
+    fetch_catalogs,
     ingest_system,
     install_and_record,
     load_plugins,
@@ -149,6 +150,30 @@ def install(
         raise typer.Exit(2) from exc
     typer.echo(f"installed {result.plugin} as {result.status}: {result.detail}")
     typer.echo("re-run `supportagent onboard run` to use it")
+
+
+@plugin_app.command("fetch")
+def fetch(
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"), "--config", help="supportagent.yaml (plugins.catalogs)."
+    ),
+) -> None:
+    """Fetch each git catalogue at its pinned commit (read-only) and check its index.
+
+    A commit already fetched is reused without the network. Exit 1 when a
+    catalogue can't be fetched or doesn't load.
+    """
+    try:
+        results = fetch_catalogs(load_config_default(config))
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not results:
+        typer.echo("no catalogues configured (plugins.catalogs)")
+    for label, offered, error in results:
+        typer.echo(f"{'FAIL' if error else 'ok  '}  {label}: {error or f'{offered} plugin(s)'}")
+    if any(error for _, _, error in results):
+        raise typer.Exit(1)
 
 
 @plugin_app.command("new")
