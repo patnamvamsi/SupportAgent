@@ -10,6 +10,16 @@ Items that need the maintainer's decision or resources. The work packages carry 
 - **Done meanwhile:** the loop works end to end on three synthetic reference systems (ADR-0015/16/17). [next-steps.md](next-steps.md) lists what must land first for a real system to reach *ready*: live evidence capture (1.1) and credential binding (1.2).
 - **Unblocks:** next-steps 1.4, the first real onboarding.
 
+### ADR-0021 transaction tracing: review (2026-11-08)
+
+- **What's needed:** a review of [ADR-0021](adr/0021-transaction-tracing.md), written from the "business-to-production" idea. Four questions:
+  1. Accept the direction, or park it.
+  2. May a flow be used once its own lab passes, before live calibration? It doesn't route or propose, so the proposal is yes.
+  3. Which business flow on the real system to start with.
+  4. Whether business records may be read on that system, or tracing starts from logs and messages only.
+- **Done meanwhile:** the ADR (proposed), roadmap item 1.5 and BL-056. No code: flows should be fitted to the real system's processes and logs.
+- **Unblocks:** next-steps 1.5, after 1.4.
+
 ### GitHub Actions minutes: merging on local CI until they reset (2026-10-29)
 
 - **What happened:** the repo is private on the free plan, so Actions get the free plan's monthly minutes. Each push runs about 13 jobs, billed per job and rounded up to the minute, and the nightly job runs every day; together they used up the month's minutes. GitHub then refuses jobs with the "payments … spending limit" message. No payment is needed.
