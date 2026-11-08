@@ -59,6 +59,9 @@ class TraceRun:
     #: The question's pseudonymiser, for text derived later (RCA's claims), so the
     #: same value keeps its placeholder; ``None`` when PII couldn't be checked.
     pseudonymise: Callable[[str], str] | None = field(default=None, compare=False, repr=False)
+    #: Placeholders back to values, for the person who asked (the trace page);
+    #: never sent to the model or recorded. Identity when nothing was pseudonymised.
+    reveal: Callable[[str], str] = field(default=lambda text: text, compare=False, repr=False)
 
     def as_dict(self) -> dict[str, object]:
         v = self.verdict
@@ -159,6 +162,7 @@ class FlowTracer:
             counts,
             error,
             guard.text if guard is not None else None,
+            guard.pseudonyms.reveal if guard is not None else (lambda text: text),
         )
         self._audit(run, trace, actor=actor, read=sorted(raw), records=flow.reads_records())
         return run
