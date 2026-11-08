@@ -160,6 +160,7 @@ from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.oracle import ORACLE_TOOLS, OracledbReader
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
+from supportagent.adapters.tools.records import PsycopgRecordReader, RecordsQueryTool
 from supportagent.app.access_binding import AccessBinding, BindOutcome
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
@@ -2518,6 +2519,12 @@ def _pack_tools(
             statement_timeout_ms=cfg.postgres.statement_timeout_ms,
         )
         tools.extend(tool_cls(reader=reader) for tool_cls in POSTGRES_TOOLS)
+    if cfg.records:  # ADR-0021 §4
+        records = PsycopgRecordReader(
+            {name: db.dsn.get_secret_value() for name, db in cfg.records.databases.items()},
+            statement_timeout_ms=cfg.records.statement_timeout_ms,
+        )
+        tools.append(RecordsQueryTool(reader=records))
     oracle_dsns = dict(bound.get("first_party:oracle_ro", {}))
     if cfg.oracle:
         oracle_dsns |= {

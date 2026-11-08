@@ -26,6 +26,7 @@ from supportagent.adapters.tools.oncall import OnCallTool
 from supportagent.adapters.tools.oracle import ORACLE_TOOLS
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
+from supportagent.adapters.tools.records import RecordsQueryTool
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ _FIRST_PARTY: tuple[type[_Declares], ...] = (
     PrometheusQueryTool,
     PodStatusTool,
     RecentChangesTool,
+    RecordsQueryTool,
     *POSTGRES_TOOLS,
     *ORACLE_TOOLS,
 )

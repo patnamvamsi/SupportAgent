@@ -95,7 +95,8 @@ Progress:
 - ~~The lab~~ (*done*, WP-T4): `supportagent eval trace` runs each flow fixture's labelled scenarios (`evals/trace`; System C's shipment flow, 25 scenarios) through the real tracer and explainer. Gates: no wrong stopping stage, stuck objects found, every can't-tell naming its stage, no seeded PII in any model request, and the share of answers kept. Recorded live with Qwen; CI replays it. The judge doesn't count lateness after a stage that wasn't seen.
 - ~~Candidate flows~~ (*done*, WP-T5): `supportagent onboard flows` ranks what tickets ask about by id and drafts an unreviewed flow per candidate, its stages in graph order. `supportagent flow verify FILE --sample ID…` finds the stages that can't see completed objects (correlation gaps).
 - ~~The trace page~~ (*done*, WP-T6): `/ui/trace` traces with a reviewed flow as the signed-in user, under a new `trace` permission (analyst, approver, admin).
-- Next: fitting a first flow on the real system (1.4): `onboard flows`, pick a candidate, `flow verify`, write its lab.
+- ~~Reading records~~ (*done*): `records.query` runs a reviewed `SELECT` over a separate read-only connection (`tools.records`), with the id as a bound parameter. Flows use it for stages logs can't establish, and pack probes can use it to debug data anomalies (maintainer's decision, ADR-0021 §4).
+- Next: fitting flows on the real system (1.4). The backtest flow (logs only) verifies and traces. The order flow needs records.
 
 A flow is usable once its lab passes; the calibration floor doesn't apply. Fitting a flow waits on 1.4. The generic parts (the flow model, candidate flows, the PII layer, the lab) can be built on the reference systems first.
 

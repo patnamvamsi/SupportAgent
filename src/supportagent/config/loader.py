@@ -197,7 +197,7 @@ def _resolve_secrets(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, A
     for hook in resolved.get("webhooks") or []:
         if isinstance(hook, dict) and "secret_env" in hook:
             hook["secret"] = _resolve_variable(hook.pop("secret_env"), "secret_env", env)
-    # WP-M04, WP-O6a: each read-only Postgres or Oracle connection carries its own ``dsn_env``.
+    # WP-M04, WP-O6a, ADR-0021: each read-only database connection carries its own ``dsn_env``.
     for db in _read_only_databases(resolved):
         if isinstance(db, dict) and "dsn_env" in db:
             db["dsn"] = _resolve_variable(db.pop("dsn_env"), "dsn_env", env)
@@ -263,9 +263,9 @@ def _mcp_servers(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_only_databases(raw: dict[str, Any]) -> list[Any]:
-    """WP-M04, WP-O6a: every ``tools.postgres`` and ``tools.oracle`` connection."""
+    """WP-M04, WP-O6a, ADR-0021: every ``tools.postgres``, ``oracle`` and ``records`` connection."""
     out: list[Any] = []
-    for tool in ("postgres", "oracle"):
+    for tool in ("postgres", "oracle", "records"):
         node = _section(raw, ("tools", tool))
         databases = node.get("databases") if node is not None else None
         out.extend(databases.values() if isinstance(databases, dict) else ())

@@ -27,7 +27,7 @@ class ServiceEntry(DomainModel):
     paging_integration: str | None = None
     #: ADR-0011: technology tags that select skill packs (``python``, ``postgres``, …).
     stack: list[str] = Field(default_factory=list)
-    #: WP-M04: the ``tools.postgres.databases`` this service may read (the allowlist).
+    #: WP-M04: the ``tools.postgres`` (and ``tools.records``) databases this service may read.
     databases: list[str] = Field(default_factory=list)
     #: WP-M04: where its pods run, for ``k8s.pod_status`` and rollouts.
     k8s_namespace: str | None = None
