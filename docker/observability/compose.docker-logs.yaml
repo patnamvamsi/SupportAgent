@@ -1,0 +1,13 @@
+# Opt-in: also ship one Compose project's container logs to Loki.
+#   DOCKER_LOGS_PROJECT=<project> docker compose -f compose.yaml -f compose.docker-logs.yaml up -d alloy
+# Alloy reads the Docker API through the socket (mounted read-only, but the
+# API itself isn't: only use this on a host where that is acceptable).
+services:
+  alloy:
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/"]
+    environment:
+      DOCKER_LOGS_PROJECT: ${DOCKER_LOGS_PROJECT:?name the compose project whose logs to ship}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy/docker.alloy:/etc/alloy/docker.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro

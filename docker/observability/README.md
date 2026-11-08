@@ -9,7 +9,7 @@ Prometheus, Loki, Grafana and Grafana's MCP server (`mcp-grafana`), for the tool
 |---|---|---|
 | Prometheus | 9390 | scrapes itself (`service="demo-api"`) and Grafana (`service="demo-grafana"`) |
 | Loki | 3110 | single process, filesystem storage, 7-day retention |
-| Alloy | (none) | ships `./demo-logs/<service>.log` to Loki with the label `service="<service>"` |
+| Alloy | (none) | ships `./demo-logs/<service>.log` to Loki with the label `service="<service>"`; optionally a Compose project's container logs (below) |
 | Grafana | 3300 | provisioned datasources, uids `prometheus` and `loki`; anonymous access is **Viewer** only |
 | mcp-grafana | 8810, path `/mcp` | streamable HTTP; callers need `Authorization: Bearer $MCP_GRAFANA_SERVER_TOKEN`; started with `-disable-write` |
 
@@ -57,6 +57,17 @@ Declare `query_loki_logs` on the server too (`tools: [query_prometheus, query_lo
 ```
 
 Or read Loki directly: `tools: {loki: {base_url: "http://<host>:3110"}}`. To feed the demo, append lines to `demo-logs/<service>.log` on the host.
+
+## Ship a Compose project's container logs (opt-in)
+
+To trace a real system that runs under Docker Compose and logs to stdout, add the override:
+
+```sh
+DOCKER_LOGS_PROJECT=<compose project> \
+  docker compose -f compose.yaml -f compose.docker-logs.yaml up -d alloy
+```
+
+Alloy then also reads that project's containers through the Docker socket. Each line is labelled `project="<project>"` and `service="<compose service>"`, so a flow stage can query `{project="p", service="worker"} |= "$object.id"`. Containers of other projects are dropped. The socket is mounted read-only, but the Docker API behind it isn't, so use this only on a host where giving Alloy that access is acceptable. On first start, Loki rejects lines older than its retention ("entry too far behind"); the errors stop once Alloy catches up.
 
 ## Contract check
 
