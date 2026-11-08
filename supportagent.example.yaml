@@ -84,6 +84,10 @@ paging:                              # v0.1 (WP-112): attach-only; SupportAgent 
 #     databases:
 #       orders: {dsn_env: PG_ORDERS_RO}   # a role with pg_monitor only
 #     statement_timeout_ms: 5000
+#   records:                         # ADR-0021 §4: reviewed reads of business records (records.query)
+#     databases:
+#       orders: {dsn_env: PG_ORDERS_RECORDS}  # SELECT on the tables flows/probes read; no auth tables
+#     statement_timeout_ms: 5000
 #   oracle:                          # WP-O6a: the oracle plugin's oracle_ro account per database
 #     databases:                     # (install python-oracledb in the image)
 #       paydb: {dsn_env: PAYDB_RO}     # ro_user/password@host:1521/service

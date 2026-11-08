@@ -389,6 +389,15 @@ class ToolOracle(DomainModel):
     call_timeout_ms: int = Field(default=5000, ge=100, le=60000)
 
 
+class ToolRecords(DomainModel):
+    """``records.query`` (ADR-0021 §4): catalog ``databases:`` names map to business-data
+    connections, apart from ``tools.postgres``: a role with ``SELECT`` on the tables flows
+    and probes read, and nothing on credentials or sessions."""
+
+    databases: dict[str, ToolPostgresDatabase] = Field(min_length=1)
+    statement_timeout_ms: int = Field(default=5000, ge=100, le=60000)
+
+
 class ToolPrometheus(DomainModel):
     base_url: str = Field(min_length=1)
     token: SecretStr | None = None
@@ -486,6 +495,8 @@ class Tools(DomainModel):
     postgres: ToolPostgres | None = None
     #: WP-O6a: the oracle plugin's tools.
     oracle: ToolOracle | None = None
+    #: ADR-0021 §4: reviewed reads of business records.
+    records: ToolRecords | None = None
     prometheus: ToolPrometheus | None = None
     #: BL-050: ``logs.search`` over Loki.
     loki: ToolLoki | None = None

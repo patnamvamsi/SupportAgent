@@ -55,6 +55,10 @@ A credential for business data is bound like any other (ADR-0019), and must also
 - **Audit.** Every lookup is an event on the case timeline: who asked, which flow, which ID, which stages were read.
 - **Opt-in per flow.** A flow that reads business records stays off until an admin enables it, as with grants.
 
+The capability is `records.query`, over a business-data connection kept apart from the `pg_monitor` one (`tools.records`). Its SQL is a reviewed literal from the flow or pack, never the model's: one `SELECT`, whose only inputs are `:id` and `:key`, sent as bound parameters. The session is read-only with a statement timeout, and at most 50 rows come back. The database must be one the stage's catalog service lists in `databases:`.
+
+**Investigations use the same credential (maintainer's decision, 2026-11-08).** The read-only grant isn't only for tracing: a pack's probe may use `records.query` too, to debug a data anomaly (gaps in market data, for example) or anything else the records show. The rules that still hold are reviewed SQL only (never the model's), the read-only role and the audit of every call. A probe's query can aggregate over a window instead of reading one ID's rows. Its result reaches the model only as cited `entail` evidence, which isn't pseudonymised. So a probe selects aggregates and non-personal columns, and that is part of reviewing it. The role is granted no credentials or session tables.
+
 ### 4a. PII is detected and pseudonymised before the model sees anything (maintainer's decision)
 
 Logs and messages carry personal data as often as database rows do, so this applies to **every** stage result, not only record reads:
