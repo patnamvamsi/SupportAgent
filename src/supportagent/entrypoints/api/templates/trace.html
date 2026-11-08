@@ -19,7 +19,7 @@
 {% endif %}
 {% if run %}
 <h2>{{ run.object_id }}: {{ run.verdict.kind | replace("_", " ") }}{% if run.verdict.stage and stages.get(run.verdict.stage) %} at {{ stages[run.verdict.stage].title }}{% endif %}</h2>
-{% if answer %}<p class="lead">{{ answer.summary }}</p>{% endif %}
+{% if answer %}<p class="lead">{{ run.reveal(answer.summary) }}</p>{% endif %}
 <div class="table-wrap"><table>
   <thead><tr><th></th><th>Stage</th><th>Component</th><th>When</th><th>Note</th></tr></thead>
   <tbody>{% for o in run.observations %}
@@ -37,12 +37,13 @@
 {% if answer %}
 {% if answer.engineer %}
 <h3>For the engineer</h3>
-<ul>{% for s in answer.engineer %}<li>{{ s.text }} <span class="muted">[{{ s.cites | join(", ") }}]</span></li>{% endfor %}</ul>
+<ul>{% for s in answer.engineer %}<li>{{ run.reveal(s.text) }} <span class="muted">[{{ s.cites | join(", ") }}]</span></li>{% endfor %}</ul>
 {% endif %}
 {% if answer.rca %}<p class="muted">Diagnosis on {{ answer.rca.get("service", "the component") }}: {{ answer.rca.get("outcome", answer.rca.get("skipped", "")) }}</p>{% endif %}
 {% if answer.dropped %}<p class="muted">{{ answer.dropped }} sentence(s) were dropped: the facts they cite don't support them.</p>{% endif %}
+{% if run.pii_counts %}<p class="muted">Personal data is shown to you as the logs have it; the model saw placeholders only.</p>{% endif %}
 <details><summary>Facts the answer may cite</summary>
-<ul>{% for f in answer.facts %}<li><code>{{ f.id }}</code> {{ f.text }}</li>{% endfor %}</ul>
+<ul>{% for f in answer.facts %}<li><code>{{ f.id }}</code> {{ run.reveal(f.text) }}</li>{% endfor %}</ul>
 </details>
 {% endif %}
 {% endif %}

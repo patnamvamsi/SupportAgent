@@ -71,6 +71,18 @@ def test_counts_never_carry_values() -> None:
     assert "jane" not in repr(names.counts)
 
 
+def test_reveal_restores_issued_placeholders_only() -> None:
+    names = Pseudonyms()
+    text = "Jane Doe paid; Jane Doe asked again"
+    spans = [PiiSpan(0, 8, "PERSON", 1.0), PiiSpan(15, 23, "PERSON", 1.0)]
+    masked = names.apply(text, spans)
+    assert masked == "<PERSON_1> paid; <PERSON_1> asked again"
+    assert names.reveal(masked) == text
+    # One the map never issued (a model made it up) stays as it is.
+    assert names.reveal("<PERSON_1> and <PERSON_7>") == "Jane Doe and <PERSON_7>"
+    assert Pseudonyms().reveal("<PERSON_1>") == "<PERSON_1>"
+
+
 def test_kept_value_passes_through() -> None:
     # A deployment recogniser for accounts would also match the traced id itself.
     text = "trade ACC-123456 booked for ACC-654321"

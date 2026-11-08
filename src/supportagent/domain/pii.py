@@ -10,6 +10,10 @@ Two steps, in order:
   in memory only and is never stored, logged or sent (INV-06): callers read
   :attr:`Pseudonyms.counts`, never the values.
 
+The person who asked may see the values again: :meth:`Pseudonyms.reveal` puts
+them back into text derived from placeholders (the answer on the trace page).
+It reads the same in-memory map, so nothing new is stored or sent.
+
 Values the question must keep (the traced object's own id) pass through: a
 span that lies inside an occurrence of a kept value isn't replaced. Pure: the
 spans come from a ``PiiAnalyzer`` port.
@@ -22,6 +26,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 _ENTITY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_PLACEHOLDER = re.compile(r"<[A-Z][A-Z0-9_]*_\d+>")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,17 @@ class Pseudonyms:
             name = f"<{entity}_{n}>"
             self._names[key] = name
         return name
+
+    def reveal(self, text: str) -> str:
+        """``text`` with every placeholder this map issued replaced by its value.
+
+        For the person who asked, never for the model: a placeholder the map
+        didn't issue (one a model made up) stays as it is.
+        """
+        if not self._names:
+            return text
+        values = {name: value for (_, value), name in self._names.items()}
+        return _PLACEHOLDER.sub(lambda m: values.get(m.group(0), m.group(0)), text)
 
     def apply(self, text: str, spans: Iterable[PiiSpan]) -> str:
         """``text`` with every span outside a kept value replaced by its placeholder."""
