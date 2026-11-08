@@ -72,7 +72,9 @@ A Git doc can carry a procedure: `sop: {when: [<hypothesis ids>], steps: [{id, k
 
 ### Tool capabilities (one result schema each)
 
-The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `oracle.locks`, `oracle.sessions`, `oracle.tablespaces`, `oracle.top_sql`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`.
+The catalog: `airflow.dag_runs`, `changes.recent`, `cron.status`, `gha.recent_runs`, `k8s.pod_status`, `logs.grep`, `logs.search`, `metrics.query`, `oncall.who`, `oracle.locks`, `oracle.sessions`, `oracle.tablespaces`, `oracle.top_sql`, `postgres.activity`, `postgres.locks`, `postgres.replication`, `postgres.slow_queries`, `postgres.storage`, `records.query`.
+
+`records.query` (ADR-0021 §4) runs a reviewed `SELECT` from the flow stage or probe over `tools.records`. Its only inputs are `:id` and `:key`, as bound parameters. A probe that uses it selects aggregates and non-personal columns.
 
 - **A new first-party capability** (`tool new <area>.<verb>`) generates the adapter (with `result_schema`), its fake upstream, and a contract test. Engineering reviews and registers it.
 - **Binding an existing capability to MCP** (`tool new <capability> --mcp <server> --mcp-tool <tool>`) generates a config snippet:
