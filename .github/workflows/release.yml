@@ -1,0 +1,188 @@
+# Release (06 §6): pushing the tag v<version> builds, checks, signs and
+# publishes the image. Nothing is published until a maintainer approves the
+# `release` environment, and what's published is the digest that was tested:
+# the final tags are added to it, never rebuilt.
+#
+#   verify ─► ci (every ci.yml job) ─┐
+#          └► soak (nightly.yml) ────┴► build ─► smoke ─► publish (approval)
+#
+# build: linux/amd64 + linux/arm64, pushed by digest only, with an SBOM and
+#        build provenance attached, keyless-signed with cosign.
+# smoke: the signature verifies against this workflow, then
+#        scripts/image-smoke.sh runs the pulled image with nothing mounted.
+# publish: tags the digest <version> (and <minor> and latest unless it's an
+#          rc), and creates the GitHub Release from docs/releases/<X.Y.Z>.md.
+#
+# Third-party actions are pinned to commit SHAs (the jobs hold write and
+# signing permissions); Dependabot keeps them current.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      minor: ${{ steps.check.outputs.minor }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      notes: ${{ steps.check.outputs.notes }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: The tag matches pyproject.toml and the release notes name the head revision
+        id: check
+        run: python3 scripts/release_check.py "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
+
+  ci:
+    needs: verify
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+
+  soak:
+    needs: verify
+    uses: ./.github/workflows/nightly.yml
+
+  build:
+    needs: [verify, ci, soak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless signing and provenance
+      attestations: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Image name (GHCR needs lowercase)
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/supportagent" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest (amd64, arm64) with SBOM and provenance
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: type=image,name=${{ steps.name.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+          provenance: mode=max
+          sbom: true
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Sign the digest (keyless, this workflow's identity)
+        run: cosign sign --yes "${{ steps.name.outputs.image }}@${{ steps.push.outputs.digest }}"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: SBOM for the release page (SPDX)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.name.outputs.image }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: supportagent-${{ needs.verify.outputs.version }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+  smoke:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: The signature verifies against this repository's release workflow
+        run: |
+          cosign verify "${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}" \
+            > /dev/null
+      - name: The pulled image runs on its own
+        run: |
+          scripts/image-smoke.sh \
+            "${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
+            "${{ needs.verify.outputs.version }}"
+
+  publish:
+    needs: [verify, build, smoke]
+    runs-on: ubuntu-latest
+    # Settings → Environments → release: required reviewers.
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the tested digest (no rebuild)
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          MINOR: ${{ needs.verify.outputs.minor }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          tags=(-t "$IMAGE:$VERSION")
+          if [ "$PRERELEASE" != true ]; then tags+=(-t "$IMAGE:$MINOR" -t "$IMAGE:latest"); fi
+          docker buildx imagetools create "${tags[@]}" "$IMAGE@$DIGEST"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: "*.spdx.json"
+          merge-multiple: true
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          NOTES: ${{ needs.verify.outputs.notes }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          # shellcheck disable=SC2016 # the backticks are Markdown, not expansions
+          {
+            cat "$NOTES"
+            printf '\n## Image\n\n```\ndocker pull %s:%s\n```\n\nDigest `%s`, signed. Verify with:\n\n' "$IMAGE" "$VERSION" "$DIGEST"
+            printf '```\ncosign verify %s@%s \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n  --certificate-identity %s/%s/.github/workflows/release.yml@%s\n```\n' \
+              "$IMAGE" "$DIGEST" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF"
+          } > release-notes.md
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "SupportAgent $VERSION" \
+            --notes-file release-notes.md "${flags[@]}" ./*.spdx.json

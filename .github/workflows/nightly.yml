@@ -7,6 +7,8 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+  # release.yml: the soak blocks a release (04 §6).
+  workflow_call:
 
 permissions:
   contents: read

@@ -72,7 +72,8 @@ security() {
     uv run pip-audit -r "$reqs" --no-deps --disable-pip &&
     uv run bandit -q -r src &&
     gitleaks detect --redact --log-opts="$BASE..HEAD" &&
-    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh &&
+    docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -no-color
 }
 image() {
   docker build -f docker/Dockerfile -t supportagent:ci . &&
