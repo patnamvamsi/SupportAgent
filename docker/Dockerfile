@@ -10,7 +10,7 @@
 # venv. So a src/ change rebuilds only the cheap project layer, a lock
 # change rebuilds dependencies — and the runtime image is the venv alone.
 
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 RUN pip install --no-cache-dir uv==0.8.17
 WORKDIR /app
 # Lock-first: the dependency layer re-resolves only when the lock changes.
@@ -28,7 +28,7 @@ RUN chmod -R a+rX /app
 # /venv/site-packages, so the runtime stage needs the venv and nothing else.
 RUN UV_PROJECT_ENVIRONMENT=/venv uv sync --frozen --no-dev --no-editable
 
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/venv/bin:$PATH" \
