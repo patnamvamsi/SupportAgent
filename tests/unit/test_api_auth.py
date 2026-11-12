@@ -95,3 +95,47 @@ def test_grant_self_approval_maps_to_403(client: TestClient, oidc: FakeOIDC, db:
 
 def test_healthz(client: TestClient) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_readyz_reports_the_version_and_schema_head(client: TestClient) -> None:
+    import supportagent  # noqa: PLC0415
+
+    body = client.get("/readyz").json()
+    assert body["status"] == "ready"
+    assert body["version"] == supportagent.__version__
+    assert body["revision"]
+
+
+def test_readyz_is_503_until_migrated(client: TestClient) -> None:
+    from supportagent.domain.errors import ExternalServiceError  # noqa: PLC0415
+
+    class _Behind:
+        def __init__(self, current: str | None, *, down: bool = False) -> None:
+            self._current, self._down = current, down
+
+        def head_revision(self) -> str:
+            return "0022"
+
+        def current_revision(self) -> str | None:
+            if self._down:
+                raise ExternalServiceError("database unreachable: refused")  # noqa: TRY003
+            return self._current
+
+        def foreign_keys_enforced(self) -> bool | None:
+            return None
+
+    import dataclasses  # noqa: PLC0415
+
+    from supportagent.entrypoints.api.app import create_app  # noqa: PLC0415
+
+    ctx = client.app.state.ctx  # type: ignore[attr-defined]
+    for probe, reason in (
+        (_Behind("0021"), "database at 0021, this build at 0022: run migrate"),
+        (_Behind(None), "database at no schema, this build at 0022: run migrate"),
+        (_Behind(None, down=True), "database unreachable"),
+    ):
+        behind = TestClient(create_app(dataclasses.replace(ctx, schema=probe)))
+        resp = behind.get("/readyz")
+        assert resp.status_code == 503
+        assert resp.json()["reason"] == reason
+        assert "refused" not in resp.text  # no driver detail on an unauthenticated route

@@ -9,5 +9,21 @@
 !alembic.ini
 !migrations/
 !docker/fake_sn.py
+# What the product ships with, so the image runs without a checkout (a cloud
+# container service has nothing to mount). A deployment can still mount its
+# own over any of them.
+!LICENSE
+!NOTICE
+!supportagent.example.yaml
+!catalog/
+!taxonomy/
+!packs/
+!plugins/
+!prompts/
+!runbooks/
+!templates/
+!evals/
+evals/artifacts/2*
+**/.cache
 **/__pycache__
 **/*.py[cod]

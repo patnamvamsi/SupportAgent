@@ -22,6 +22,7 @@ from supportagent.app.webhooks import WebhookService
 from supportagent.domain.model.flow import Flow
 from supportagent.domain.promotion import PromotionGate
 from supportagent.ports.clock import Clock
+from supportagent.ports.diagnostics import SchemaProbe
 from supportagent.ports.identity import IdentityProvider
 
 
@@ -62,3 +63,5 @@ class ApiContext:
     #: ADR-0021: the reviewed flows, and one trace (flow, object id, who asks).
     flows: Callable[[], Mapping[str, Flow]] | None = None
     trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None
+    #: 02 §2 ``/readyz``: the database's applied revision against this build's head.
+    schema: SchemaProbe | None = None

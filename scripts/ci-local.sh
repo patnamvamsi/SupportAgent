@@ -72,11 +72,11 @@ security() {
     uv run pip-audit -r "$reqs" --no-deps --disable-pip &&
     uv run bandit -q -r src &&
     gitleaks detect --redact --log-opts="$BASE..HEAD" &&
-    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh
 }
 image() {
   docker build -f docker/Dockerfile -t supportagent:ci . &&
-    [ "$(docker run --rm supportagent:ci --version)" = "0.0.0" ]
+    scripts/image-smoke.sh supportagent:ci
 }
 
 uv sync --frozen >/dev/null || exit 1

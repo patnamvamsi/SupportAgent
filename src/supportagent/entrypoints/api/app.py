@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 from ulid import ULID
 
+from supportagent import __version__
+from supportagent.domain.errors import ExternalServiceError
 from supportagent.entrypoints.api import csrf, problems
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.api.routes import (
@@ -58,6 +60,27 @@ def create_app(ctx: ApiContext) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz(response: Response) -> dict[str, str]:
+        """02 §2: the config loaded (or there'd be no app), the database is reachable
+        and its migrations are at this build's head. 503 otherwise; the app never
+        migrates itself (06 §2)."""
+        body = {"version": __version__}
+        schema = ctx.schema
+        if schema is None:
+            return {"status": "ready", **body}
+        try:
+            current = schema.current_revision()
+        except ExternalServiceError:
+            response.status_code = 503
+            return {"status": "not_ready", "reason": "database unreachable", **body}
+        head = schema.head_revision()
+        if current != head:
+            response.status_code = 503
+            reason = f"database at {current or 'no schema'}, this build at {head}: run migrate"
+            return {"status": "not_ready", "reason": reason, **body}
+        return {"status": "ready", "revision": head, **body}
 
     for module in (auth, setup, grants, proposals, cases, comms, users, stats, webhooks, ui):
         app.include_router(module.router)

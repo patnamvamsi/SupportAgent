@@ -2,7 +2,7 @@
 #
 #   Parallel:  lint | typecheck | architecture | unit+property | contract | invariants[sqlite|postgres] | security
 #   Chain:     unit+property ─┬─► integration[sqlite|postgres] ─► e2e ─┬─► eval  (PRs touching prompts/taxonomy/config, 04 §6)
-#             invariants  ────┘                        └─► image (also needs security; --version must print 0.0.0)
+#             invariants  ────┘                        └─► image (also needs security; scripts/image-smoke.sh)
 #
 # Suites that have not landed yet (contract/invariants/integration/e2e) are
 # hard the moment their folder exists: pytest exit 5 ("no tests collected")
@@ -277,8 +277,8 @@ jobs:
           uv run pip-audit -r reqs.txt --no-deps --disable-pip
       - name: bandit
         run: uv run bandit -r src
-      - name: shellcheck (install.sh, the local CI runner)
-        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh
+      - name: shellcheck (install.sh, the local CI runner, the image smoke test)
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -294,11 +294,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the supportagent image
         run: docker build -f docker/Dockerfile -t supportagent:ci .
-      - name: Entrypoint prints the version (10-wp DoD)
-        run: |
-          out=$(docker run --rm supportagent:ci --version)
-          if [ "$out" != "0.0.0" ]; then
-            echo "::error::supportagent --version printed '$out', expected '0.0.0'"
-            exit 1
-          fi
-          echo "version check passed: $out"
+      - name: The image runs on its own (version, offline eval, migrate, /healthz, /readyz)
+        run: scripts/image-smoke.sh supportagent:ci

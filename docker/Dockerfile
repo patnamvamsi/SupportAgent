@@ -47,6 +47,19 @@ COPY --from=builder /venv /venv
 # wheel carries no source tree, so it resolves these from WORKDIR.
 COPY alembic.ini ./
 COPY migrations ./migrations
+# The shipped content, read-only to the app user: taxonomy, packs, plugins,
+# prompts, runbooks, templates, the eval cases and the calibration artifact,
+# the example catalog and config. The image then runs without a checkout;
+# a deployment mounts its own catalog (and anything it customises) over these.
+COPY LICENSE NOTICE supportagent.example.yaml ./
+COPY catalog ./catalog
+COPY taxonomy ./taxonomy
+COPY packs ./packs
+COPY plugins ./plugins
+COPY prompts ./prompts
+COPY runbooks ./runbooks
+COPY templates ./templates
+COPY evals ./evals
 USER supportagent
 EXPOSE 8000
 ENTRYPOINT ["supportagent"]
