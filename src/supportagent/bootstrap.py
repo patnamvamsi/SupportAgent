@@ -394,6 +394,16 @@ from supportagent.ports.tools import Tool, ToolResult
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _shipped(*parts: str) -> Path:
+    """Shipped content (``packs/``, ``taxonomy/``, ``evals/``…): the source checkout's,
+    else the working directory's. An installed wheel has no source tree; the image
+    carries the content in its working directory, as with migrations."""
+    for root in (_REPO_ROOT, Path.cwd()):
+        if (root / parts[0]).exists():
+            return root.joinpath(*parts)
+    return _REPO_ROOT.joinpath(*parts)
+
+
 def _build_uow(config: AppConfig) -> SqlUnitOfWork:
     """A fresh unit of work on the configured engine (call-time, lazy)."""
     return SqlUnitOfWork(make_engine(config.database.url.get_secret_value()))
@@ -3431,6 +3441,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         calibration_in_use=calibration_in_use,
         flows=flows,
         trace=trace,
+        schema=SqlSchemaProbe(engine, head=_head_revision()),
         promotion_gate=promotion_gate or PromotionGate(),
         tenant_id=tenant_id,
         identity=identity,
@@ -3769,7 +3780,9 @@ def probe_confluence(
 
 # --- the onboarding lab (ADR-0015, WP-O7) --------------------------------------------
 
-ONBOARDING_DIR = _REPO_ROOT / "evals" / "onboarding"
+ONBOARDING_DIR = _shipped("evals", "onboarding")
+#: The built-in classification labels (``incident_catalogue``'s default).
+TAXONOMY_FILE = _shipped("taxonomy", "classification.yaml")
 
 
 def load_reference_system(path: Path) -> ReferenceSystem:
@@ -3827,12 +3840,9 @@ def load_onboarding_gates(root: Path = ONBOARDING_DIR) -> OnboardingGates:
 
 # --- plugins (ADR-0015 §2, WP-O1) -----------------------------------------------------
 
-# A source checkout keeps plugins/ at the repo root; the image mounts it under
-# its working directory (docker/local, docker/staging), as with migrations.
-PLUGINS_DIR = next(
-    (root / "plugins" for root in (_REPO_ROOT, Path.cwd()) if (root / "plugins").is_dir()),
-    _REPO_ROOT / "plugins",
-)
+# A source checkout keeps plugins/ at the repo root; the image carries it in its
+# working directory, where a deployment may mount its own.
+PLUGINS_DIR = _shipped("plugins")
 
 
 def plugins_root() -> Path:
@@ -3867,7 +3877,7 @@ def load_plugins(root: Path | None = None, *, packs_dir: Path | None = None) -> 
     """The pinned plugin registry; each plugin's pack, if any, must exist (in the
     plugin itself, or under ``packs/``)."""
     plugins = load_registry(root if root is not None else plugins_root())
-    packs = packs_dir if packs_dir is not None else _REPO_ROOT / "packs"
+    packs = packs_dir if packs_dir is not None else _shipped("packs")
     for plugin in plugins:
         pack = plugin.manifest.provides.pack
         if pack is None or embedded_pack(plugin) is not None:
@@ -4106,7 +4116,7 @@ def build_system_graph(path: Path, pipeline: OnboardingPipeline | None) -> Graph
 def incident_catalogue(
     detections: Sequence[Detection],
     plugins: Sequence[LoadedPlugin],
-    taxonomy: Path = _REPO_ROOT / "taxonomy" / "classification.yaml",
+    taxonomy: Path = TAXONOMY_FILE,
 ) -> Catalogue:
     """The built-in labels and causes, plus those of the plugins the system needs."""
     needed = set(detected_ids(detections))

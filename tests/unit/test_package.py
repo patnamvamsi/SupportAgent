@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import tomllib
+from pathlib import Path
 
 # Every package in the 01 §1 layout (``entrypoints/api/templates`` and
 # ``static`` are asset directories, not Python packages).
@@ -39,8 +41,14 @@ _SUBPACKAGES: tuple[str, ...] = (
 
 
 def test_package_importable() -> None:
-    """``import supportagent`` works, the version is 0.0.0, and every 01 §1 package imports."""
+    """``import supportagent`` works with pyproject's version; every 01 §1 package imports."""
     supportagent = importlib.import_module("supportagent")
-    assert supportagent.__version__ == "0.0.0"
+    assert supportagent.__version__ == _pyproject_version()
     for name in _SUBPACKAGES:
         importlib.import_module(f"supportagent.{name}")
+
+
+def _pyproject_version() -> str:
+    """The version ``pyproject.toml`` declares: the one source of truth (06 §1)."""
+    root = Path(__file__).resolve().parents[2]
+    return str(tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"])

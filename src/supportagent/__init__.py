@@ -5,4 +5,10 @@ package is its v0.0 walking skeleton (``10-wp`` WP-000). Layout and
 dependency rules: ``01-architecture-and-contracts`` §1-2 (frozen).
 """
 
-__version__ = "0.0.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    #: Single-sourced from ``pyproject.toml`` (06 §1) through the installed metadata.
+    __version__ = version("supportagent")
+except PackageNotFoundError:  # pragma: no cover — a bare source tree, never installed
+    __version__ = "0.0.0+unknown"
