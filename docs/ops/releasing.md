@@ -6,9 +6,9 @@ How a version gets from `main` to a published image. [06 §6](../tech-spec/06-ve
 
 | Stage | What runs | Where |
 |---|---|---|
-| Every pull request | lint, strict types, architecture contracts, unit and property tests, contract tests, invariants and integration on SQLite and Postgres, e2e, the eval replays when prompts, packs or model code change, pip-audit, bandit, gitleaks, shellcheck, actionlint, and the image smoke test | `ci.yml` |
+| Every pull request | lint, strict types, architecture contracts, unit and property tests, contract tests, invariants and integration on SQLite and Postgres, e2e, the eval replays when prompts, packs or model code change, pip-audit, bandit, gitleaks, shellcheck, actionlint, the image smoke test, the upgrade test from the previous release on both engines, and the check that released migrations are unchanged | `ci.yml` |
 | Every night | the storm soak on both engines | `nightly.yml` |
-| The tag | the tag matches `pyproject.toml`, and the release notes name the head migration; then all of CI again with every eval, and the soak | `release.yml` (verify, ci, soak) |
+| The tag | the tag matches `pyproject.toml`, the release notes name the head migration, and every migration is recorded as released; then all of CI again with every eval, and the soak | `release.yml` (verify, ci, soak) |
 | The image | built for amd64 and arm64, with an SBOM and build provenance, signed keylessly by the workflow | `release.yml` (build) |
 | Before publishing | the signature verifies, and the pulled image runs on its own (version, offline eval, migrate, `/healthz`, `/readyz`) | `release.yml` (smoke) |
 | Publishing | a maintainer approves the `release` environment; the tested digest is tagged, never rebuilt | `release.yml` (publish) |
@@ -23,7 +23,7 @@ How a version gets from `main` to a published image. [06 §6](../tech-spec/06-ve
 
 1. **Pick the version** (06 §1): `0.MINOR.0` for a roadmap release, `0.MINOR.PATCH` for fixes, and `X.Y.ZrcN` for a candidate.
 2. **Write `docs/releases/X.Y.Z.md`:** what's delivered, the head migration revision as `` `00NN` ``, config changes, prompt, model and taxonomy versions, calibration grade, and known limitations (06 §6 step 3). A candidate's notes may still say draft; a final release's may not.
-3. **Bump `version` in `pyproject.toml`**, and run `uv lock`. Open a PR with both. CI must pass, and `python3 scripts/release_check.py vX.Y.Z` must too.
+3. **Bump `version` in `pyproject.toml`**, run `uv lock`, and run `python3 scripts/release_check.py --record-migrations`. That marks the migrations as released, and from then on CI fails if one is edited. Open a PR with all three. CI must pass, and `python3 scripts/release_check.py vX.Y.Z` must too.
 4. **Merge, then tag the merge commit:**
 
    ```bash

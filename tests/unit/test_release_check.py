@@ -27,7 +27,12 @@ rc = _module()
 
 
 def _repo(
-    tmp_path: Path, version: str, notes: str | None, heads: tuple[str, ...] = ("0002",)
+    tmp_path: Path,
+    version: str,
+    notes: str | None,
+    heads: tuple[str, ...] = ("0002",),
+    *,
+    record: bool = True,
 ) -> Path:
     (tmp_path / "pyproject.toml").write_text(f'[project]\nname = "x"\nversion = "{version}"\n')
     versions = tmp_path / "migrations" / "versions"
@@ -39,6 +44,8 @@ def _repo(
         (tmp_path / "docs" / "releases").mkdir(parents=True)
         base = version.split("rc", maxsplit=1)[0]
         (tmp_path / "docs" / "releases" / f"{base}.md").write_text(notes)
+    if record:
+        rc.record_migrations(tmp_path)
     return tmp_path
 
 
@@ -83,3 +90,25 @@ def test_writes_the_workflow_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert rc.main(["v0.2.0rc2", "--github-output", str(out)]) == 0
     assert "version=0.2.0rc2\nminor=0.2\nprerelease=true\n" in out.read_text()
     assert rc.main(["v9.9.9"]) == 1
+
+
+def test_prints_the_head_revision(capsys: pytest.CaptureFixture[str]) -> None:
+    assert rc.main(["--head"]) == 0
+    assert capsys.readouterr().out.strip() == rc.head_revision(rc.ROOT)
+
+
+def test_every_migration_must_be_recorded_as_released(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, "0.1.0", FINAL, record=False)
+    with pytest.raises(rc.NotReleasableError, match="not recorded as released: versions/0001"):
+        rc.check("v0.1.0", repo)
+    assert rc.record_migrations(repo) == ["versions/0001_base.py", "versions/0002_x.py"]
+    assert rc.record_migrations(repo) == []  # idempotent
+    assert rc.check("v0.1.0", repo).head == "0002"
+
+
+def test_released_migrations_are_unchanged() -> None:
+    """06 §2: a migration in a release is immutable; fix forward with a new one."""
+    now = rc.migration_hashes(rc.ROOT)
+    for name, digest in rc.recorded(rc.ROOT).items():
+        assert name in now, f"released migration {name} was removed"
+        assert now[name] == digest, f"released migration {name} was edited"

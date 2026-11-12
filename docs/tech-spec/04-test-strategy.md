@@ -141,7 +141,9 @@ nightly ─► soak, eval_quality full, mutation testing (domain/), re-record ch
 | invariants | `pytest -m invariant --db=sqlite` and `--db=postgres` | hard (merge blocked) |
 | integration / e2e | `pytest -m integration` / `pytest -m e2e` | hard |
 | eval | `supportagent eval run --suite smoke` (v0.0) / `--suite quality` (v0.1) | hard when triggered by path |
-| security | `pip-audit`, `bandit -r src`, `gitleaks` | hard |
+| upgrade | `scripts/upgrade-test.sh --db sqlite` and `--db postgres`: the previous release's code fills a database, this build migrates it, nothing is lost, and `stats` reads it (06 §7) | hard |
+| security | `pip-audit`, `bandit -r src`, `gitleaks`, `shellcheck`, `actionlint` | hard |
+| image | build, then `scripts/image-smoke.sh`: the version, the offline smoke eval, `migrate`, `/healthz` and `/readyz` with nothing mounted | hard |
 | soak (nightly) | `pytest -m soak` | blocks release |
 
 ---

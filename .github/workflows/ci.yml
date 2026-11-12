@@ -2,6 +2,7 @@
 #
 #   Parallel:  lint | typecheck | architecture | unit+property | contract | invariants[sqlite|postgres] | security
 #   Chain:     unit+property ─┬─► integration[sqlite|postgres] ─► e2e ─┬─► eval  (PRs touching prompts/taxonomy/config, 04 §6)
+#              unit+property ──► upgrade[sqlite|postgres] (from the previous release, 06 §7)
 #             invariants  ────┘                        └─► image (also needs security; scripts/image-smoke.sh)
 #
 # Suites that have not landed yet (contract/invariants/integration/e2e) are
@@ -130,6 +131,28 @@ jobs:
           fi
           uv run pytest -m invariant --db=${{ matrix.db }} \
             --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+
+  upgrade:
+    # 06 §7: the previous release's code fills a database, this build upgrades
+    # it; nothing may be lost and this build must read it back. Passes (skips)
+    # until there is an earlier v* tag. scripts/upgrade-test.sh.
+    runs-on: ubuntu-latest
+    needs: [unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the release tags
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: upgrade from the previous release --db=${{ matrix.db }}
+        run: scripts/upgrade-test.sh --db ${{ matrix.db }}
 
   integration:
     runs-on: ubuntu-latest
@@ -286,7 +309,7 @@ jobs:
       - name: bandit
         run: uv run bandit -r src
       - name: shellcheck (install.sh, the local CI runner, the image smoke test)
-        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh scripts/upgrade-test.sh
       - name: actionlint (the workflows, their shell steps included)
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -no-color
       - name: gitleaks

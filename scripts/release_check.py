@@ -2,6 +2,7 @@
 
     python scripts/release_check.py v0.1.0            # human-readable
     python scripts/release_check.py v0.1.0 --github-output "$GITHUB_OUTPUT"
+    python scripts/release_check.py --head            # the head migration revision
 
 A tag is releasable when:
 
@@ -9,7 +10,10 @@ A tag is releasable when:
   candidate ``X.Y.ZrcN``;
 - ``docs/releases/X.Y.Z.md`` exists and names this build's head migration
   revision (06 §2: every release records its head);
-- for a final release, the notes aren't marked draft.
+- for a final release, the notes aren't marked draft;
+- every migration up to the head is recorded in ``migrations/released.sha256``
+  (``--record-migrations`` adds them): a released migration is immutable (06 §2),
+  and a unit test fails if a recorded file changes.
 
 It prints the version, the floating ``X.Y`` tag and whether it's a pre-release.
 """
@@ -17,6 +21,7 @@ It prints the version, the floating ``X.Y`` tag and whether it's a pre-release.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 import tomllib
@@ -67,6 +72,49 @@ def head_revision(root: Path) -> str:
     return heads[0]
 
 
+RELEASED = Path("migrations") / "released.sha256"
+
+
+def migration_hashes(root: Path) -> dict[str, str]:
+    """``versions/<file>`` → sha256, for every migration in the tree."""
+    return {
+        f"versions/{path.name}": hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted((root / "migrations" / "versions").glob("*.py"))
+    }
+
+
+def recorded(root: Path) -> dict[str, str]:
+    """The released migrations' recorded hashes."""
+    path = root / RELEASED
+    if not path.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            digest, name = line.split(maxsplit=1)
+            out[name.strip()] = digest
+    return out
+
+
+def record_migrations(root: Path) -> list[str]:
+    """Add every unrecorded migration to ``released.sha256``; the names added."""
+    have = recorded(root)
+    new = {name: digest for name, digest in migration_hashes(root).items() if name not in have}
+    if new:
+        path = root / RELEASED
+        header = (
+            ""
+            if path.is_file()
+            else (
+                "# Migrations in a release: immutable (06 §2). Fix forward with a new migration.\n"
+                "# Added by `python3 scripts/release_check.py --record-migrations`.\n"
+            )
+        )
+        with path.open("a", encoding="utf-8") as out:
+            out.write(header + "".join(f"{d}  {n}\n" for n, d in sorted(new.items())))
+    return sorted(new)
+
+
 def check(tag: str, root: Path = ROOT) -> Release:
     version = project_version(root)
     if tag != f"v{version}":
@@ -81,6 +129,12 @@ def check(tag: str, root: Path = ROOT) -> Release:
     head = head_revision(root)
     if f"`{head}`" not in text:
         raise NotReleasableError(f"{notes.relative_to(root)} must name the head revision `{head}`")  # noqa: TRY003
+    unrecorded = sorted(set(migration_hashes(root)) - set(recorded(root)))
+    if unrecorded:
+        raise NotReleasableError(  # noqa: TRY003
+            f"migrations not recorded as released: {', '.join(unrecorded)} "
+            "(run scripts/release_check.py --record-migrations and commit it)"
+        )
     prerelease = match["rc"] is not None
     if not prerelease and _DRAFT.search(text.split("\n## ", 1)[0]):
         raise NotReleasableError(f"{notes.relative_to(root)} is still marked draft")  # noqa: TRY003
@@ -89,9 +143,22 @@ def check(tag: str, root: Path = ROOT) -> Release:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("tag")
+    parser.add_argument("tag", nargs="?")
+    parser.add_argument("--head", action="store_true", help="print the head migration revision")
+    parser.add_argument(
+        "--record-migrations", action="store_true", help="record the migrations as released"
+    )
     parser.add_argument("--github-output", type=Path, help="append the outputs to this file")
     args = parser.parse_args(argv)
+    if args.head:
+        print(head_revision(ROOT))
+        return 0
+    if args.record_migrations:
+        for name in record_migrations(ROOT):
+            print(f"recorded {name}")
+        return 0
+    if args.tag is None:
+        parser.error("a tag is required")
     try:
         release = check(args.tag)
     except NotReleasableError as exc:
