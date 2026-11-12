@@ -1,4 +1,4 @@
-# Nightly (04 §6): the storm soak on both engines; it blocks a release.
+# Nightly (04 §6): the storm soak on both engines and a fresh install; both block a release.
 # eval_quality, mutation testing and the fixture re-record check join this
 # workflow with their WPs (WP-104, 04 §6).
 name: nightly
@@ -34,3 +34,13 @@ jobs:
         run: |
           uv run pytest -m soak --db=${{ matrix.db }} -s \
             --allow-unix-socket --allow-hosts=127.0.0.1,localhost
+
+  fresh-install:
+    # The README quickstart, unattended, on a clean runner: ./install.sh with
+    # an answers file (demo ServiceNow, no model), then /healthz, /readyz, the
+    # sign-in redirect and Keycloak's realm. scripts/fresh-install-test.sh.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fresh install (Linux, Docker Engine + Compose v2)
+        run: scripts/fresh-install-test.sh

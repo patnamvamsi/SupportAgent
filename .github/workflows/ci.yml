@@ -309,7 +309,7 @@ jobs:
       - name: bandit
         run: uv run bandit -r src
       - name: shellcheck (install.sh, the local CI runner, the image smoke test)
-        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh scripts/upgrade-test.sh
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh scripts/upgrade-test.sh scripts/fresh-install-test.sh
       - name: actionlint (the workflows, their shell steps included)
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -no-color
       - name: gitleaks

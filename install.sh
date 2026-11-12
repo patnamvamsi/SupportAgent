@@ -21,7 +21,11 @@ ROOT=$(pwd)
 LOCAL="$ROOT/local"
 ENV_FILE="$LOCAL/.env"
 COMPOSE_FILE="$ROOT/docker/local/compose.yaml"
-IMAGE=supportagent:local
+# One install per machine by default. COMPOSE_PROJECT_NAME and SA_IMAGE give a
+# second checkout (or a test) its own containers, volumes and image.
+PROJECT=${COMPOSE_PROJECT_NAME:-supportagent-local}
+IMAGE=${SA_IMAGE:-supportagent:local}
+export COMPOSE_PROJECT_NAME=$PROJECT SA_IMAGE=$IMAGE
 MIN_COMPOSE=2.20
 export SA_UID SA_GID
 SA_UID=$(id -u)
@@ -80,6 +84,17 @@ free_port() { # the first free port from $1 upwards
 }
 
 file_mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+
+# Containers of this project that another checkout created: never touch them
+# (an uninstall here would delete that install's database).
+guard_owner() {
+  local other
+  other=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" \
+    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null |
+    sort -u | grep -vx "$ROOT/docker/local" | head -1 || true)
+  [ -z "$other" ] || die "the SupportAgent install on this machine belongs to another checkout: ${other%/docker/local}" \
+    "run ./install.sh from there, or give this one its own: COMPOSE_PROJECT_NAME=<name> SA_IMAGE=supportagent:<name> ./install.sh"
+}
 
 stack_running() { [ -f "$ENV_FILE" ] && [ -n "$(compose ps -q app 2>/dev/null)" ]; }
 # Any container of this install, running or not (its ports are ours to reuse).
@@ -427,6 +442,7 @@ usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
 cmd=${1:-install}
 [ $# -gt 0 ] && shift
+case "$cmd" in help | -h | --help) ;; *) command -v docker >/dev/null 2>&1 && guard_owner ;; esac
 case "$cmd" in
   install | setup) cmd_install "$@" ;;
   --answers | --skip-calibration) cmd_install "$cmd" "$@" ;;

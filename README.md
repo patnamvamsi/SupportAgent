@@ -146,6 +146,10 @@ uv run supportagent --help
 
 Where documents disagree, **ARCHITECTURE.md wins**.
 
+## Deploying for a team
+
+Run the signed image from GitHub's container registry next to a managed Postgres, behind your identity provider and TLS: [server and cloud deployment](docs/deploy/cloud.md) (Docker Compose on a VM, Kubernetes, ECS, Cloud Run, Container Apps). [Releasing](docs/ops/releasing.md) explains how each release is checked before it's published.
+
 ## Security, data and contributing
 
 - [Data handling](docs/data-handling.md): what SupportAgent reads, keeps and sends (only to the model you configure, after redaction).

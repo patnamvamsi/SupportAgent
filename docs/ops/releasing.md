@@ -7,7 +7,7 @@ How a version gets from `main` to a published image. [06 §6](../tech-spec/06-ve
 | Stage | What runs | Where |
 |---|---|---|
 | Every pull request | lint, strict types, architecture contracts, unit and property tests, contract tests, invariants and integration on SQLite and Postgres, e2e, the eval replays when prompts, packs or model code change, pip-audit, bandit, gitleaks, shellcheck, actionlint, the image smoke test, the upgrade test from the previous release on both engines, and the check that released migrations are unchanged | `ci.yml` |
-| Every night | the storm soak on both engines | `nightly.yml` |
+| Every night | the storm soak on both engines, and a fresh install from the README's quickstart (`scripts/fresh-install-test.sh`) | `nightly.yml` |
 | The tag | the tag matches `pyproject.toml`, the release notes name the head migration, and every migration is recorded as released; then all of CI again with every eval, and the soak | `release.yml` (verify, ci, soak) |
 | The image | built for amd64 and arm64, with an SBOM and build provenance, signed keylessly by the workflow | `release.yml` (build) |
 | Before publishing | the signature verifies, and the pulled image runs on its own (version, offline eval, migrate, `/healthz`, `/readyz`) | `release.yml` (smoke) |

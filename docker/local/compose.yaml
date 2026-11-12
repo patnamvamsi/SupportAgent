@@ -15,7 +15,7 @@
 name: supportagent-local
 
 x-app: &app
-  image: supportagent:local
+  image: ${SA_IMAGE:-supportagent:local}
   build:
     context: ../..
     dockerfile: docker/Dockerfile
