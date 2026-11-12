@@ -27,7 +27,10 @@ CI runs these, and all of them must pass:
 - unit and property tests (coverage floors in `docs/tech-spec/04-test-strategy.md`), contract tests;
 - invariant and integration tests on **SQLite and Postgres**, end-to-end tests;
 - the eval replays (smoke, incident lab, faithfulness, tracing, onboarding) when prompts, taxonomy, packs or model code change;
-- security: `pip-audit`, `bandit`, `gitleaks`, `shellcheck`.
+- security: `pip-audit`, `bandit`, `gitleaks`, `shellcheck`;
+- CodeQL code scanning (public repository).
+
+Dependabot opens the weekly dependency, action and base-image updates, and they go through the same checks.
 
 Also:
 

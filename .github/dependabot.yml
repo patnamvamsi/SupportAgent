@@ -1,0 +1,38 @@
+# Dependency updates (CONTRIBUTING.md): weekly, minor and patch grouped per
+# ecosystem so one PR carries them; majors come one by one. Each PR runs the
+# full CI like any other. Updates only: a *new* dependency still needs an ADR
+# (05 §1). Security updates are opened as soon as an advisory lands.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    open-pull-requests-limit: 5
+    groups:
+      python-minor:
+        update-types: [minor, patch]
+    commit-message: {prefix: "deps"}
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    groups:
+      actions:
+        update-types: [minor, patch]
+    commit-message: {prefix: "ci"}
+
+  - package-ecosystem: docker          # the Dockerfiles' base images
+    directory: /docker
+    schedule: {interval: weekly, day: monday}
+    groups:
+      base-images:
+        update-types: [minor, patch]
+    commit-message: {prefix: "docker"}
+
+  - package-ecosystem: docker-compose  # Postgres, Keycloak, Loki, Grafana...
+    directories: [/docker/staging, /docker/local, /docker/observability]
+    schedule: {interval: weekly, day: monday}
+    groups:
+      compose-images:
+        update-types: [minor, patch]
+    commit-message: {prefix: "docker"}
