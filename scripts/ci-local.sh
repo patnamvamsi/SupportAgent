@@ -53,6 +53,7 @@ integration() {
     uv run pytest -m soak --db="$1" "${NET[@]}"
 }
 e2e() { uv run pytest -m e2e "${NET[@]}"; }
+upgrade() { scripts/upgrade-test.sh --db "$1"; }
 evals() {
   uv run supportagent eval run --suite smoke &&
     uv run supportagent eval lab --pack common --config evals/lab/lab.yaml --split all &&
@@ -72,7 +73,7 @@ security() {
     uv run pip-audit -r "$reqs" --no-deps --disable-pip &&
     uv run bandit -q -r src &&
     gitleaks detect --redact --log-opts="$BASE..HEAD" &&
-    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh &&
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 install.sh scripts/ci-local.sh scripts/image-smoke.sh scripts/upgrade-test.sh scripts/fresh-install-test.sh &&
     docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -no-color
 }
 image() {
@@ -92,6 +93,8 @@ job invariants-postgres invariants postgres
 job integration-sqlite integration sqlite
 job integration-postgres integration postgres
 job e2e e2e
+job upgrade-sqlite upgrade sqlite
+job upgrade-postgres upgrade postgres
 job eval evals
 job security security
 job image image

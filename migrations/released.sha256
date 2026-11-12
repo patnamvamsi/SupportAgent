@@ -1,0 +1,2 @@
+# Migrations in a release: immutable (06 §2). Fix forward with a new migration.
+# Added by `python3 scripts/release_check.py --record-migrations`.
