@@ -1,5 +1,5 @@
 # Staging catalog (runbook step 3): services built from the CIs on the
-# developer instance dev393479 (ServiceNow demo data). cmdb_ci entries are CI
+# developer instance dev000000 (ServiceNow demo data). cmdb_ci entries are CI
 # sys_ids, which is what an incident's cmdb_ci carries.
 version: staging-2026-10
 services:

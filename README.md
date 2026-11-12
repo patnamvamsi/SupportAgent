@@ -145,3 +145,13 @@ uv run supportagent --help
 | Build it (contracts, schema, tests, standards, work packages) | [docs/tech-spec/](docs/tech-spec/README.md) |
 
 Where documents disagree, **ARCHITECTURE.md wins**.
+
+## Security, data and contributing
+
+- [Data handling](docs/data-handling.md): what SupportAgent reads, keeps and sends (only to the model you configure, after redaction).
+- [Security policy](SECURITY.md): report vulnerabilities privately.
+- [Contributing](CONTRIBUTING.md).
+
+## License
+
+[Apache License 2.0](LICENSE).

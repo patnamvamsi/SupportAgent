@@ -2,8 +2,8 @@
 #
 #   cd docker/staging && docker compose --env-file .env up -d --build
 #
-#   SupportAgent  http://192.168.0.201:8800   (API, admin UI, worker; shadow mode)
-#   Keycloak      http://192.168.0.201:8880   (the real OIDC provider, BL-023)
+#   SupportAgent  http://staging.example.internal:8800   (API, admin UI, worker; shadow mode)
+#   Keycloak      http://staging.example.internal:8880   (the real OIDC provider, BL-023)
 #   Postgres 16   internal only
 #
 # Secrets come from docker/staging/.env on the host (see staging.env.example); the
@@ -32,7 +32,7 @@ services:
     command: ["start-dev", "--http-port=8080"]
     environment:
       # The issuer the browser and the app both see (ARCH §6.4 identity).
-      KC_HOSTNAME: http://192.168.0.201:8880
+      KC_HOSTNAME: http://staging.example.internal:8880
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?set in .env}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
     ports:

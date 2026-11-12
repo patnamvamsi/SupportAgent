@@ -171,14 +171,14 @@ def test_url_helpers() -> None:
         wizard._for_container("http://localhost:1234/v1") == "http://host.docker.internal:1234/v1"
     )
     assert wizard._for_container("http://127.0.0.1:11434") == "http://host.docker.internal:11434"
-    assert wizard._for_container("http://192.168.0.201:1234/v1") == "http://192.168.0.201:1234/v1"
+    assert wizard._for_container("http://10.1.2.3:1234/v1") == "http://10.1.2.3:1234/v1"
     assert wizard._instance_url("dev12345") == "https://dev12345.service-now.com"
     assert wizard._instance_url("https://acme.service-now.com/now/nav/ui") == (
         "https://acme.service-now.com"
     )
     assert wizard._confluence_url(
-        "https://x.atlassian.net/wiki/spaces/vritti/overview?homepageId=1"
-    ) == ("https://x.atlassian.net/wiki", "vritti")
+        "https://x.atlassian.net/wiki/spaces/OPS/overview?homepageId=1"
+    ) == ("https://x.atlassian.net/wiki", "OPS")
     assert wizard._numbers("1, 3,3", 4) == [0, 2]
     assert wizard._numbers("all", 3) == [0, 1, 2]
     assert wizard._numbers("9", 3) == []

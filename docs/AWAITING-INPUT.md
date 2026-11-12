@@ -4,6 +4,17 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
+### Going public (2026-11-12)
+
+- **Decided:** open source and self-hosted (cloud deployments included), under Apache-2.0.
+- **Done meanwhile:** the LICENSE, NOTICE, SECURITY.md, CONTRIBUTING.md, issue templates and [data handling](data-handling.md) are in. Host addresses and instance names are now placeholders.
+- **Your steps, when you're ready:**
+  1. Make the repository public.
+  2. Under **Settings → Code security**, turn on private vulnerability reporting, secret scanning with push protection, and Dependabot alerts.
+  3. Under **Settings → Rules**, add a ruleset for `main`: changes go through pull requests, the CI checks must pass, and no force pushes.
+  4. Revoke the Confluence token from the earlier session, if you haven't.
+
+
 ### A real system to onboard (2026-11-01)
 
 - **What's needed:** a system to point `supportagent onboard run` at: its ServiceNow scope (business service, assignment groups), Confluence spaces and repositories, plus read-only credentials as onboarding asks for them. The partner data (BL-037) would do.
@@ -20,7 +31,7 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ### Confluence: revoke the pasted token; label pages if you want them scoped
 
-- **Done:** the live contract passed against `vritti` on 2026-10-29: 3 pages read, GET only, every chunk cited with its URL and version.
+- **Done:** the live contract passed against your Confluence space on 2026-10-29: 3 pages read, GET only, every chunk cited with its URL and version.
 - **Your call:**
   - The API token was pasted in chat, so it is in the session transcript. Consider revoking it and keeping a fresh one only in the deployment's `.env`.
   - None of the 3 pages has a `hypothesis-<id>` or `service-<name>` label yet. They are read as internal guidance for every service and suggest no checks.

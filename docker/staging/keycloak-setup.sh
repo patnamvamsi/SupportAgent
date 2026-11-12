@@ -29,7 +29,7 @@ if [ -z "$(kc get clients -r supportagent -q clientId=supportagent --fields id -
   kc create clients -r supportagent \
     -s clientId=supportagent -s enabled=true -s publicClient=false \
     -s standardFlowEnabled=true -s directAccessGrantsEnabled=false \
-    -s 'redirectUris=["http://192.168.0.201:8800/auth/callback"]' \
+    -s 'redirectUris=["http://staging.example.internal:8800/auth/callback"]' \
     -s 'attributes={"pkce.code.challenge.method":"S256"}'
 fi
 cid=$(kc get clients -r supportagent -q clientId=supportagent --fields id --format csv --noquotes)

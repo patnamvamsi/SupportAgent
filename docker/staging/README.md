@@ -1,13 +1,15 @@
 # Staging on the LAN host
 
-Runbook step 3 (06 §6 exit demo, BL-023): SupportAgent in shadow mode on
-192.168.0.201, against the developer instance `dev393479`, with Keycloak as a
-real OIDC provider and Qwen on LM Studio as the classify model.
+Runbook step 3 (06 §6 exit demo, BL-023): SupportAgent in shadow mode on a LAN host,
+against a ServiceNow developer instance, with Keycloak as a real OIDC provider and Qwen on
+LM Studio as the classify model. Replace `staging.example.internal` with your host's name
+or address and `dev000000` with your developer instance in `compose.yaml`,
+`supportagent.yaml`, `catalog.yaml` and `keycloak-setup.sh` before the first start.
 
 | Service | URL | Notes |
 |---|---|---|
-| SupportAgent | http://192.168.0.201:8800/ui | API, admin UI and worker in one container |
-| Keycloak | http://192.168.0.201:8880 | realm `supportagent`; users `ada` (admin on first login) and `bob` |
+| SupportAgent | http://staging.example.internal:8800/ui | API, admin UI and worker in one container |
+| Keycloak | http://staging.example.internal:8880 | realm `supportagent`; users `ada` (admin on first login) and `bob` |
 | Postgres 16 | internal | volume `pgdata` |
 
 ## First start
