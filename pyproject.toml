@@ -3,6 +3,8 @@ name = "supportagent"
 version = "0.0.0"
 description = "SupportAgent — an application support analyst. The docs/ tree is the product; this is the v0.0 walking skeleton."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 # Pinned to the 3.12 toolchain the spec standardizes on (10-wp WP-000,
 # 05 §1), not just floored at it: the CI matrix and the Docker base image
 # both pin 3.12, so a 3.13 interpreter is a deliberate change, not a

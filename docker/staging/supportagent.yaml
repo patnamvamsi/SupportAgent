@@ -1,5 +1,5 @@
-# Staging config (runbook step 3): 192.168.0.201, shadow mode, the developer
-# instance dev393479, Keycloak for sign-in, Qwen on LM Studio. Secrets come
+# Staging config (runbook step 3): staging.example.internal, shadow mode, the developer
+# instance dev000000, Keycloak for sign-in, Qwen on LM Studio. Secrets come
 # from docker/staging/.env on the host (never committed).
 # supportagent.yaml — full reference for config v1 (02 §1).
 # Secrets are never inline: `*_env` keys name the environment variable that holds
@@ -9,11 +9,11 @@ config_version: 1
 tenant:
   id: acme
   display_name: Acme Corp
-mode: assisted                       # ADR-0008; the exit demo writes work notes to dev393479 (approved 2026-10-25)
+mode: assisted                       # ADR-0008; the exit demo writes work notes to dev000000 (approved 2026-10-25)
 database:
   url_env: SUPPORTAGENT_DB_URL        # sqlite:///data/sa.db | postgresql+psycopg://…
 servicenow:
-  instance_url: https://dev393479.service-now.com   # personal developer instance (BL-012 / BL-030)
+  instance_url: https://dev000000.service-now.com   # personal developer instance (BL-012 / BL-030)
   auth:
     kind: basic                       # PDI: basic auth as svc_supportagent
     user_env: SN_USER
@@ -27,15 +27,15 @@ servicenow:
   resolved_states: ["6", "7", "8"]   # BL-032: state values that end a case (incident defaults)
   classification_map: {}             # BL-035: {"Database/Saturation": database/saturation, "Network": network/dns}
 identity:
-  oidc_issuer: http://192.168.0.201:8880/realms/supportagent
+  oidc_issuer: http://staging.example.internal:8880/realms/supportagent
   client_id_env: OIDC_CLIENT_ID
   client_secret_env: OIDC_CLIENT_SECRET
-  redirect_url: http://192.168.0.201:8800/auth/callback
+  redirect_url: http://staging.example.internal:8800/auth/callback
   session_secret_env: SA_SESSION_SECRET  # the secret must be >= 32 bytes
 llm:
   provider: openai                   # LM Studio speaks the OpenAI API (BL-042)
   api_key_env: LMSTUDIO_API_KEY      # LM Studio ignores the value; the openai provider requires one
-  base_url: http://192.168.0.201:1234/v1                     # ollama: the local server (default http://localhost:11434); no api_key_env
+  base_url: http://staging.example.internal:1234/v1                     # ollama: the local server (default http://localhost:11434); no api_key_env
   slots:
     classify:                        # v0.0 slot; propose_hypotheses/entail/draft_comms from v0.1
       model_id: qwen/qwen3.8-27b     # local Qwen 3.8 27B on LM Studio

@@ -35,7 +35,7 @@ identity:
 llm:
   provider: openai                   # LM Studio (OpenAI-compatible), BL-042
   api_key_env: LMSTUDIO_API_KEY      # LM Studio ignores the value
-  base_url: http://192.168.0.201:1234/v1                     # ollama: the local server (default http://localhost:11434); no api_key_env
+  base_url: http://localhost:1234/v1                     # ollama: the local server (default http://localhost:11434); no api_key_env
                                      # openai: any OpenAI-compatible server, e.g. LM Studio http://host:1234/v1 (BL-042)
   slots:
     classify:                        # v0.0 slot; propose_hypotheses/entail/draft_comms from v0.1
