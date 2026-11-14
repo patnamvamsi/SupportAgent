@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from supportagent.domain.errors import ConfigError
+from supportagent.domain.errors import CalibrationMissing, ConfigError
 from supportagent.domain.model import CalibrationTable
 
 _GRADE_RANK = {"smoke": 0, "holdout": 1}
@@ -28,6 +28,8 @@ def load_calibration(
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise CalibrationMissing(f"calibration {path}: not written yet") from exc  # noqa: TRY003
     except (OSError, ValueError) as exc:  # unreadable, or not JSON (JSONDecodeError)
         raise ConfigError(f"calibration {path}: {exc}") from exc  # noqa: TRY003
     try:

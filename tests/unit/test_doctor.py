@@ -34,7 +34,7 @@ from supportagent.app.doctor.connectors.servicenow import (
     discover_automation_actors,
 )
 from supportagent.config.schema import AppConfig
-from supportagent.domain.errors import ConfigError, LLMUnavailable
+from supportagent.domain.errors import CalibrationMissing, ConfigError, LLMUnavailable
 from supportagent.domain.model.calibration import CalibrationTable
 from supportagent.domain.model.catalog import Catalog, ServiceEntry
 from supportagent.domain.model.triage import SafeDefaulted
@@ -171,6 +171,33 @@ def test_doctor_config_fail(clock: Any) -> None:
     res = ConfigCheck().run(_ctx(clock=clock, config=cfg, calibration=bad_calibration))
     assert res.status == "fail"
     assert "2 issue(s)" in res.detail and "nope/missing" in res.detail and "holdout" in res.detail
+
+
+def test_doctor_config_missing_calibration_warns(clock: Any) -> None:
+    # Before the first eval run there is no artifact: every case safe-defaults
+    # (INV-05), so a fresh install with --skip-calibration is not broken.
+    def missing() -> CalibrationTable:
+        raise CalibrationMissing("calibration local/evals/calibration.json: not written yet")  # noqa: TRY003
+
+    res = ConfigCheck().run(_ctx(clock=clock, calibration=missing))
+    assert res.status == "warn", res.detail
+    assert "not written yet" in res.detail and "safe-defaults" in res.detail
+
+
+def test_doctor_config_missing_calibration_still_fails_on_other_issues(clock: Any) -> None:
+    def missing() -> CalibrationTable:
+        raise CalibrationMissing("calibration x.json: not written yet")  # noqa: TRY003
+
+    base = _shadow_config()
+    unknown = base.routing[0].model_copy(
+        update={
+            "match": base.routing[0].match.model_copy(update={"classification": "nope/missing"})
+        }
+    )
+    cfg = base.model_copy(update={"routing": [unknown]})
+    res = ConfigCheck().run(_ctx(clock=clock, config=cfg, calibration=missing))
+    assert res.status == "fail"
+    assert "nope/missing" in res.detail
 
 
 # --- db ----------------------------------------------------------------------

@@ -327,7 +327,10 @@ hint() { # a fix for an in-app doctor check: $1 its name, $2 its detail
       return ;;
   esac
   case "$1" in
-    config) fix "missing calibration? ./install.sh calibrate. A bad answer? ./install.sh reconfigure" ;;
+    config) case "$2" in
+              *"not written yet"*) fix "./install.sh calibrate (once the model server answers)" ;;
+              *) fix "missing calibration? ./install.sh calibrate. A bad answer? ./install.sh reconfigure" ;;
+            esac ;;
     db) fix "./install.sh restart; if it persists: ./install.sh logs postgres" ;;
     llm) fix "is the model server running and reachable from Docker? A local server must listen on"
          fix "all interfaces (LM Studio: Developer > Settings > Serve on local network; Ollama:"
@@ -383,7 +386,7 @@ cmd_doctor() {
     [ -n "$(envval "$k")" ] || { bad "local/.env has no $k"; fix "./install.sh reconfigure (it keeps everything else)"; failed=1; }
   done
   if [ -f "$LOCAL/evals/calibration.json" ]; then ok "model calibration"
-  else bad "no model calibration: every incident safe-defaults"; fix "./install.sh calibrate"; failed=1; fi
+  else warn "no model calibration yet: every incident safe-defaults"; fix "./install.sh calibrate"; fi
   if docker image inspect "$IMAGE" >/dev/null 2>&1; then ok "image $IMAGE"
   else bad "image $IMAGE is missing"; fix "./install.sh (rebuilds it)"; failed=1; fi
 
