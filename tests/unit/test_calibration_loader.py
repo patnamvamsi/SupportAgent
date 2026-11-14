@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from supportagent.adapters.files.calibration_loader import load_calibration
-from supportagent.domain.errors import ConfigError
+from supportagent.domain.errors import CalibrationMissing, ConfigError
 from supportagent.domain.model.calibration import CalibrationTable
 
 _MODEL = "claude-sonnet-4-5-20250929"
@@ -81,3 +81,11 @@ def test_calibration_unreadable_is_config_error(tmp_path: Path, content: str | N
         path.write_text(content, encoding="utf-8")
     with pytest.raises(ConfigError, match="calibration"):
         load_calibration(path, configured_model_id=_MODEL, min_grade="smoke")
+
+
+def test_calibration_missing_file_is_distinguished(tmp_path: Path) -> None:
+    # Not written yet is the expected pre-calibration state (doctor warns);
+    # it is still a ConfigError, so strict callers keep refusing it.
+    with pytest.raises(CalibrationMissing, match="not written yet") as info:
+        load_calibration(tmp_path / "absent.json", configured_model_id=_MODEL, min_grade="smoke")
+    assert isinstance(info.value, ConfigError)

@@ -15,6 +15,14 @@ class ConfigError(SupportAgentError):
     """Configuration is missing, invalid, or fails the startup check."""
 
 
+class CalibrationMissing(ConfigError):
+    """No calibration artifact has been written yet (ADR-0002).
+
+    Unlike a rejected one, this is the expected state before the first eval
+    run: every case safe-defaults (INV-05), so ``doctor`` warns rather than fails.
+    """
+
+
 class DomainValidationError(SupportAgentError, ValidationError):
     """A domain rule was violated (bad transition, float in a hashed payload).
 

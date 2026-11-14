@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from supportagent.app.doctor.base import CheckResult, DoctorContext
 from supportagent.config.validation import validate_bundle
-from supportagent.domain.errors import ConfigError, PiiUnavailable
+from supportagent.domain.errors import CalibrationMissing, ConfigError, PiiUnavailable
 from supportagent.domain.model.calibration import CalibrationTable
 
 
 class ConfigCheck:
-    """All files validate; taxonomy references resolve; calibration grade ≥ ``min_grade``."""
+    """All files validate; taxonomy references resolve; calibration grade ≥ ``min_grade``.
+
+    A calibration that was never written warns: every case safe-defaults until
+    the first eval run writes one (INV-05). A rejected one still fails.
+    """
 
     name = "config"
 
@@ -24,13 +28,24 @@ class ConfigCheck:
             for i in validate_bundle(ctx.config, bundle.catalog, bundle.taxonomy, bundle.hypotheses)
         ]
         table: CalibrationTable | None = None
+        missing: CalibrationMissing | None = None
         try:
             table = ctx.load_calibration()
+        except CalibrationMissing as exc:
+            missing = exc
         except ConfigError as exc:
             problems.append(str(exc))
-        if problems or table is None:
+        if problems or (table is None and missing is None):
             return CheckResult(
                 self.name, "fail", f"{len(problems)} issue(s): " + "; ".join(problems)
+            )
+        if table is None:
+            return CheckResult(
+                self.name,
+                "warn",
+                f"config, catalog ({len(bundle.catalog.services)} services) and taxonomies "
+                f"validate; {missing}: every case safe-defaults until an eval run writes it "
+                "(`eval run --live --write-calibration`)",
             )
         return CheckResult(
             self.name,
