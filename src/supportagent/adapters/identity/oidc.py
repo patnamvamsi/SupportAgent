@@ -11,7 +11,9 @@ verifies the id token. Checks, all fail-closed as ``AuthenticationFailed``:
   leeway), ``nonce`` equal to this login's nonce, and a non-empty ``sub``.
 
 An unreachable IdP is an ``ExternalServiceError`` (retryable), not a failed
-login.
+login. Sign-out goes to the discovery document's ``end_session_endpoint`` with
+the id token as ``id_token_hint`` and ``/ui/login`` as
+``post_logout_redirect_uri``, which the client registration must allow (BL-046).
 """
 
 from __future__ import annotations
@@ -117,7 +119,22 @@ class OIDCClient:
             ),
             sub,
         )
-        return IdentityClaims(sub=sub, email=str(email), name=str(name))
+        return IdentityClaims(sub=sub, email=str(email), name=str(name), id_token=id_token)
+
+    def end_session_url(self, *, id_token_hint: str) -> str | None:
+        try:
+            endpoint = self._discovery().get("end_session_endpoint")
+        except (ExternalServiceError, AuthenticationFailed):
+            return None  # signing out of SupportAgent must not depend on the IdP
+        if not isinstance(endpoint, str) or not endpoint:
+            return None
+        params = {
+            "client_id": self._client_id,
+            "post_logout_redirect_uri": _origin(self._redirect_url) + "/ui/login",
+        }
+        if id_token_hint:
+            params["id_token_hint"] = id_token_hint
+        return f"{endpoint}?{urlencode(params)}"
 
     # --- helpers ------------------------------------------------------------
 

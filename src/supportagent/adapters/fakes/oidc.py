@@ -15,6 +15,7 @@ from supportagent.domain.errors import AuthenticationFailed
 from supportagent.ports.identity import IdentityClaims, LoginRequest
 
 AUTHORIZE_URL = "https://fake-oidc.test/authorize"
+LOGOUT_URL = "https://fake-oidc.test/logout"
 
 
 class FakeOIDC:
@@ -46,4 +47,10 @@ class FakeOIDC:
         entry = self._codes.pop(code, None)
         if entry is None or entry[0] != pending.state:
             raise AuthenticationFailed("unknown or replayed authorization code")  # noqa: TRY003
-        return entry[1]
+        claims = entry[1]
+        return IdentityClaims(
+            sub=claims.sub, email=claims.email, name=claims.name, id_token=f"idt-{claims.sub}"
+        )
+
+    def end_session_url(self, *, id_token_hint: str) -> str | None:
+        return f"{LOGOUT_URL}?{urlencode({'id_token_hint': id_token_hint})}"

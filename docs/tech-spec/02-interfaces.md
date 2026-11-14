@@ -120,7 +120,8 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | GET | `/readyz` | none | v0.0 | DB reachable, migrations at head, config loaded |
 | GET | `/auth/login` | none | v0.0 | Redirect to the OIDC issuer (state + nonce) |
 | GET | `/auth/callback` | none | v0.0 | Code exchange, upsert `users`, session cookie |
-| POST | `/auth/logout` | any | v0.0 | Clear session |
+| POST | `/auth/logout` | any | v0.0 | Clear session (API: 204; the IdP session is the browser's) |
+| POST | `/ui/logout` | any | BL-046 | The UI's Sign out: form `csrf_token`; clears the session, then 303 to the IdP's `end_session_endpoint` (`id_token_hint`, `post_logout_redirect_uri` = `/ui/login`), or to `/ui/login` when the IdP has none or is unreachable |
 | GET | `/api/v1/proposals?status=pending_approval&case_id=` | viewer | v0.0 | List proposals |
 | GET | `/api/v1/proposals/{id}` | viewer | v0.0 | Full payload, payload_hash, rendered preview, trace link |
 | POST | `/api/v1/proposals/{id}/approve` | approver | v0.0 | Body `{payload_hash, reason?}`. 409 if the hash differs from current; 403 on self-approval |
