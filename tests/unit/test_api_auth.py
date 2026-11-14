@@ -139,3 +139,30 @@ def test_readyz_is_503_until_migrated(client: TestClient) -> None:
         assert resp.status_code == 503
         assert resp.json()["reason"] == reason
         assert "refused" not in resp.text  # no driver detail on an unauthenticated route
+
+
+# --- BL-046: Sign out ends the IdP session too --------------------------------
+
+
+def test_ui_sign_out_ends_the_idp_session(client: TestClient, oidc: FakeOIDC) -> None:
+    login(client, oidc, ADA)
+    page = client.get("/ui/approvals")
+    assert 'action="/ui/logout"' in page.text and "Sign out" in page.text
+    token = client.cookies["sa_csrf"]
+    out = client.post("/ui/logout", data={"csrf_token": token}, follow_redirects=False)
+    assert out.status_code == 303
+    target = urlparse(out.headers["location"])
+    assert target.geturl().startswith("https://fake-oidc.test/logout")
+    # The id token from this login is the hint, so the IdP knows whose session to end.
+    assert parse_qs(target.query)["id_token_hint"] == ["idt-sub-ada"]
+    cleared = out.headers.get_list("set-cookie")
+    assert any(c.startswith("sa_session=") and "Max-Age=0" in c for c in cleared)
+    assert any(c.startswith("sa_csrf=") and "Max-Age=0" in c for c in cleared)
+    assert client.get("/ui/approvals", follow_redirects=False).headers["location"] == "/ui/login"
+
+
+def test_ui_sign_out_needs_the_form_token(client: TestClient, oidc: FakeOIDC) -> None:
+    login(client, oidc, ADA)
+    refused = client.post("/ui/logout", data={"csrf_token": "forged"}, follow_redirects=False)
+    assert refused.status_code == 403
+    assert client.get("/api/v1/setup").status_code == 200, "still signed in"

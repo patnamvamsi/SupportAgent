@@ -3,12 +3,13 @@
 ``begin_login`` produces the redirect plus the per-login secrets (state, nonce,
 PKCE verifier) that the caller keeps in the session; ``complete_login``
 exchanges the code and returns verified identity claims, or raises
-``AuthenticationFailed``.
+``AuthenticationFailed``. ``end_session_url`` is where sign-out sends the
+browser so the IdP's session ends too (OIDC RP-Initiated Logout, BL-046).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -29,9 +30,15 @@ class IdentityClaims:
     sub: str
     email: str
     name: str
+    #: The raw id token, kept only as the ``id_token_hint`` for sign-out (BL-046).
+    id_token: str = field(default="", compare=False, repr=False)
 
 
 class IdentityProvider(Protocol):
     def begin_login(self) -> LoginRequest: ...
 
     def complete_login(self, *, code: str, pending: LoginRequest) -> IdentityClaims: ...
+
+    def end_session_url(self, *, id_token_hint: str) -> str | None:
+        """The IdP's sign-out URL, returning to ``/ui/login``; ``None`` if it has none."""
+        ...

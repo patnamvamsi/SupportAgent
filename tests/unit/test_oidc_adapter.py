@@ -36,6 +36,7 @@ class _IdP:
         self.token_requests: list[dict[str, list[str]]] = []
         self.jwks_hits = 0
         self.nonce = ""
+        self.end_session: str | None = f"{ISSUER}/logout"
 
     def _id_token(self) -> str:
         now = int(self.clock.now().timestamp())
@@ -62,6 +63,7 @@ class _IdP:
                     "authorization_endpoint": f"{ISSUER}/authorize",
                     "token_endpoint": f"{ISSUER}/token",
                     "jwks_uri": f"{ISSUER}/jwks",
+                    **({"end_session_endpoint": self.end_session} if self.end_session else {}),
                 },
             )
         if path.endswith("/jwks"):
@@ -218,3 +220,51 @@ def test_backchannel_carries_server_requests_but_not_the_browser_url(idp: _IdP, 
     idp.nonce = start.nonce
     assert client.complete_login(code="c", pending=start).sub == "sub-ada"  # iss still ISSUER
     assert set(hosts) == {"http://keycloak:8080"}  # discovery, token and JWKS
+
+
+def test_complete_login_keeps_the_id_token_for_sign_out(client: OIDCClient, idp: _IdP) -> None:
+    start = client.begin_login()
+    idp.nonce = start.nonce
+    claims = client.complete_login(code="the-code", pending=start)
+    assert claims.id_token.count(".") == 2
+    assert claims.id_token not in repr(claims), "never logged"
+
+
+def test_end_session_url_returns_to_the_login_page(client: OIDCClient) -> None:
+    url = client.end_session_url(id_token_hint="the-token")  # noqa: S106 — fake token
+    assert url is not None and url.startswith(f"{ISSUER}/logout?")
+    query = parse_qs(urlparse(url).query)
+    assert query["id_token_hint"] == ["the-token"]
+    assert query["client_id"] == [CLIENT_ID]
+    assert query["post_logout_redirect_uri"] == ["https://sa.test/ui/login"]
+    assert "id_token_hint" not in parse_qs(
+        urlparse(client.end_session_url(id_token_hint="") or "").query
+    )
+
+
+def test_end_session_url_is_none_without_an_endpoint(idp: _IdP, clock: Any) -> None:
+    idp.end_session = None
+    client = OIDCClient(
+        issuer=ISSUER,
+        client_id=CLIENT_ID,
+        client_secret="shh",  # noqa: S106 — fake IdP
+        redirect_url=REDIRECT,
+        http=httpx.Client(transport=httpx.MockTransport(idp.handler)),
+        clock=clock,
+    )
+    assert client.end_session_url(id_token_hint="t") is None  # noqa: S106 — fake token
+
+
+def test_end_session_url_is_none_when_the_idp_is_down(clock: Any) -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    client = OIDCClient(
+        issuer=ISSUER,
+        client_id=CLIENT_ID,
+        client_secret="shh",  # noqa: S106 — fake IdP
+        redirect_url=REDIRECT,
+        http=httpx.Client(transport=httpx.MockTransport(down)),
+        clock=clock,
+    )
+    assert client.end_session_url(id_token_hint="t") is None  # noqa: S106 — fake token

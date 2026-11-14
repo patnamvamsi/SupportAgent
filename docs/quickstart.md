@@ -32,6 +32,10 @@ export ANTHROPIC_API_KEY=...
 export PAGERDUTY_TOKEN=...      # paging: attach-only (enrich_page, page lookups); or comment out paging:
 ```
 
+### The identity provider client
+
+Register SupportAgent as a confidential OIDC client using the authorization-code flow with PKCE (S256). Allow two URLs: `<base>/auth/callback` as the **redirect URI**, and `<base>/ui/login` as the **post-logout redirect URI**. Sign out sends the browser to the provider's `end_session_endpoint`, so the provider's session ends too. A provider that refuses the second URL shows its own error page after sign-out, but the user is still signed out of SupportAgent. Installs made with `./install.sh` before this change need the post-logout URL added in the Keycloak admin console: open the `supportagent` client and add it under *Valid post logout redirect URIs*.
+
 ### The ServiceNow integration user
 
 Create a dedicated user (for example `svc_supportagent`) with the `itil` role, and nothing broader: `doctor` warns about `admin`, `security_admin` or any role it can't read. Sync also reads each changed record's history, so the user needs **read access to `sys_audit` and `sys_journal_field`**. ServiceNow restricts both tables by default. Create a role (for example `x_supportagent_history`), add a read ACL for it on each table (`sys_audit` and `sys_journal_field`, both the table and its fields), and grant it to the user. `doctor` fails `servicenow.history_access` until this is done.

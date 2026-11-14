@@ -469,7 +469,11 @@ def render_realm(answers: Answers, generated: Mapping[str, str]) -> str:
                 "directAccessGrantsEnabled": False,
                 "redirectUris": [f"http://localhost:{answers.app_port}/auth/callback"],
                 "webOrigins": [f"http://localhost:{answers.app_port}"],
-                "attributes": {"pkce.code.challenge.method": "S256"},
+                "attributes": {
+                    "pkce.code.challenge.method": "S256",
+                    # BL-046: Sign out ends the Keycloak session and returns here.
+                    "post.logout.redirect.uris": f"http://localhost:{answers.app_port}/ui/login",
+                },
             }
         ],
         "users": [

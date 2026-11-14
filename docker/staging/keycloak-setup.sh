@@ -30,7 +30,7 @@ if [ -z "$(kc get clients -r supportagent -q clientId=supportagent --fields id -
     -s clientId=supportagent -s enabled=true -s publicClient=false \
     -s standardFlowEnabled=true -s directAccessGrantsEnabled=false \
     -s 'redirectUris=["http://staging.example.internal:8800/auth/callback"]' \
-    -s 'attributes={"pkce.code.challenge.method":"S256"}'
+    -s 'attributes={"pkce.code.challenge.method":"S256","post.logout.redirect.uris":"http://staging.example.internal:8800/ui/login"}'
 fi
 cid=$(kc get clients -r supportagent -q clientId=supportagent --fields id --format csv --noquotes)
 secret=$(kc get "clients/$cid/client-secret" -r supportagent --fields value --format csv --noquotes)
