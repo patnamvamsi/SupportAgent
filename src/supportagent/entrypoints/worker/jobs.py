@@ -44,7 +44,9 @@ class Executor(Protocol):
 class Poller(Protocol):
     """The narrow ``SyncService`` surface the poll job drives (02 §7)."""
 
-    def poll_table(self, table: RecordType) -> SyncReport: ...
+    def poll_table(
+        self, table: RecordType, *, keep_going: Callable[[], bool] = ...
+    ) -> SyncReport: ...
 
 
 #: 02 §7: the job's lease name (one global lock per job, 03 §2.5).
@@ -101,10 +103,11 @@ def outbox_execute(  # noqa: PLR0913
     return JobResult(name=OUTBOX_EXECUTE_LEASE, ran=True, rows=rows)
 
 
-#: The poll lease is not renewed mid-run, so its TTL bounds one poll: a page of
-#: new records can mean one LLM call each. A crashed holder stalls the table
-#: for at most this long; a run that outlives it may overlap the next holder,
-#: which ``sync_seen`` and INV-02 dedup absorb.
+#: The poll lease is renewed after every committed page (BL-029), so its TTL
+#: bounds one page, not one poll: a page of new records can mean one LLM call
+#: each. A crashed holder stalls the table for at most this long. A page that
+#: outlives it may overlap the next holder, which ``sync_seen`` and INV-02 dedup
+#: absorb; the renewal then fails and the run stops.
 SYNC_POLL_LEASE_TTL_S = 900
 
 
@@ -124,15 +127,24 @@ def sync_poll(
     """One ``poll_table`` under the ``sync.poll.<table>`` lease (02 §7).
 
     ``ran=False`` when another replica holds the lease. ``rows`` is the count
-    of records delivered to the inbound handler. The lease is released even
-    when the poll raises; the cursor only advances per committed page, so the
-    next run resumes where this one stopped (ARCH §8.1).
+    of records delivered to the inbound handler. The lease is renewed after
+    each committed page (BL-029); if another replica took it over meanwhile,
+    the run stops there. The lease is released even when the poll raises; the
+    cursor only advances per committed page, so the next run resumes where
+    this one stopped (ARCH §8.1).
     """
     name = sync_poll_lease(table)
     if not lease.acquire(name=name, owner=owner, ttl_s=lease_ttl_s):
         return JobResult(name=name, ran=False)
+
+    def renew() -> bool:
+        if lease.acquire(name=name, owner=owner, ttl_s=lease_ttl_s):
+            return True
+        _log.warning("%s: lease lost mid-run to another worker; stopping after this page", name)
+        return False
+
     try:
-        report = poller.poll_table(table)
+        report = poller.poll_table(table, keep_going=renew)
     finally:
         lease.release(name=name, owner=owner)
     return JobResult(name=name, ran=True, rows=report.delivered)

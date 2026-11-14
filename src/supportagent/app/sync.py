@@ -33,7 +33,7 @@ The poll loop (ARCH §8.1):
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import TracebackType
@@ -155,7 +155,9 @@ class SyncService:
         self._page_size = page_size
         self._overlap_s = overlap_s
 
-    def poll_table(self, table: RecordType) -> SyncReport:
+    def poll_table(
+        self, table: RecordType, *, keep_going: Callable[[], bool] = lambda: True
+    ) -> SyncReport:
         """Poll ``table``: dedup, filter self-echoes per change, deliver (ARCH §8.1).
 
         Pages by offset through everything updated since ``cursor - overlap_s``
@@ -163,6 +165,11 @@ class SyncService:
         partial page. Each page commits its ``sync_seen`` rows and the cursor
         before the next is polled. The service is bound to one tenant at
         construction, so ``poll_table`` takes only the table.
+
+        ``keep_going`` is asked after each committed page, before the next is
+        fetched; ``False`` stops the run there (BL-029: the poll job renews its
+        lease with it, and stops if another worker took the table over). The
+        next run resumes from the committed cursor.
         """
         table_name = table.value
         with self._uow:
@@ -205,7 +212,7 @@ class SyncService:
                     final_cursor = max(final_cursor, batch.next_cursor)
                 uow.commit()
 
-            if len(batch.records) < self._page_size:
+            if len(batch.records) < self._page_size or not keep_going():
                 break
             offset += self._page_size
 

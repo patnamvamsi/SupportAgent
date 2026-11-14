@@ -10,6 +10,7 @@ executor and repositories own the database (entrypoints-thin).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -126,15 +127,27 @@ def test_outbox_execute_releases_lease_on_error(clock: Any) -> None:
 
 
 class _FakePoller:
-    def __init__(self, *, delivered: int = 0, raise_error: Exception | None = None) -> None:
+    """Delivers ``delivered`` records over ``pages`` pages, asking ``keep_going`` between them."""
+
+    def __init__(
+        self, *, delivered: int = 0, pages: int = 1, raise_error: Exception | None = None
+    ) -> None:
         self._delivered = delivered
+        self._pages = pages
         self._raise_error = raise_error
         self.tables: list[RecordType] = []
+        self.pages_polled = 0
 
-    def poll_table(self, table: RecordType) -> SyncReport:
+    def poll_table(
+        self, table: RecordType, *, keep_going: Callable[[], bool] = lambda: True
+    ) -> SyncReport:
         self.tables.append(table)
         if self._raise_error is not None:
             raise self._raise_error
+        for page in range(1, self._pages + 1):
+            self.pages_polled = page
+            if page < self._pages and not keep_going():
+                break
         return SyncReport(delivered=self._delivered, final_cursor=datetime(2026, 1, 1, tzinfo=UTC))
 
 
@@ -160,6 +173,38 @@ def test_sync_poll_skips_when_lease_held() -> None:
     assert res == JobResult(name="sync.poll.incident", ran=False)
     assert poller.tables == []
     assert lease.released == [], "never release a lease someone else holds"
+
+
+class _ScriptedLease(_FakeLease):
+    """Acquire answers come from a script: the first take, then each renewal."""
+
+    def __init__(self, answers: list[bool]) -> None:
+        super().__init__()
+        self._answers = answers
+
+    def acquire(self, *, name: str, owner: str, ttl_s: int) -> bool:
+        self.acquired.append((name, owner, ttl_s))
+        return self._answers.pop(0)
+
+
+def test_sync_poll_renews_the_lease_after_each_page() -> None:
+    # BL-029: a long backlog (an LLM call per record) must not outlive the TTL.
+    lease = _FakeLease(acquire_result=True)
+    poller = _FakePoller(delivered=7, pages=3)
+    res = sync_poll(poller=poller, table=RecordType.INCIDENT, lease=lease, owner="w1")
+    assert res == JobResult(name="sync.poll.incident", ran=True, rows=7)
+    assert poller.pages_polled == 3
+    assert lease.acquired == [("sync.poll.incident", "w1", SYNC_POLL_LEASE_TTL_S)] * 3
+    assert lease.released == [("sync.poll.incident", "w1")]
+
+
+def test_sync_poll_stops_when_another_worker_took_the_lease() -> None:
+    # The take succeeds, the first renewal finds the lease taken over: stop there.
+    lease = _ScriptedLease([True, False])
+    poller = _FakePoller(delivered=2, pages=3)
+    res = sync_poll(poller=poller, table=RecordType.INCIDENT, lease=lease, owner="w1")
+    assert res.ran and poller.pages_polled == 1
+    assert len(lease.acquired) == 2
 
 
 def test_sync_poll_releases_lease_on_error() -> None:

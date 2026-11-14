@@ -187,6 +187,28 @@ def test_sync_crash_mid_batch_recovers(uow: Any, clock: Any, fake_sn: Any) -> No
 # --- review fixes -----------------------------------------------------------
 
 
+def test_sync_stops_between_pages_when_told(uow: Any, clock: Any, fake_sn: Any) -> None:
+    """BL-029: ``keep_going`` is asked after each committed page; ``False``
+    stops the run with that page's cursor committed, and the next run resumes."""
+    handler = _RecordingHandler()
+    service = _service(uow, fake_sn, handler, clock)
+    _seed(fake_sn, "id_a", "INC1", T0)
+    _seed(fake_sn, "id_b", "INC2", T0 + timedelta(seconds=1))
+    _seed(fake_sn, "id_c", "INC3", T0 + timedelta(seconds=2))
+    asked: list[int] = []
+
+    def stop() -> bool:
+        asked.append(1)
+        return False
+
+    report = service.poll_table(TABLE, keep_going=stop)
+    assert report.delivered == PAGE_SIZE and len(asked) == 1
+    with uow:
+        assert SyncRepo(uow).get_cursor(TENANT, TABLE_NAME) == T0 + timedelta(seconds=1)
+    assert service.poll_table(TABLE).delivered == 1  # the rest, once
+    assert {a.external_id for a in handler.alerts} == {"id_a", "id_b", "id_c"}
+
+
 def test_sync_same_second_burst_larger_than_page_not_stalled(
     uow: Any, clock: Any, fake_sn: Any
 ) -> None:
