@@ -27,6 +27,11 @@ updates:
     groups:
       base-images:
         update-types: [minor, patch]
+    ignore:
+      # The interpreter is pinned by pyproject (requires-python); a new Python
+      # is a deliberate change across pyproject, uv.lock and CI, not a tag bump.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message: {prefix: "docker"}
 
   - package-ecosystem: docker-compose  # Postgres, Keycloak, Loki, Grafana...
