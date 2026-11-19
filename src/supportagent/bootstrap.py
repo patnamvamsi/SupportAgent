@@ -4779,7 +4779,7 @@ def ingest_system(  # noqa: PLR0913 — the config, the manifest, the workspace 
     out_dir: Path,
     *,
     refresh: bool = False,
-    transports: IngestTransports = IngestTransports(),  # noqa: B008 — frozen, immutable
+    transports: IngestTransports = IngestTransports(),
     env: Mapping[str, str] | None = None,
 ) -> list[SourceReport]:
     """``onboard ingest``: read the manifest's sources into a workspace at ``out_dir``.
@@ -5310,7 +5310,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
     provider: LLMProvider | None = None,
     engine: Engine | None = None,
     clock: Clock | None = None,
-    transports: IngestTransports = IngestTransports(),  # noqa: B008 — frozen, immutable
+    transports: IngestTransports = IngestTransports(),
     env: Mapping[str, str] | None = None,
     master_key: bytes | None = None,
 ) -> OnboardingStatus:
