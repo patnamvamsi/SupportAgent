@@ -391,7 +391,9 @@ def test_request_sop_auto_validates_and_stores_the_conditions(
     with pytest.raises(ConcurrencyConflict):
         w.setup.request_sop_auto(_SCOPE, conditions, requested_by="cli:sop-auto")
     _admin(db, "user_bo")
-    w.setup.approve_grant(grant_id, approver_id="user_bo", valid_days=30)
+    # The outbox trigger checks expiry against the database's own clock, not the
+    # frozen one (2026-10-20): a short grant here expires in real time (like _grant).
+    w.setup.approve_grant(grant_id, approver_id="user_bo", valid_days=36500)
     [row] = AdminQueries(uow=SqlUnitOfWork(db), tenant_id="acme").grants(status="approved")
     assert row["scope"] == _SCOPE
     assert row["conditions"] == {
