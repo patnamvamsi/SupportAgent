@@ -1,0 +1,112 @@
+# Opt-in exporters for a Compose-run system (WP-212, ADR-0022 §4): the
+# signals SupportAgent's onboarding discovers and its detectors read. Each
+# exporter has a profile, so a deployment runs only what its stack has:
+#
+#   COMPOSE_PROFILES=containers,host,postgres,kafka,redis,http,alerts \
+#     docker compose -f compose.yaml -f compose.exporters.yaml up -d
+#
+# Targets come from .env, never from this file (see README.md):
+#   EXPORTERS_TARGET_NETWORK  the system's Compose network (kafka, redis)
+#   PG_EXPORTER_DSN_HOST/PORT, PG_EXPORTER_USER, PG_EXPORTER_PASSWORD_FILE
+#   KAFKA_EXPORTER_SERVER, REDIS_EXPORTER_ADDR, BLACKBOX_TARGETS
+#
+# Prometheus finds the exporters through Docker's DNS (exporters/scrape.yml),
+# so one that isn't running yields no target and no false "down" series.
+# Nothing here publishes a host port: Prometheus is the only reader.
+services:
+  prometheus:
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}"
+    volumes:
+      - ./exporters/scrape.yml:/etc/prometheus/scrape.d/exporters.yml:ro
+      - ${BLACKBOX_TARGETS:-./exporters/blackbox-targets.example.yml}:/etc/prometheus/targets/blackbox.yml:ro
+      - ${DETECTOR_RULES_DIR:-./exporters/rules}:/etc/prometheus/rules.d:ro
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.54.1
+    profiles: [containers]
+    # Read-only views of the host's container runtime: cAdvisor needs them
+    # to see every container. Only enable on a host where that is acceptable.
+    privileged: true
+    devices: ["/dev/kmsg"]
+    command: ["--docker_only=true", "--housekeeping_interval=15s", "--store_container_labels=true"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    profiles: [host]
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      # Add ,rslave on Linux to see mounts made after start (Docker Desktop refuses it).
+      - /:/host:ro
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    profiles: [postgres]
+    # A monitoring role (pg_monitor, read-only), never the application's.
+    environment:
+      DATA_SOURCE_URI: "${PG_EXPORTER_DSN_HOST:-host.docker.internal}:${PG_EXPORTER_DSN_PORT:-5432}/postgres?sslmode=${PG_EXPORTER_SSLMODE:-disable}"
+      DATA_SOURCE_USER: ${PG_EXPORTER_USER:-}
+      DATA_SOURCE_PASS_FILE: /run/secrets/pg_exporter_password
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      PG_EXPORTER_EXCLUDE_DATABASES: "template0,template1"
+    command: ["--collector.stat_user_tables", "--collector.database", "--collector.locks"]
+    secrets: [pg_exporter_password]
+    networks: [default, target]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.11.0
+    profiles: [kafka]
+    command: ["--kafka.server=${KAFKA_EXPORTER_SERVER:-kafka:9092}"]
+    networks: [default, target]
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.96.0
+    profiles: [redis]
+    environment:
+      REDIS_ADDR: ${REDIS_EXPORTER_ADDR:-redis://redis:6379}
+    networks: [default, target]
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.29.1
+    profiles: [http]
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./exporters/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [default, target]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    profiles: [alerts]
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+    volumes:
+      - ${ALERTMANAGER_CONFIG:-./alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    restart: unless-stopped
+
+networks:
+  target:
+    name: ${EXPORTERS_TARGET_NETWORK:-supportagent-observability_default}
+    external: true
+
+secrets:
+  pg_exporter_password:
+    file: ${PG_EXPORTER_PASSWORD_FILE:-./exporters/no-password}
+
+volumes:
+  alertmanager-data:

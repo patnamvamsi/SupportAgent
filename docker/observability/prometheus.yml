@@ -1,6 +1,14 @@
 global:
   scrape_interval: 15s
 
+# compose.exporters.yaml mounts more scrape jobs, detector rules and finds
+# Alertmanager; without it the globs match nothing and the lookup is empty.
+scrape_config_files: ["/etc/prometheus/scrape.d/*.yml"]
+rule_files: ["/etc/prometheus/rules.d/*.yml"]
+alerting:
+  alertmanagers:
+    - dns_sd_configs: [{names: [alertmanager], type: A, port: 9093, refresh_interval: 30s}]
+
 scrape_configs:
   # The catalog's demo service: lab and contract queries use {service="demo-api"}.
   - job_name: prometheus

@@ -1,0 +1,21 @@
+# Scrape jobs for compose.exporters.yaml. DNS discovery: an exporter whose
+# profile isn't running resolves to nothing, so it adds no target.
+scrape_configs:
+  - job_name: cadvisor
+    dns_sd_configs: [{names: [cadvisor], type: A, port: 8080, refresh_interval: 30s}]
+  - job_name: node
+    dns_sd_configs: [{names: [node-exporter], type: A, port: 9100, refresh_interval: 30s}]
+  - job_name: postgres
+    dns_sd_configs: [{names: [postgres-exporter], type: A, port: 9187, refresh_interval: 30s}]
+  - job_name: kafka
+    dns_sd_configs: [{names: [kafka-exporter], type: A, port: 9308, refresh_interval: 30s}]
+  - job_name: redis
+    dns_sd_configs: [{names: [redis-exporter], type: A, port: 9121, refresh_interval: 30s}]
+  - job_name: blackbox
+    metrics_path: /probe
+    params: {module: [http_2xx]}
+    file_sd_configs: [{files: [/etc/prometheus/targets/blackbox.yml]}]
+    relabel_configs:
+      - {source_labels: [__address__], target_label: __param_target}
+      - {source_labels: [__param_target], target_label: instance}
+      - {target_label: __address__, replacement: "blackbox-exporter:9115"}
