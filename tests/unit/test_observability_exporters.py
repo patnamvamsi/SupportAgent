@@ -60,3 +60,10 @@ def test_exporters_discovered_by_dns_not_listed() -> None:
     base = yaml.safe_load((_DIR / "prometheus.yml").read_text("utf-8"))
     assert base["scrape_config_files"] == ["/etc/prometheus/scrape.d/*.yml"]
     assert base["rule_files"] == ["/etc/prometheus/rules.d/*.yml"]
+
+
+def test_container_metrics_carry_the_compose_service_as_service() -> None:
+    scrape = yaml.safe_load((_DIR / "exporters" / "scrape.yml").read_text("utf-8"))
+    (cadvisor,) = [j for j in scrape["scrape_configs"] if j["job_name"] == "cadvisor"]
+    targets = {r["target_label"]: r["source_labels"] for r in cadvisor["metric_relabel_configs"]}
+    assert targets["service"] == ["container_label_com_docker_compose_service"]
