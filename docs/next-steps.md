@@ -1,4 +1,7 @@
-# Next steps (as of 2026-11-02)
+# Next steps (as of 2026-11-20)
+
+> **2026-11-20: v0.2 is re-scoped by [ADR-0022](adr/0022-v0-2-sre-on-live-signals.md).** 0.1.0 is released. Item 1.4's "first real system" is now the proving ground for v0.2: SRE on live signals (alert intake, an opt-in exporter stack, onboarding-proposed detectors, code-aware RCA, recovery runbooks), with every system-specific item kept as the deployment's data and every incident reproduced generically on System D. The work packages are WP-211 to WP-218 in [12-wp-v0.2.md](tech-spec/12-wp-v0.2.md), in that order. The sections below are the record of v0.1's path.
+
 
 Where SupportAgent stands after ADR-0015 (onboarding and plugins), ADR-0016 (plugins are data) and ADR-0017 (the onboarding autopilot), and what comes next, in order.
 
