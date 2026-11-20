@@ -209,7 +209,12 @@ from supportagent.app.tools import ToolRegistry
 from supportagent.app.trace_answer import TraceAnswer, TraceExplainer
 from supportagent.app.tracing import FlowTracer, TraceRun
 from supportagent.app.triage import TriageRunner, TriageService
-from supportagent.app.webhooks import WebhookDrainer, WebhookService, WebhookSource
+from supportagent.app.webhooks import (
+    AlertResolutions,
+    WebhookDrainer,
+    WebhookService,
+    WebhookSource,
+)
 from supportagent.config.loader import (
     load_config_default,
     load_config_offline,
@@ -1472,12 +1477,24 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     if config.webhooks:
         inbox_uow = SqlUnitOfWork(engine)
         inbox_cipher = Aead(master_key=key, keys=SqlKeyStore(inbox_uow), clock=clock)
+        resolved_uow = SqlUnitOfWork(engine)
         drainer = WebhookDrainer(
             uow=inbox_uow,
             inbox=WebhookInbox(inbox_uow, inbox_cipher),
             runner=runner,
             clock=clock,
             tenant_id=config.tenant.id,
+            resolutions=AlertResolutions(
+                uow=resolved_uow,
+                clock=clock,
+                ids=ids,
+                events=SqlEventSink(
+                    uow=resolved_uow,
+                    cipher=Aead(master_key=key, keys=SqlKeyStore(resolved_uow), clock=clock),
+                ),
+                tenant_id=config.tenant.id,
+                tenant_constants=config.redaction.tenant_constants,
+            ),
         )
         jobs.append(
             ScheduledJob(
@@ -3511,7 +3528,12 @@ def _promotion_gate(config: AppConfig) -> PromotionGate:
 
 def _webhook_sources(config: AppConfig) -> dict[str, WebhookSource]:
     return {
-        w.source: WebhookSource(secret=w.secret.get_secret_value().encode(), mapping=w.mapping)
+        w.source: WebhookSource(
+            secret=w.secret.get_secret_value().encode(),
+            mapping=w.mapping,
+            kind=w.kind,
+            service_labels=tuple(w.service_labels),
+        )
         for w in config.webhooks
     }
 

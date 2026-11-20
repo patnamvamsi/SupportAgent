@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
+from supportagent.domain.alertmanager import DEFAULT_SERVICE_LABELS
 from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.base import DomainModel
@@ -299,11 +300,22 @@ class Retention(DomainModel):
 
 
 class Webhook(DomainModel):
-    """One generic webhook source (02 §2, 11-wp WP-113). ``secret`` from ``secret_env``."""
+    """One webhook source (02 §2; WP-113 generic, WP-213 alerting tools).
+
+    ``kind: generic`` is HMAC-signed and needs a ``mapping``. ``alertmanager``
+    and ``grafana`` post their own alert batches with ``secret`` as a bearer
+    token, map through a preset (no ``mapping``), and resolve the service from
+    the first of ``service_labels`` each alert carries. ``secret`` comes from
+    ``secret_env``.
+    """
 
     source: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,31}$")
+    kind: Literal["generic", "alertmanager", "grafana"] = "generic"
     secret: SecretStr
-    mapping: dict[str, str] = Field(min_length=1)
+    mapping: dict[str, str] = Field(default_factory=dict)
+    service_labels: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_SERVICE_LABELS), min_length=1
+    )
 
     @field_validator("secret")
     @classmethod
@@ -316,6 +328,13 @@ class Webhook(DomainModel):
 
     @model_validator(mode="after")
     def _mapping_is_valid(self) -> Webhook:
+        if self.kind != "generic":
+            if self.mapping:
+                raise ValueError(  # noqa: TRY003
+                    f"webhook {self.source}: kind {self.kind} maps through its preset; "
+                    "remove mapping"
+                )
+            return self
         try:
             validate_mapping(self.mapping)
         except DomainValidationError as exc:

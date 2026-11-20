@@ -106,6 +106,25 @@ docker compose -f compose.yaml -f compose.exporters.yaml up -d
 
 Prometheus finds the exporters by Docker DNS (`exporters/scrape.yml`): one that isn't running adds no target, so there is no false "down" series for a detector to read. No exporter publishes a host port. Prometheus keeps 30 days (`PROMETHEUS_RETENTION`), enough for onboarding to measure a store's normal rates before it proposes a detector.
 
+## Send alerts to SupportAgent (WP-213)
+
+Configure a source in SupportAgent (`webhooks:` with `kind: alertmanager`, see `supportagent.example.yaml`), then give Alertmanager a receiver with the same token. Copy `alertmanager/alertmanager.yml`, point `ALERTMANAGER_CONFIG` at the copy, and add:
+
+```yaml
+route:
+  receiver: supportagent
+  group_by: [alertname, service]
+receivers:
+  - name: supportagent
+    webhook_configs:
+      - url: http://<supportagent>:8000/api/v1/webhooks/alertmanager
+        send_resolved: true              # a resolved alert is noted on its open case, never closes it
+        http_config:
+          authorization: {type: Bearer, credentials_file: /etc/alertmanager/supportagent.token}
+```
+
+Mount the token file next to the config (it must hold the same value as `SUPPORTAGENT_ALERTMANAGER_TOKEN`). Each alert becomes one incident candidate: its `fingerprint` is the identity, so Alertmanager's repeats land on the same case, and the first of `service_labels` it carries names the service for the catalog. A Grafana Alerting contact point works the same way with `kind: grafana` (webhook, `Authorization` header `Bearer <token>`).
+
 ## Contract check
 
 ```sh

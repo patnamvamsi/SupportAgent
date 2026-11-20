@@ -15,6 +15,8 @@ class AlertEvent(DomainModel):
     tenant_id: str
     source: Literal["servicenow", "webhook"]
     origin: Literal["alert", "ticket"]
+    #: ADR-0022 §2: a resolved alert is recorded on its open case, never triaged.
+    alert_status: Literal["firing", "resolved"] = "firing"
     external_id: str
     table: str | None
     ticket_number: str | None  # required when origin == "ticket"
