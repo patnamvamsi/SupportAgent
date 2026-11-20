@@ -24,8 +24,8 @@ jobs:
       matrix:
         db: [sqlite, postgres]
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -41,6 +41,6 @@ jobs:
     # sign-in redirect and Keycloak's realm. scripts/fresh-install-test.sh.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: fresh install (Linux, Docker Engine + Compose v2)
         run: scripts/fresh-install-test.sh
