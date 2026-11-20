@@ -1,0 +1,9 @@
+# Names of real systems used as proving grounds (ADR-0022 §1). None may appear
+# in the core: src/, packs/, plugins/, prompts/, taxonomy/. Docs may name them.
+# One name per line, matched case-insensitively.
+vritti
+cryptomarketdata
+cryptotaengine
+cryptodecisionengine
+cryptowebserver
+cryptosentimentanalysis

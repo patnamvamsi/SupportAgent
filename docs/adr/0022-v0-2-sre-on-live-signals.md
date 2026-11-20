@@ -1,6 +1,6 @@
 # 0022. v0.2 re-scoped: SRE on live signals, proven on a real system that the product discovers
 
-- **Status:** accepted (2026-11-20, maintainer: "rescope, but use Vritti as the proving ground; don't cater to Vritti as the core product. The core product should be able to discover Vritti and act accordingly"). §6 (acting on a system) is accepted as design. Building it waits on the maintainer's go-ahead (AWAITING-INPUT).
+- **Status:** accepted (2026-11-20, maintainer: "rescope, but use Vritti as the proving ground; don't cater to Vritti as the core product. The core product should be able to discover Vritti and act accordingly"). §6 (acting on a system): the maintainer's go-ahead came on 2026-11-21 ("the agent would eventually carry out steps on approval"), so it is built as WP-218.
 - **Date:** 2026-11-20
 - **Code PR:** none yet
 - **Supersedes:** the v0.2 phase plan in ROADMAP §3 and the WP-201 to WP-210 table (12-wp-v0.2.md), as described in §8
@@ -25,7 +25,7 @@ Two things follow. First, v0.2 should make SupportAgent an SRE that works from l
 ### 1. The proving ground, and the line it can't cross
 
 v0.2 is proven on Vritti. Vritti is a **proving ground, not a customer of the core**:
-- **Nothing in `src/`, `packs/`, `plugins/`, `prompts/` or `taxonomy/` names it.** A test (`test_core_names_no_target_system`) fails if a configured list of proving-ground names appears there.
+- **Nothing in `src/`, `packs/`, `plugins/`, `prompts/` or `taxonomy/` names it.** A test (`test_core_names_no_target_system`) fails if any name in `tests/data/proving_ground_names.txt` appears there. The list is tracked, so CI checks the real names; docs may name the proving ground.
 - **Everything Vritti needs comes from generic mechanisms.** Onboarding discovers its stack. Plugins and packs cover the technologies it uses (Docker Compose, Redis, Celery, Kafka, Postgres/TimescaleDB, Python services), each written for that technology, with its own lab, for any system that uses it. Detectors, runbooks and flows are the deployment's reviewed data, written by onboarding or by a person.
 - **Vritti's settings, credentials, recordings and findings stay under the deployment's own directory** (`local/`, git-ignored), like any deployment's.
 - **Each Vritti incident becomes a generic lab scenario** on a synthetic reference system ("System D", a Compose streaming stack) before the fix it motivates is accepted. That system is the regression test, the same rule as Systems A to C.
@@ -66,7 +66,7 @@ RCA follows an error signature into the code:
 
 A suggested fix may be attached to the case as a diff for a person to review and apply. Opening a pull request is a later action kind, under the gate.
 
-### 6. Acting on a system (accepted as design; building it waits on the maintainer)
+### 6. Acting on a system (go-ahead 2026-11-21: on approval)
 
 A resolved case's recovery steps (for example: stop the consumer, restart the feed, advance the watermark, start the consumer) become an SOP runbook (ADR-0014). Each step is an action kind with these properties:
 - a **dry run** shown before approval;
@@ -77,13 +77,13 @@ A resolved case's recovery steps (for example: stop the consumer, restart the fe
 
 Every step runs under a per-step human approval or a conditioned SOP grant, as today. High-risk kinds also need two approvers (the old WP-206).
 
-Write access uses its own credential, bound only once its probes show it can do exactly the declared operations and nothing else. That extends ADR-0019 from "proven read-only" to "proven to be exactly this scope". The first action kinds are generic: restarting, stopping and starting a container or Compose service, and a reviewed single-row record update keyed by one id. Nothing executes until the maintainer gives the go-ahead. Until then v0.2 proposes the runbook, with its dry run, and a person carries it out.
+Write access uses its own credential, bound only once its probes show it can do exactly the declared operations and nothing else. That extends ADR-0019 from "proven read-only" to "proven to be exactly this scope". The first action kinds are generic: restarting, stopping and starting a container or Compose service, and a reviewed single-row record update keyed by one id. The maintainer gave the go-ahead on 2026-11-21: the agent carries out a step once it is approved, or once a conditioned SOP grant a person approved covers it. Never on its own judgement.
 
 ### 7. Exit = v0.2 demo, on the proving ground
 
 1. A SupportAgent with a fresh install runs `onboard run` against Vritti's host. It discovers the Compose stack, its stores, feeds and dependencies, and the exporters. It proposes detectors; the maintainer reviews and enables them.
 2. Reproducing failure 2 (a feed that goes silent while its process stays up) raises an alert within the detector's window. Triage classifies it, and RCA cites the stalled store, the log silence and the code path that has no reconnect.
-3. SupportAgent proposes the recovery runbook with its dry run. A person approves and carries it out (or, after §6's go-ahead, the agent does it in paper mode), and SupportAgent verifies that progress resumes.
+3. SupportAgent proposes the recovery runbook with its dry run. A person approves it, the agent carries it out step by step (the proving ground stays in paper mode), and SupportAgent verifies that progress resumes.
 4. The outcome calibrates the label (ADR-0020). The same scenario passes on System D in CI, and `test_core_names_no_target_system` passes.
 
 ### 8. What happens to the old v0.2 work packages
