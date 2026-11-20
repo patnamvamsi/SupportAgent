@@ -4,10 +4,9 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
-### Acting on a system, and the name (2026-11-20)
+### The name (2026-11-20)
 
-- **Acting (ADR-0022 §6, WP-218):** may SupportAgent execute approved recovery steps on the proving ground (container restarts, a reviewed single-row update such as advancing a cursor), under per-step approval or a conditioned SOP grant, in paper mode? Until you say so, v0.2 proposes runbooks with dry runs and a person carries them out.
-- **The name:** keep SupportAgent, or rename before outside users depend on it.
+- Keep SupportAgent, or rename before outside users depend on it. (Acting on a system was decided on 2026-11-21: on approval, ADR-0022 §6.)
 
 ### Confluence token and ServiceNow dev password (carried from going public)
 
@@ -25,6 +24,11 @@ Items that need the maintainer's decision or resources. The work packages carry 
 - **Your call:**
   - The API token was pasted in chat, so it is in the session transcript. Consider revoking it and keeping a fresh one only in the deployment's `.env`.
   - None of the 3 pages has a `hypothesis-<id>` or `service-<name>` label yet. They are read as internal guidance for every service and suggest no checks.
+
+## Resolved (2026-11-21)
+
+- **Acting on a system (ADR-0022 §6):** the agent carries out recovery steps once they are approved, or under an approved conditioned SOP grant (WP-218).
+- **Monitoring handed over:** the proving ground's monitoring stack now lives in that project and starts with it; SupportAgent keeps the generic stack in `docker/observability`.
 
 ## Resolved (2026-11-20)
 
