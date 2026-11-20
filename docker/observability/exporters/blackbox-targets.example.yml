@@ -1,4 +1,6 @@
 # HTTP endpoints to probe (file_sd). Copy, list the system's health URLs with
-# a service label per target, and point BLACKBOX_TARGETS at the copy.
+# a service label per target, and point BLACKBOX_TARGETS at the copy. A
+# target can pick another module from BLACKBOX_CONFIG with the label
+# __param_module (for example one that sends a Host header the app accepts).
 - targets: []
   labels: {}

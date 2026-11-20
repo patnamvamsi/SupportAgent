@@ -44,6 +44,7 @@ def test_exporter_targets_from_settings_only() -> None:
     services = _compose()["services"]
     pg = services["postgres-exporter"]["environment"]
     assert "${PG_EXPORTER_DSN_HOST" in pg["DATA_SOURCE_URI"]
+    assert "${PG_EXPORTER_DATABASE" in pg["DATA_SOURCE_URI"]
     assert "DATA_SOURCE_PASS" not in pg, "the password comes from a file"
     assert pg["DATA_SOURCE_PASS_FILE"].startswith("/run/secrets/")
     assert "${KAFKA_EXPORTER_SERVER" in " ".join(services["kafka-exporter"]["command"])

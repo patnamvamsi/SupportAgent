@@ -7,8 +7,8 @@
 #
 # Targets come from .env, never from this file (see README.md):
 #   EXPORTERS_TARGET_NETWORK  the system's Compose network (kafka, redis)
-#   PG_EXPORTER_DSN_HOST/PORT, PG_EXPORTER_USER, PG_EXPORTER_PASSWORD_FILE
-#   KAFKA_EXPORTER_SERVER, REDIS_EXPORTER_ADDR, BLACKBOX_TARGETS
+#   PG_EXPORTER_DSN_HOST/PORT/DATABASE, PG_EXPORTER_USER, PG_EXPORTER_PASSWORD_FILE
+#   KAFKA_EXPORTER_SERVER, REDIS_EXPORTER_ADDR, BLACKBOX_TARGETS, BLACKBOX_CONFIG
 #
 # Prometheus finds the exporters through Docker's DNS (exporters/scrape.yml),
 # so one that isn't running yields no target and no false "down" series.
@@ -54,11 +54,11 @@ services:
     profiles: [postgres]
     # A monitoring role (pg_monitor, read-only), never the application's.
     environment:
-      DATA_SOURCE_URI: "${PG_EXPORTER_DSN_HOST:-host.docker.internal}:${PG_EXPORTER_DSN_PORT:-5432}/postgres?sslmode=${PG_EXPORTER_SSLMODE:-disable}"
+      # Per-table statistics come from this database only: name the one the
+      # system writes to (PG_EXPORTER_DATABASE).
+      DATA_SOURCE_URI: "${PG_EXPORTER_DSN_HOST:-host.docker.internal}:${PG_EXPORTER_DSN_PORT:-5432}/${PG_EXPORTER_DATABASE:-postgres}?sslmode=${PG_EXPORTER_SSLMODE:-disable}"
       DATA_SOURCE_USER: ${PG_EXPORTER_USER:-}
       DATA_SOURCE_PASS_FILE: /run/secrets/pg_exporter_password
-      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
-      PG_EXPORTER_EXCLUDE_DATABASES: "template0,template1"
     command: ["--collector.stat_user_tables", "--collector.database", "--collector.locks"]
     secrets: [pg_exporter_password]
     networks: [default, target]
@@ -85,7 +85,7 @@ services:
     profiles: [http]
     command: ["--config.file=/etc/blackbox/blackbox.yml"]
     volumes:
-      - ./exporters/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+      - ${BLACKBOX_CONFIG:-./exporters/blackbox.yml}:/etc/blackbox/blackbox.yml:ro
     networks: [default, target]
     extra_hosts: ["host.docker.internal:host-gateway"]
     restart: unless-stopped

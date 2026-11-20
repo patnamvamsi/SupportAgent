@@ -77,7 +77,7 @@ Alloy then also reads that project's containers through the Docker socket. Each 
 |---|---|---|
 | `containers` | cAdvisor | each container's state, restarts, CPU and memory, with its Compose labels (privileged: read-only views of the container runtime) |
 | `host` | node-exporter | reboots, uptime, disk, load |
-| `postgres` | postgres-exporter | per-table inserts and updates (`pg_stat_user_tables`), connections, locks; with a `pg_monitor` read-only role |
+| `postgres` | postgres-exporter | per-table inserts and updates (`pg_stat_user_tables`, for `PG_EXPORTER_DATABASE`), connections, locks; with a `pg_monitor` read-only role. TimescaleDB counts a hypertable's inserts on its chunks (`_timescaledb_internal._hyper_*`), so its detectors map chunks back or use the newest timestamp (the `timescaledb` plugin, WP-214) |
 | `kafka` | kafka-exporter | topic offsets, consumer group lag |
 | `redis` | redis-exporter | up, memory, clients, keyspace |
 | `http` | blackbox-exporter | HTTP probes of the URLs in `BLACKBOX_TARGETS` |
@@ -89,11 +89,13 @@ Targets come from `.env`:
 EXPORTERS_TARGET_NETWORK=<the system's compose network>   # kafka, redis, postgres, http
 PG_EXPORTER_DSN_HOST=host.docker.internal                 # or the database's service name
 PG_EXPORTER_DSN_PORT=5432
+PG_EXPORTER_DATABASE=<the database the system writes to>  # per-table stats come from it
 PG_EXPORTER_USER=<monitoring role>
 PG_EXPORTER_PASSWORD_FILE=/path/to/password               # a file, never the value
 KAFKA_EXPORTER_SERVER=kafka:9092
 REDIS_EXPORTER_ADDR=redis://redis:6379
 BLACKBOX_TARGETS=/path/to/blackbox-targets.yml            # from exporters/blackbox-targets.example.yml
+BLACKBOX_CONFIG=/path/to/blackbox.yml                     # optional: more probe modules (__param_module per target)
 DETECTOR_RULES_DIR=/path/to/rules                         # reviewed detector rules (WP-215)
 COMPOSE_PROFILES=containers,host,postgres,kafka,redis,http,alerts
 ```
