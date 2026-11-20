@@ -152,3 +152,8 @@ retention:
 # tracing:                           # ADR-0021: where is this business object? (`supportagent trace`)
 #   flows_dir: local/flows           # reviewed flow files, <id>.yaml (`supportagent flow validate`)
 #   record_flows: []                 # flows allowed to read business records (an admin's decision)
+# webhooks:                          # alerts in (WP-113 generic, WP-213 alerting tools); POST /api/v1/webhooks/<source>
+#   - source: alertmanager           # Alertmanager (or kind: grafana for Grafana Alerting contact points)
+#     kind: alertmanager             # generic (HMAC + mapping) | alertmanager | grafana (bearer token, preset mapping)
+#     secret_env: SUPPORTAGENT_ALERTMANAGER_TOKEN   # the bearer token, at least 32 bytes
+#     service_labels: [service, compose_service, container_label_com_docker_compose_service, container, job]

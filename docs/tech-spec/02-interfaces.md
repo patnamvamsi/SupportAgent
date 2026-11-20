@@ -141,7 +141,7 @@ FastAPI, JSON in and out, versioned by path. Every non-GET request requires an a
 | GET | `/api/v1/users` | admin | v0.0 | Users and their roles (added in WP-013) |
 | POST | `/api/v1/users/{id}/roles` | admin | v0.0 | Body `{role, scope?}` (`*` or `service:<name>`, v0.1): grant a role. Every role change after the first admin is made by an admin (03 §2.1) |
 | DELETE | `/api/v1/users/{id}/roles/{role}` | admin | v0.1 | Revoke a role; 422 when it would remove the last admin (WP-103) |
-| POST | `/api/v1/webhooks/{source}` | HMAC | v0.1 | Generic webhook (`X-SA-Signature: sha256=<hex>`, `X-SA-Timestamp`, `X-SA-Nonce`) |
+| POST | `/api/v1/webhooks/{source}` | HMAC or bearer | v0.1, v0.2 | `kind: generic`: HMAC (`X-SA-Signature: sha256=<hex>`, `X-SA-Timestamp`, `X-SA-Nonce`), `accepted` is the inbox id. `kind: alertmanager` / `grafana` (WP-213): `Authorization: Bearer <secret>`, the tool's alert batch mapped by a preset, `accepted` lists one id per alert; a resolved alert is noted on its open case, never triaged |
 
 **Approve semantics (exact):** within one UoW, load the proposal (must be `pending_approval`) and compare `body.payload_hash` with `proposal.payload_hash` (409 `stale_proposal` if they differ). Insert the approval; the DB trigger rejects self-approval and the API maps that to 403. Transition the proposal to `approved` and enqueue the outbox row with `approval_id`, then commit. The executor sends asynchronously.
 
