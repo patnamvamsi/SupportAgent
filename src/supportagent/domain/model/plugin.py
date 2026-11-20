@@ -108,13 +108,18 @@ class ExtractRule(DomainModel):
     """ADR-0016: one declarative rule over a config file's flattened keys.
 
     A leaf whose dotted key matches ``key`` and whose string value matches
-    ``value`` (named groups fill the templates) yields, from the repository's
-    component:
+    ``value`` (named groups in either fill the templates) yields, from the
+    repository's component:
 
     - ``own``: ``node`` *is* the component (``name`` in a ``package.json``);
     - ``node`` (+ ``edge``): a node it relates to (``uses database:{name}``);
     - ``to`` + ``edge``: a relationship to a node found elsewhere (``calls service:{name}``);
     - ``tech``: technology the component has (a dependency it declares).
+
+    ``component`` (ADR-0022, WP-214) makes another node the subject instead of
+    the repository's component, for a file that describes many components (a
+    Compose file, Kubernetes manifests): ``services.(?P<svc>[^.]+).depends_on``
+    with ``component: service:{svc}`` relates each service, not the repository.
     """
 
     key: str = Field(min_length=1)
@@ -124,6 +129,7 @@ class ExtractRule(DomainModel):
     edge: str | None = None
     to: str | None = None
     tech: list[str] = Field(default_factory=list)
+    component: NodeTemplate | None = None
 
     @model_validator(mode="after")
     def _well_formed(self) -> ExtractRule:
@@ -132,13 +138,17 @@ class ExtractRule(DomainModel):
                 re.compile(pattern)
             except re.error as exc:
                 raise ValueError(f"bad regex {pattern!r}: {exc}") from exc  # noqa: TRY003
-        groups = set(re.compile(self.value).groupindex)
-        for template in (self.node.id if self.node else None, self.to):
+        groups = set(re.compile(self.value).groupindex) | set(re.compile(self.key).groupindex)
+        for template in (
+            self.node.id if self.node else None,
+            self.to,
+            self.component.id if self.component else None,
+        ):
             if template and not set(_TEMPLATE.findall(template)) <= groups:
                 raise ValueError(f"{template!r} names a group {self.value!r} lacks")  # noqa: TRY003
         if self.edge is not None and self.edge not in RULE_EDGES:
             raise ValueError(f"edge {self.edge!r} is not one of {sorted(RULE_EDGES)}")  # noqa: TRY003
-        if self.own and (self.node is None or self.edge or self.to):
+        if self.own and (self.node is None or self.edge or self.to or self.component):
             raise ValueError("an own rule names the component's node and nothing else")  # noqa: TRY003
         if self.to is not None and (self.edge is None or self.node is not None):
             raise ValueError("a to rule needs an edge and no node")  # noqa: TRY003
