@@ -242,9 +242,73 @@ def test_a_declared_cmdb_class_becomes_its_node() -> None:
     assert not any(f and f[0] == "database:ordersdb" for f in _facts({}, [], cmdb))
 
 
+_COMPOSE_RULES = Extractor.model_validate(
+    {
+        "match": "**/docker-compose*.yml",
+        "format": "yaml",
+        "rules": [
+            {  # list form: services.<svc>.depends_on: [a, b]
+                "key": "^services\\.(?P<svc>[^.]+)\\.depends_on$",
+                "value": "^(?P<dep>[a-z0-9_.-]+)$",
+                "component": {"id": "service:{svc}", "kind": "Service"},
+                "to": "service:{dep}",
+                "edge": "depends_on",
+            },
+            {  # long form: services.<svc>.depends_on.<dep>.condition
+                "key": "^services\\.(?P<svc>[^.]+)\\.depends_on\\.(?P<dep>[^.]+)\\.condition$",
+                "value": ".+",
+                "component": {"id": "service:{svc}", "kind": "Service"},
+                "to": "service:{dep}",
+                "edge": "depends_on",
+            },
+            {
+                "key": "^services\\.(?P<svc>[^.]+)\\.image$",
+                "value": "^(?P<tech>redis|postgres|timescale/timescaledb)",
+                "component": {"id": "service:{svc}", "kind": "Service"},
+                "tech": ["container"],
+            },
+        ],
+    }
+)
+
+
+def test_a_rule_can_name_its_own_component_for_multi_component_files() -> None:
+    compose = """
+services:
+  feed:
+    build: ./feed
+    depends_on: [broker, cache]
+  consumer:
+    build: ./consumer
+    depends_on:
+      broker: {condition: service_healthy}
+  broker: {image: confluentinc/cp-kafka:7.0.0}
+  cache: {image: "redis:7-alpine"}
+"""
+    facts = _facts({"platform/docker-compose.yml": compose}, [_COMPOSE_RULES])
+    assert ("service:feed", "depends_on", "service:broker") in facts
+    assert ("service:feed", "depends_on", "service:cache") in facts
+    assert ("service:consumer", "depends_on", "service:broker") in facts, "long form too"
+    assert ("service:cache", "Service", ("container",)) in facts
+    assert not any(f and f[0] == "service:platform" for f in facts), "not the repository"
+
+
 @pytest.mark.parametrize(
     ("rule", "why"),
     [
+        (
+            {"key": "x", "component": {"id": "service:{svc}", "kind": "Service"}, "tech": ["x"]},
+            "lacks",
+        ),
+        (
+            {
+                "key": "(?P<n>x)",
+                "own": True,
+                "node": {"id": "service:{n}", "kind": "Service"},
+                "component": {"id": "service:{n}", "kind": "Service"},
+            },
+            "own rule",
+        ),
         ({"key": "x", "edge": "deletes", "to": "service:{name}"}, "is not one of"),
         ({"key": "x", "value": "(?P<db>.+)", "to": "service:{name}", "edge": "calls"}, "lacks"),
         ({"key": "x", "own": True}, "own rule"),

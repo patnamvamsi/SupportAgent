@@ -150,15 +150,25 @@ def _declared(
                     key = re.compile(rule.key)
                     value = re.compile(rule.value)
                     for leaf, text_value in leaves:
-                        if key.search(leaf) and (m := value.search(text_value)):
-                            _apply(out, repo, source, rule, m, by=f"plugin:{plugin_id}")
+                        if (k := key.search(leaf)) and (m := value.search(text_value)):
+                            groups = {**k.groupdict(), **m.groupdict()}
+                            _apply(out, repo, source, rule, groups, by=f"plugin:{plugin_id}")
 
 
 def _apply(
-    out: _Collect, repo: str, source: str, rule: ExtractRule, match: re.Match[str], *, by: str
+    out: _Collect,
+    repo: str,
+    source: str,
+    rule: ExtractRule,
+    captured: Mapping[str, str | None],
+    *,
+    by: str,
 ) -> None:
-    groups = {k: _slug(v) for k, v in match.groupdict().items() if v}
+    groups = {k: _slug(v) for k, v in captured.items() if v}
     owner = out.components.get(repo)
+    if rule.component is not None:
+        owner = rule.component.id.format(**groups)
+        out.node(owner, rule.component.kind, source, tech=rule.component.tech, by=by)
     if rule.own and rule.node is not None:
         if owner is None:
             node_id = rule.node.id.format(**groups)
