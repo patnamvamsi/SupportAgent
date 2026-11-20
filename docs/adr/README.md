@@ -25,6 +25,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0019](0019-credential-binding.md) | Credential binding: a credential is stored only once it is proven read-only | accepted |
 | [0020](0020-shadow-replay.md) | Shadow replay: readiness also asks whether the pipeline would route it | accepted |
 | [0021](0021-transaction-tracing.md) | Transaction tracing: where is this business object, and is that where it should be? | accepted |
+| [0022](0022-v0-2-sre-on-live-signals.md) | v0.2 re-scoped: SRE on live signals, proven on a real system that the product discovers | accepted (§6 acting: build after go-ahead) |
 
 ## Naming
 

@@ -4,6 +4,11 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
+### Acting on a system, and the name (2026-11-20)
+
+- **Acting (ADR-0022 §6, WP-218):** may SupportAgent execute approved recovery steps on the proving ground (container restarts, a reviewed single-row update such as advancing a cursor), under per-step approval or a conditioned SOP grant, in paper mode? Until you say so, v0.2 proposes runbooks with dry runs and a person carries them out.
+- **The name:** keep SupportAgent, or rename before outside users depend on it.
+
 ### Confluence token and ServiceNow dev password (carried from going public)
 
 - The repo is public. Older commits name the LAN host, the ServiceNow developer instance and the Confluence site: no credentials (a full-history gitleaks scan is clean), but revoke the Confluence token pasted in an earlier session and rotate the ServiceNow dev password if you haven't.
