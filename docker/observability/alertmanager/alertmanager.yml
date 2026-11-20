@@ -1,0 +1,8 @@
+# Default: alerts are kept and shown in Alertmanager, sent nowhere. To send
+# them to SupportAgent, copy this file, add its receiver (README.md) and point
+# ALERTMANAGER_CONFIG at the copy.
+route:
+  receiver: none
+  group_by: [alertname, service]
+receivers:
+  - name: none
