@@ -1,0 +1,42 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-container-exited
+pack: docker-compose
+split: tune
+description: The collector's container exited an hour and a half ago and nothing restarted it.
+incident:
+  subject: price-collector not running
+  body: Dashboards show no new prices since 06:30. The price-collector service does not answer its health
+    check.
+  priority: '2'
+service:
+  name: price-collector
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: max(time() - max_over_time(container_last_seen{service="price-collector"}[1d]))
+      series:
+      - labels: {}
+        value: 5400.0
+      count: 1
+      max_value: 5400.0
+  logs.search:
+    result:
+      query: '{service="price-collector"}'
+      window_min: 30
+      count: 0
+      matches: []
+truth:
+  classification: runtime/down
+  severity: P2
+  root_cause: compose_container_down
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - compose_stalled
+  - compose_crash_loop
+why: 'The container was last seen 90 minutes ago: it is down, not stalled. The empty logs follow from
+  that.'

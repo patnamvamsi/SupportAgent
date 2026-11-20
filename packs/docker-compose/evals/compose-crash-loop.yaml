@@ -1,0 +1,54 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-crash-loop
+pack: docker-compose
+split: tune
+description: The worker starts, fails within seconds and is restarted, seven times in half an hour.
+incident:
+  subject: report-worker keeps restarting
+  body: 'report-worker is flapping: reports are not produced and the service is up only for a few seconds
+    at a time.'
+  priority: '2'
+service:
+  name: report-worker
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: max(changes(container_start_time_seconds{service="report-worker"}[30m]))
+      series:
+      - labels: {}
+        value: 7.0
+      count: 1
+      max_value: 7.0
+  logs.search:
+    result:
+      query: '{service="report-worker"}'
+      window_min: 30
+      count: 3
+      matches:
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1000
+        labels:
+          service: report-worker
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1001
+        labels:
+          service: report-worker
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1002
+        labels:
+          service: report-worker
+truth:
+  classification: runtime/down
+  severity: P2
+  root_cause: compose_crash_loop
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - compose_container_down
+  - compose_host_restart
+why: Seven container starts in 30 minutes is a crash loop; the container is seen, so it is not simply
+  down.

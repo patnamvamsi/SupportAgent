@@ -1,0 +1,122 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-control-down
+pack: docker-compose
+split: tune
+description: 'Control: a user reports the service down, but its container is running and the host has
+  been up for weeks.'
+incident:
+  subject: billing-api down?
+  body: A user says billing-api is down. Nothing else looks wrong.
+  priority: '3'
+service:
+  name: billing-api
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: max(time() - max_over_time(container_last_seen{service="billing-api"}[1d]))
+      series:
+      - labels: {}
+        value: 15.0
+      count: 1
+      max_value: 15.0
+  logs.search:
+    result:
+      query: '{service="billing-api"}'
+      window_min: 30
+      count: 20
+      matches:
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1000
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1001
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1002
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:53:00Z'
+        line: INFO wrote batch 1003
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:54:00Z'
+        line: INFO wrote batch 1004
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:55:00Z'
+        line: INFO wrote batch 1005
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:56:00Z'
+        line: INFO wrote batch 1006
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:57:00Z'
+        line: INFO wrote batch 1007
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:58:00Z'
+        line: INFO wrote batch 1008
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:59:00Z'
+        line: INFO wrote batch 1009
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1010
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1011
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1012
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:53:00Z'
+        line: INFO wrote batch 1013
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:54:00Z'
+        line: INFO wrote batch 1014
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:55:00Z'
+        line: INFO wrote batch 1015
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:56:00Z'
+        line: INFO wrote batch 1016
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:57:00Z'
+        line: INFO wrote batch 1017
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:58:00Z'
+        line: INFO wrote batch 1018
+        labels:
+          service: billing-api
+      - ts: '2026-01-01T07:59:00Z'
+        line: INFO wrote batch 1019
+        labels:
+          service: billing-api
+truth:
+  classification: runtime/down
+  also_acceptable:
+  - network/outage
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - compose_container_down
+  - compose_crash_loop
+  - compose_host_restart
+why: 'Every check came back negative: the container is running and stable, so no runtime cause is claimed.'

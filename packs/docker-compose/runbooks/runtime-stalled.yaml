@@ -1,0 +1,13 @@
+# A component reports up but has stopped working: has it gone silent?
+id: runbook:runtime-stalled
+applies_when: {classification: runtime/stalled}
+budget: {max_tool_calls: 2, max_tokens: 2000, max_hypotheses: 1}
+steps:
+  - id: silent
+    hypothesis: compose_stalled
+    tool: logs.search
+    args:
+      query: '{service="{{service}}"}'
+      service: "$service.name"
+      window_min: 30
+    check: 'result.query.contains("{service=") && result.count == 0'

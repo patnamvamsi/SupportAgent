@@ -1,0 +1,138 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-control-stale
+pack: docker-compose
+split: holdout
+description: 'Control: data looks stale to a user, but the writer is logging normally.'
+incident:
+  subject: data looks stale
+  body: The dashboard looks stale to me, are the prices updating?
+  priority: '3'
+service:
+  name: price-writer
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: max(time() - max_over_time(container_last_seen{service="price-writer"}[1d]))
+      series:
+      - labels: {}
+        value: 8.0
+      count: 1
+      max_value: 8.0
+  logs.search:
+    result:
+      query: '{service="price-writer"}'
+      window_min: 30
+      count: 25
+      matches:
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1000
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1001
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1002
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:53:00Z'
+        line: INFO wrote batch 1003
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:54:00Z'
+        line: INFO wrote batch 1004
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:55:00Z'
+        line: INFO wrote batch 1005
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:56:00Z'
+        line: INFO wrote batch 1006
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:57:00Z'
+        line: INFO wrote batch 1007
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:58:00Z'
+        line: INFO wrote batch 1008
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:59:00Z'
+        line: INFO wrote batch 1009
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1010
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1011
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1012
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:53:00Z'
+        line: INFO wrote batch 1013
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:54:00Z'
+        line: INFO wrote batch 1014
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:55:00Z'
+        line: INFO wrote batch 1015
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:56:00Z'
+        line: INFO wrote batch 1016
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:57:00Z'
+        line: INFO wrote batch 1017
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:58:00Z'
+        line: INFO wrote batch 1018
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:59:00Z'
+        line: INFO wrote batch 1019
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:50:00Z'
+        line: INFO wrote batch 1020
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:51:00Z'
+        line: INFO wrote batch 1021
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:52:00Z'
+        line: INFO wrote batch 1022
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:53:00Z'
+        line: INFO wrote batch 1023
+        labels:
+          service: price-writer
+      - ts: '2026-01-01T07:54:00Z'
+        line: INFO wrote batch 1024
+        labels:
+          service: price-writer
+truth:
+  classification: runtime/stalled
+  severity: P3
+  root_cause: null
+  verdict: CONSISTENT_UNCONFIRMED
+  must_not_claim:
+  - compose_stalled
+  - compose_container_down
+why: 'The writer logged 25 lines in the window and its container is up: nothing supports a stall.'

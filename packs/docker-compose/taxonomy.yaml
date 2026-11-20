@@ -1,0 +1,11 @@
+# Labels for components run as containers (ADR-0022 §3: generic failure classes).
+version: 0.1.0
+labels:
+  - id: runtime/down
+    description: >-
+      A component isn't running: its container exited, never came back after a
+      restart or reboot, or keeps crashing. What depends on it fails or waits.
+  - id: runtime/stalled
+    description: >-
+      A component is running but has stopped doing its work: its container
+      reports up, yet it produces no output and makes no progress.

@@ -31,7 +31,7 @@ from tests.unit.test_python_postgres_pack import _Oracle
 pytestmark = pytest.mark.unit
 
 _REPO = Path(__file__).resolve().parents[2]
-_PACKS = ("oracle", "java-spring", "kubernetes", "nodejs", "mongodb", "rabbitmq")
+_PACKS = ("oracle", "java-spring", "kubernetes", "nodejs", "mongodb", "rabbitmq", "docker-compose")
 
 
 def _pack_set() -> PackSet:
