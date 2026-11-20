@@ -1,0 +1,1 @@
+{"latency_ms": 11874, "raw_text": "{\"classification\":\"runtime/down\",\"severity\":\"P1\",\"summary\":\"The price-collector service is not answering health checks and has produced no new price data since 06:30, indicating the component is down.\",\"confidence\":0.88}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1228, "tokens_out": 740}

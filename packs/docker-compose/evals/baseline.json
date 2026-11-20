@@ -1,0 +1,14 @@
+{
+  "cases": {
+    "compose-container-exited": true,
+    "compose-control-down": true,
+    "compose-control-stale": false,
+    "compose-crash-loop": true,
+    "compose-host-reboot": true,
+    "compose-stalled-feed": true
+  },
+  "model_id": "qwen/qwen3.8-27b",
+  "pack": "docker-compose",
+  "samples": 1,
+  "v": 1
+}

@@ -1,0 +1,1 @@
+{"latency_ms": 4030, "raw_text": "{\"classification\":\"database/latency\",\"severity\":\"P3\",\"summary\":\"User reports dashboard prices may be stale, suggesting possible delayed data refresh, lagging reads, or a query latency issue.\",\"confidence\":0.55}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1212, "tokens_out": 266}

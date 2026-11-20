@@ -1,0 +1,1 @@
+{"latency_ms": 3606, "raw_text": "{\n  \"classification\": \"runtime/down\",\n  \"severity\": \"P2\",\n  \"summary\": \"The report-worker component is flapping and repeatedly exiting, so it is not producing reports and dependencies are failing or waiting.\",\n  \"confidence\": 0.93\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1225, "tokens_out": 225}

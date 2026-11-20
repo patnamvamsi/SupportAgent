@@ -1,0 +1,1 @@
+{"latency_ms": 4616, "raw_text": "{\n  \"classification\": \"runtime/down\",\n  \"severity\": \"P1\",\n  \"summary\": \"A customer reports billing-api is down with no other symptoms, suggesting the service may have exited, failed to start, or is refusing connections.\",\n  \"confidence\": 0.55\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1214, "tokens_out": 317}
