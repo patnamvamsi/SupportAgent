@@ -1,6 +1,6 @@
 [project]
 name = "supportagent"
-version = "0.0.0"
+version = "0.1.0"
 description = "SupportAgent — an application support analyst. The docs/ tree is the product; this is the v0.0 walking skeleton."
 readme = "README.md"
 license = "Apache-2.0"

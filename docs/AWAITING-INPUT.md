@@ -4,16 +4,9 @@ Items that need the maintainer's decision or resources. The work packages carry 
 
 ## Open
 
-### Going public (2026-11-12)
+### Confluence token and ServiceNow dev password (carried from going public)
 
-- **Decided:** open source and self-hosted (cloud deployments included), under Apache-2.0.
-- **Done meanwhile:** the LICENSE, NOTICE, SECURITY.md, CONTRIBUTING.md, issue templates and [data handling](data-handling.md) are in. Host addresses and instance names are now placeholders.
-- **Your steps, when you're ready:**
-  1. Make the repository public.
-  2. Under **Settings → Code security**, turn on private vulnerability reporting, secret scanning with push protection, and Dependabot alerts.
-  3. Under **Settings → Rules**, add a ruleset for `main`: changes go through pull requests, the CI checks must pass, and no force pushes.
-  4. Revoke the Confluence token from the earlier session, if you haven't.
-
+- The repo is public. Older commits name the LAN host, the ServiceNow developer instance and the Confluence site: no credentials (a full-history gitleaks scan is clean), but revoke the Confluence token pasted in an earlier session and rotate the ServiceNow dev password if you haven't.
 
 ### A real system to onboard (2026-11-01)
 
@@ -21,20 +14,18 @@ Items that need the maintainer's decision or resources. The work packages carry 
 - **Done meanwhile:** the loop works end to end on three synthetic reference systems (ADR-0015/16/17). [next-steps.md](next-steps.md) lists what must land first for a real system to reach *ready*: live evidence capture (1.1) and credential binding (1.2).
 - **Unblocks:** next-steps 1.4, the first real onboarding.
 
-### GitHub Actions minutes: merging on local CI until they reset (2026-10-29)
-
-- **What happened:** the repo is private on the free plan, so Actions get the free plan's monthly minutes. Each push runs about 13 jobs, billed per job and rounded up to the minute, and the nightly job runs every day; together they used up the month's minutes. GitHub then refuses jobs with the "payments … spending limit" message. No payment is needed.
-- **Done meanwhile:** `scripts/ci-local.sh` (`make ci-local`, #72) runs every `ci.yml` job on this machine with the same commands. #70, #71 and BL-054 were merged after a full local run, with its table posted on each PR.
-- **Optional:** nothing is blocked. When the minutes reset, GitHub CI runs again on the next push. To use fewer minutes from then on, either:
-  - run the nightly job less often; or
-  - set up the self-hosted runner on the LAN host (carried over below). Its minutes are free on private repos.
-
 ### Confluence: revoke the pasted token; label pages if you want them scoped
 
 - **Done:** the live contract passed against your Confluence space on 2026-10-29: 3 pages read, GET only, every chunk cited with its URL and version.
 - **Your call:**
   - The API token was pasted in chat, so it is in the session transcript. Consider revoking it and keeping a fresh one only in the deployment's `.env`.
   - None of the 3 pages has a `hypothesis-<id>` or `service-<name>` label yet. They are read as internal guidance for every service and suggest no checks.
+
+## Resolved (2026-11-20)
+
+- **Going public:** the repo is public. Private vulnerability reporting, secret scanning with push protection, Dependabot alerts and security updates are on. The `main` ruleset requires a pull request and the CI checks, with no force pushes or deletion; `v*` tags can't be moved or deleted. The `release` environment deploys from `v*` tags only and needs the maintainer's approval.
+- **Actions minutes:** public repositories run standard GitHub-hosted runners free, so CI and the nightly soak run on GitHub again; `make ci-local` stays for local use.
+- **First release:** 0.1.0, tagged now, ahead of the partner-dependent v0.1 exit criteria (the holdout gates, BL-037, and the exit demo), which stay open. 0.0.0 was never tagged.
 
 ## Resolved (2026-11-08)
 
@@ -61,4 +52,3 @@ Items that need the maintainer's decision or resources. The work packages carry 
 - A self-hosted CI runner on the LAN host (nightly live lab).
 - ServiceNow dev password rotation.
 - Whether staging stays in assisted mode.
-- The v0.0.0 tag.
