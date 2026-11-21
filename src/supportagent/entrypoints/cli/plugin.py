@@ -21,6 +21,7 @@ from supportagent.adapters.files.plugin_loader import LoadedPlugin
 from supportagent.app.request_review import request_id
 from supportagent.bootstrap import (
     AUTOPILOT_STATE,
+    apply_detectors,
     detect_plugins,
     fetch_catalogs,
     ingest_system,
@@ -29,6 +30,7 @@ from supportagent.bootstrap import (
     onboard_bind,
     onboard_catalog,
     onboard_cycle,
+    onboard_detectors,
     onboard_drift,
     onboard_evidence,
     onboard_flows,
@@ -50,6 +52,7 @@ from supportagent.domain.errors import (
     DomainValidationError,
     ExternalServiceError,
     NotFound,
+    ToolError,
 )
 
 plugin_app = typer.Typer(help="The plugin registry (ADR-0015).", no_args_is_help=True)
@@ -607,6 +610,53 @@ def onboard_catalog_command(
         todo = f"  TODO: {'; '.join(item.todo)}" if item.todo else ""
         typer.echo(f"  {item.status:<4}  {item.entry.name:<28} {','.join(item.entry.stack)}{todo}")
     typer.echo(f"wrote {path}: review it, then copy it over your catalog")
+
+
+@onboard_app.command("detectors")
+def onboard_detectors_command(
+    workspace: Path = typer.Option(..., "--workspace", help="An onboarded workspace."),  # noqa: B008
+    config: Path = typer.Option(  # noqa: B008
+        Path("supportagent.yaml"),
+        "--config",
+        help="supportagent.yaml (tools.prometheus, tools.loki).",
+    ),
+    days: int = typer.Option(7, "--days", min=3, max=30, help="History to measure, in days."),
+    apply: bool = typer.Option(False, "--apply", help="Render the enabled detectors as rules."),
+    rules_dir: Path | None = typer.Option(  # noqa: B008
+        None, "--rules-dir", help="With --apply: where Prometheus and Loki load rules from."
+    ),
+) -> None:
+    """Propose alert rules from the system's own signals (ADR-0022 §3), for you to review.
+
+    Without --apply: measures each component's signals in the deployment's
+    Prometheus and Loki over --days, and writes detectors.proposed.yaml in the
+    workspace, every detector disabled, plus what couldn't be proposed and why.
+    Set `enabled: true` on the ones you want, then run again with --apply
+    --rules-dir <dir>: only those are written, as one Prometheus and one Loki
+    rule file. Nothing is loaded into the alerting system by this command.
+    """
+    if apply:
+        if rules_dir is None:
+            typer.echo("error: --apply needs --rules-dir", err=True)
+            raise typer.Exit(2)
+        enabled, paths = apply_detectors(workspace, rules_dir)
+        for det in enabled:
+            typer.echo(f"  enabled  {det.id:<44} {det.expr}")
+        for path in paths:
+            typer.echo(f"wrote {path}")
+        if not enabled:
+            typer.echo("no detector is enabled yet: edit detectors.proposed.yaml first")
+        return
+    try:
+        drafts, skipped, path = onboard_detectors(load_config_default(config), workspace, days=days)
+    except (ConfigError, ToolError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    for det in drafts:
+        typer.echo(f"  proposed {det.id:<44} {det.summary}")
+    for item in skipped:
+        typer.echo(f"  not      {item.cls}/{item.subject:<36} {item.reason}")
+    typer.echo(f"wrote {path}: review it, enable what you want, then --apply")
 
 
 @onboard_app.command("gaps")

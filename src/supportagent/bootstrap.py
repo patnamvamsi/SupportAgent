@@ -91,6 +91,12 @@ from supportagent.adapters.files.plugin_loader import (
     write_index,
 )
 from supportagent.adapters.files.runbook_loader import load_probes, load_runbooks
+from supportagent.adapters.files.signal_rules import (
+    read_drafts,
+    read_enabled,
+    write_review,
+    write_rules,
+)
 from supportagent.adapters.files.taxonomy_loader import load_classification
 from supportagent.adapters.files.workspace import Workspace
 from supportagent.adapters.gitsource.reader import GitHubReader, read_local
@@ -161,6 +167,7 @@ from supportagent.adapters.tools.oracle import ORACLE_TOOLS, OracledbReader
 from supportagent.adapters.tools.postgres import POSTGRES_TOOLS, PsycopgReader
 from supportagent.adapters.tools.prometheus import PrometheusQueryTool
 from supportagent.adapters.tools.records import PsycopgRecordReader, RecordsQueryTool
+from supportagent.adapters.tools.signal_history import HttpSignalHistory, signal_history
 from supportagent.app.access_binding import AccessBinding, BindOutcome
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
@@ -306,6 +313,12 @@ from supportagent.domain.promotion import PromotionGate
 from supportagent.domain.quality import DEFAULT_GATES, QualityGate, SplitCase, split_violations
 from supportagent.domain.readiness import ReadinessPolicy
 from supportagent.domain.severity import Severity, SeverityStrategy, SourcePrioritySeverity
+from supportagent.domain.signal_detectors import (
+    NotProposed,
+    SignalDetector,
+    draft_detectors,
+    with_enabled,
+)
 from supportagent.domain.slots import SLOT_VARIABLES, SlotName
 from supportagent.domain.sop import step_scope
 from supportagent.domain.tiers import Tier, TrustClass
@@ -392,6 +405,7 @@ from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
 from supportagent.ports.llm import LLMProvider, ProviderRequest, ProviderResponse
 from supportagent.ports.pii import PiiAnalyzer
+from supportagent.ports.signals import SignalHistoryReader
 from supportagent.ports.tickets import RecordType, TicketSink, TicketSource
 from supportagent.ports.tools import Tool, ToolResult
 
@@ -5966,6 +5980,70 @@ def onboard_catalog(
     if entries:  # what's written is a catalog that loads, once its TODOs are done
         Catalog.model_validate(load_yaml_document(path))
     return entries, path
+
+
+def _signal_history(config: AppConfig) -> HttpSignalHistory:
+    """The deployment's Prometheus and Loki, read-only, for measuring signals (WP-215)."""
+    cfg = config.tools
+    prom: httpx.Client | None = None
+    loki: httpx.Client | None = None
+    headers: dict[str, str] = {}
+    if cfg.prometheus is not None:
+        auth = (
+            {"Authorization": f"Bearer {cfg.prometheus.token.get_secret_value()}"}
+            if cfg.prometheus.token
+            else {}
+        )
+        prom = httpx.Client(base_url=cfg.prometheus.base_url, headers=auth)
+    if cfg.loki is not None:
+        if cfg.loki.token:
+            headers["Authorization"] = f"Bearer {cfg.loki.token.get_secret_value()}"
+        if cfg.loki.org_id:
+            headers["X-Scope-OrgID"] = cfg.loki.org_id
+        loki = httpx.Client(base_url=cfg.loki.base_url)
+    return signal_history(prom, loki, headers)
+
+
+def onboard_detectors(  # noqa: PLR0913 — the workspace plus test seams
+    config: AppConfig,
+    workspace: Path,
+    *,
+    days: int = 7,
+    history: SignalHistoryReader | None = None,
+    now: datetime | None = None,
+    provider: LLMProvider | None = None,
+) -> tuple[list[SignalDetector], list[NotProposed], Path]:
+    """``onboard detectors`` (WP-215): measure the signals, write the review file.
+
+    Components come from the system graph onboarding built; thresholds from the
+    deployment's own history. Every detector is written disabled: a person
+    enables the ones they want, then ``apply_detectors`` renders those.
+    """
+
+    def cache(inner: LLMProvider) -> LLMProvider:
+        return CachingLLMProvider(inner, directory=workspace / "recordings", snapshot_id="graph")
+
+    run = run_onboarding_pipeline(
+        workspace, load_plugins(), OnboardingPipeline(config, provider=provider, decorate=cache)
+    )
+    components = sorted(
+        {
+            target_name(n.id, n.tech)
+            for n in run.graph.graph.nodes.values()
+            if n.kind in _SERVING_KINDS
+        }
+    )
+    reader = history if history is not None else _signal_history(config)
+    signals = reader.measure(components, now=now or SystemClock().now(), days=days)
+    drafts, skipped = draft_detectors(components, signals)
+    path = write_review(workspace, drafts, skipped, system=workspace.name)
+    return drafts, skipped, path
+
+
+def apply_detectors(workspace: Path, rules_dir: Path) -> tuple[list[SignalDetector], list[Path]]:
+    """``onboard detectors --apply``: the reviewed, enabled detectors as rule files."""
+    detectors = with_enabled(read_drafts(workspace), read_enabled(workspace))
+    return [d for d in detectors if d.enabled], write_rules(rules_dir, detectors)
 
 
 def onboard_gaps(

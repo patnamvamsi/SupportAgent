@@ -33,3 +33,18 @@ compactor:
   delete_request_store: filesystem
 analytics:
   reporting_enabled: false
+# WP-215: reviewed detector rules (`supportagent onboard detectors --apply`)
+# are read per tenant from /etc/loki/rules/<tenant>/ ("fake" with auth off);
+# compose.exporters.yaml mounts DETECTOR_RULES_DIR/loki there. Firing alerts go
+# to Alertmanager, which compose.exporters.yaml's `alerts` profile runs.
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules
+  rule_path: /loki/rules-temp
+  alertmanager_url: http://alertmanager:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
