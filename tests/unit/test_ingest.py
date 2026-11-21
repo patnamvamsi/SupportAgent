@@ -20,6 +20,7 @@ import pytest
 import yaml
 
 from supportagent.adapters.fakes.servicenow import FakeServiceNowHTTP, SyncASGITransport
+from supportagent.adapters.files.eval_loader import load_yaml_document, load_yaml_records
 from supportagent.adapters.files.workspace import Workspace
 from supportagent.adapters.gitsource.reader import GitHubReader, path_matches, read_local
 from supportagent.bootstrap import (
@@ -280,6 +281,9 @@ def test_without_a_servicenow_connection_the_other_sources_still_run(tmp_path: P
         env=_ENV,
     )
     assert [r.status for r in reports] == ["unavailable", "read", "read", "read"]
+    servicenow = tmp_path / "ws" / "sources" / "servicenow"
+    assert load_yaml_records(servicenow / "incidents.yaml") == [], "no tickets: empty history"
+    assert load_yaml_document(servicenow / "cmdb.yaml") == {"cis": [], "relationships": []}
 
 
 def test_a_missing_confluence_credential_names_the_variable(tmp_path: Path) -> None:
