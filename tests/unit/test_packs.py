@@ -290,6 +290,7 @@ def test_existing_behaviour_unchanged_with_common_pack() -> None:
     assert {p.id for p in packs.packs} == {
         "common",
         "data-quality",
+        "docker-compose",
         "java-spring",
         "kafka",
         "kubernetes",

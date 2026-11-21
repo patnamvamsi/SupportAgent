@@ -1,0 +1,1 @@
+{"latency_ms": 11406, "raw_text": "{\"classification\":\"runtime/stalled\",\"severity\":\"P1\",\"summary\":\"The feed service is running and healthy but has produced no new market data for 40 minutes with no errors, indicating a stalled pipeline.\",\"confidence\":0.95}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1228, "tokens_out": 328}

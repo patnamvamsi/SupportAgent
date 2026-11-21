@@ -1,0 +1,1 @@
+{"latency_ms": 11092, "raw_text": "{\n  \"classification\": \"runtime/stalled\",\n  \"severity\": \"P2\",\n  \"summary\": \"The feed service is up and passing health checks, but it has produced no new market data for 40 minutes despite no reported errors.\",\n  \"confidence\": 0.96\n}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1228, "tokens_out": 680}

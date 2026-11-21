@@ -1,0 +1,27 @@
+# A component isn't running: was the host restarted, is it crash-looping, or
+# did it exit and stay down?
+id: runbook:runtime-down
+applies_when: {classification: runtime/down}
+budget: {max_tool_calls: 3, max_tokens: 2000, max_hypotheses: 3}
+steps:
+  - id: host-restart
+    hypothesis: compose_host_restart
+    tool: metrics.query
+    args: {query: "min(time() - node_boot_time_seconds)"}
+    check: 'result.query.contains("node_boot_time") && result.count > 0 && double(result.max_value) < 21600.0'
+    stop_if: true
+  - id: crash-loop
+    hypothesis: compose_crash_loop
+    tool: metrics.query
+    args:
+      query: 'max(changes(container_start_time_seconds{service="{{service}}"}[30m]))'
+      service: "$service.name"
+    check: 'result.query.contains("container_start_time") && double(result.max_value) >= 3.0'
+    stop_if: true
+  - id: container-down
+    hypothesis: compose_container_down
+    tool: metrics.query
+    args:
+      query: 'max(time() - max_over_time(container_last_seen{service="{{service}}"}[1d]))'
+      service: "$service.name"
+    check: 'result.query.contains("container_last_seen") && result.count > 0 && double(result.max_value) > 120.0'

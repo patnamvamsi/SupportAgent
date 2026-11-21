@@ -1,0 +1,41 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-host-reboot
+pack: docker-compose
+split: holdout
+description: The host rebooted 30 minutes ago; services without a restart policy stayed down.
+incident:
+  subject: everything stopped overnight
+  body: Nothing has been processed since the early hours. Several services are unreachable, the API gateway
+    reports degraded.
+  priority: '2'
+service:
+  name: order-gateway
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: min(time() - node_boot_time_seconds)
+      series:
+      - labels: {}
+        value: 1800.0
+      count: 1
+      max_value: 1800.0
+  logs.search:
+    result:
+      query: '{service="order-gateway"}'
+      window_min: 30
+      count: 0
+      matches: []
+truth:
+  classification: runtime/down
+  severity: P2
+  root_cause: compose_host_restart
+  verdict: SUPPORTED
+  must_cite:
+  - metrics.query
+  must_not_claim:
+  - compose_stalled
+why: 'The host booted 30 minutes ago: the restart is the cause; the services that stayed down are its
+  consequence.'

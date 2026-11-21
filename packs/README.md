@@ -10,6 +10,7 @@ A skill pack is one technology stack's failure knowledge (ADR-0011 §1). A catal
 | `java-spring` | WP-O6a: 4 hypotheses (heap, HikariCP, threads, GC), 4 runbooks over logs and JVM metrics, 6 lab scenarios (1 held out). |
 | `kubernetes` | WP-O6a: image pulls, evictions and bad rollouts, 3 lab scenarios (1 held out). |
 | `nodejs`, `mongodb`, `rabbitmq` | ADR-0016, data only: the event loop and heap; unindexed queries, the pool and elections; backlogs and memory alarms. 11 lab scenarios (3 held out). `rabbitmq` adds the `messaging/backlog` label. |
+| `docker-compose` | ADR-0022, data only: containers down, crash loops, stalls (alive, silent) and host restarts, over `metrics.query` (cAdvisor, node-exporter) and `logs.search`; adds `runtime/down` and `runtime/stalled`. 6 lab scenarios (2 held out); live Qwen 5/6, no false causes. |
 | `spark`, `snowflake` | Placeholders: loaded and reported, never selected. |
 
 ## Manifest

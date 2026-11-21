@@ -1,0 +1,7 @@
+# Deterministic signals: the first matching rule labels the case.
+version: 0.1.0
+rules:
+  - when: {body: "(?i)(container|service) (exited|is not running|keeps restarting|restart loop)|crash ?loop|exit(ed)? with code [1-9]"}
+    label: runtime/down
+  - when: {body: "(?i)no (new )?(output|log lines|data|progress) (for|in|since)|stopped (writing|producing|receiving)|stale data|data (is|went) stale"}
+    label: runtime/stalled

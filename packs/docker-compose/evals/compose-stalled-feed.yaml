@@ -1,0 +1,42 @@
+# Lab scenario (ADR-0011 §5, ADR-0022 §3). Edit only with a `why` note.
+id: compose-stalled-feed
+pack: docker-compose
+split: tune
+description: 'The feed''s container is up and healthy, but it has written nothing for half an hour: its
+  upstream stream died silently.'
+incident:
+  subject: no new market data
+  body: The feed service is up and its health check passes, but no new data has arrived for 40 minutes.
+    No errors anywhere.
+  priority: '2'
+service:
+  name: market-feed
+  stack:
+  - docker-compose
+  - python
+world:
+  metrics.query:
+    result:
+      query: max(time() - max_over_time(container_last_seen{service="market-feed"}[1d]))
+      series:
+      - labels: {}
+        value: 12.0
+      count: 1
+      max_value: 12.0
+  logs.search:
+    result:
+      query: '{service="market-feed"}'
+      window_min: 30
+      count: 0
+      matches: []
+truth:
+  classification: runtime/stalled
+  severity: P2
+  root_cause: compose_stalled
+  verdict: SUPPORTED
+  must_cite:
+  - logs.search
+  must_not_claim:
+  - compose_container_down
+  - compose_crash_loop
+why: 'Running (seen 12 s ago) but silent for 30 minutes: the process is alive and its work has stopped.'

@@ -5,6 +5,7 @@ plugins:
   - {id: airflow, version: 0.1.1, sha256: 8ee7e1813b42817d39fa3f4ed6d6f8605bbfcaa6ada4a6bae7fda6889241ed13}
   - {id: angular, version: 0.1.0, sha256: 1ccc924dc33d967964991e7cc5f7ac3ab87c3f1be04f509332252f73ba683b39}
   - {id: data-quality, version: 0.2.0, sha256: 03361cb1805a24699afff6a37f91635b7b20955e121ea9eb1f34890680b308ad}
+  - {id: docker-compose, version: 0.1.0, sha256: a19d9eeb5115fff325f3bd2ed6365d2588f68425fdee782956320d4c0cb735a2}
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
   - {id: java-spring, version: 0.2.0, sha256: 954a8342a4d76df33711412aaab3ef8b9df1a203236cbfd9482ee83191adf503}

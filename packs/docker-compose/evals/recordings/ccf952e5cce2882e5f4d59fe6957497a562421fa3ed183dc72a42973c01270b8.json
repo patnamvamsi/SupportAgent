@@ -1,0 +1,1 @@
+{"latency_ms": 4873, "raw_text": "{\"classification\":\"runtime/down\",\"severity\":\"P2\",\"summary\":\"report-worker is repeatedly crashing/flapping, leaving it up only briefly and failing to produce reports, so its dependent consumers are starved.\",\"confidence\":0.95}", "resolved_model": "qwen/qwen3.8-27b", "tokens_in": 1225, "tokens_out": 306}

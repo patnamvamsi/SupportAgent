@@ -1,0 +1,56 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml. ADR-0016: data only.
+# ADR-0022 §3: components run as containers under Docker Compose. Evidence comes
+# from metrics.query (cAdvisor, node-exporter) and logs.search (container logs),
+# both labelled with the Compose service as `service` (docker/observability).
+id: docker-compose
+version: 0.1.0
+description: Services run as containers under Docker Compose (down, crash loops, stalls, host restarts).
+core_api: ">=1.0,<2"
+status: evaluated   # its pack passes its lab (packs/docker-compose/evals)
+provides:
+  pack: docker-compose
+  labels:
+    - {id: runtime/down, description: "A component isn't running: its container exited, never came back after a restart or reboot, or keeps crashing."}
+    - {id: runtime/stalled, description: "A component is running but has stopped doing its work: its container reports up, yet it produces no output and makes no progress."}
+  causes:
+    - {id: compose/host_restart, description: "The host rebooted (or resumed from suspend); containers stopped, and those without a restart policy stayed down."}
+    - {id: compose/crash_loop, description: "The container starts, fails within seconds and is restarted, again and again, so the service is never really up."}
+    - {id: compose/container_down, description: "The container exited and nothing restarted it, so the component and everything it does have stopped."}
+    - {id: compose/stalled, description: "The process runs but has gone silent: a dead connection or stuck loop it never notices, so no work gets done while it reports up."}
+  needs: [metrics.query, logs.search]
+  extractors:
+    # One Compose file describes many components (ADR-0022, `component`).
+    - match: "**/*compose*.y*ml"
+      format: yaml
+      rules:
+        - key: "^services\\.(?P<svc>[^.]+)\\.depends_on$"
+          value: "^(?P<dep>[a-z0-9_.-]+)$"
+          component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}
+          to: "service:{dep}"
+          edge: depends_on
+        - key: "^services\\.(?P<svc>[^.]+)\\.depends_on\\.(?P<dep>[^.]+)\\.condition$"
+          value: ".+"
+          component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}
+          to: "service:{dep}"
+          edge: depends_on
+        - key: "^services\\.(?P<svc>[^.]+)\\.(image|build|build\\.context)$"
+          value: ".+"
+          component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}
+          tech: [container]
+        - key: "^services\\.(?P<svc>[^.]+)\\.image$"
+          value: "(?i)(^|/)(redis)(:|$)"
+          component: {id: "service:{svc}", kind: Service}
+          tech: [redis]
+        - key: "^services\\.(?P<svc>[^.]+)\\.image$"
+          value: "(?i)(^|/)(cp-kafka|kafka)(:|$)"
+          component: {id: "service:{svc}", kind: Service}
+          tech: [kafka]
+        - key: "^services\\.(?P<svc>[^.]+)\\.image$"
+          value: "(?i)(^|/)(postgres|timescaledb(-ha)?)(:|$)"
+          component: {id: "service:{svc}", kind: Service}
+          tech: [postgres]
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/*compose*.y*ml", contains: "(?m)^services:", weight: 1.0}
+    - {incidents: "(?i)container|docker|exited with code|keeps restarting|not running", min_share: 0.05, weight: 0.5}

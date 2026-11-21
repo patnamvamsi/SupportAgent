@@ -1,0 +1,10 @@
+# Causes for containers under Docker Compose. A host restart explains the
+# containers it took down, so it is checked first and ends the plan.
+version: 0.1.0
+hypotheses:
+  - id: compose_host_restart
+  - id: compose_crash_loop
+    excludes: [compose_container_down]
+  - id: compose_container_down
+    excludes: [compose_crash_loop]
+  - id: compose_stalled
