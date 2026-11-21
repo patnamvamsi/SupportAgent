@@ -106,6 +106,12 @@ docker compose -f compose.yaml -f compose.exporters.yaml up -d
 
 Prometheus finds the exporters by Docker DNS (`exporters/scrape.yml`): one that isn't running adds no target, so there is no false "down" series for a detector to read. No exporter publishes a host port. Prometheus keeps 30 days (`PROMETHEUS_RETENTION`), enough for onboarding to measure a store's normal rates before it proposes a detector.
 
+## Detectors onboarding proposes (WP-215)
+
+With `tools.prometheus` and/or `tools.loki` configured, `supportagent onboard detectors --workspace <ws>` measures each component's signals over the last `--days` (default 7) and writes `detectors.proposed.yaml`: container down and crash loop (cAdvisor), log silence (Loki), topic progress stopped (Kafka offsets) and host restart (node-exporter), every one disabled. Thresholds come from the system's own history: twice its longest normal quiet run, where a step with no samples is unknown, not quiet, and the few longest quiet runs are set aside and listed as **suspected outages** (often past incidents). A signal with too little history, or too irregular to tell quiet from broken, is listed with the reason.
+
+Set `enabled: true` on what you want, then `supportagent onboard detectors --workspace <ws> --apply --rules-dir <DETECTOR_RULES_DIR>`: it writes `supportagent-detectors.yml` (Prometheus, `rules.d`) and `loki/supportagent-detectors.yml` (Loki's ruler, which this stack mounts as tenant `fake`). Prometheus reloads rules on restart (`docker compose restart prometheus`); Loki's ruler re-reads its directory. Firing alerts go to Alertmanager, and from there to SupportAgent (below).
+
 ## Send alerts to SupportAgent (WP-213)
 
 Configure a source in SupportAgent (`webhooks:` with `kind: alertmanager`, see `supportagent.example.yaml`), then give Alertmanager a receiver with the same token. Copy `alertmanager/alertmanager.yml`, point `ALERTMANAGER_CONFIG` at the copy, and add:

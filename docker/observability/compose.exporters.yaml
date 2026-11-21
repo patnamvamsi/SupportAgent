@@ -23,6 +23,10 @@ services:
       - ${BLACKBOX_TARGETS:-./exporters/blackbox-targets.example.yml}:/etc/prometheus/targets/blackbox.yml:ro
       - ${DETECTOR_RULES_DIR:-./exporters/rules}:/etc/prometheus/rules.d:ro
 
+  loki:
+    volumes:
+      - ${DETECTOR_RULES_DIR:-./exporters/rules}/loki:/etc/loki/rules/fake:ro
+
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.54.1
     profiles: [containers]
