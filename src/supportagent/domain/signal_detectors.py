@@ -146,7 +146,13 @@ def _threshold(values: Sequence[float | None], step_s: int, floor_s: int) -> _Me
         if sum(n for _, n in outages) + runs[0][1] > budget:
             break
         outages.append(runs.pop(0))
-    quiet = (runs[0][1] if runs else 0) * step_s
+    while True:  # an outage is a run the measured detector would have caught
+        quiet = max((n for _, n in runs), default=0) * step_s
+        normal = [o for o in outages if o[1] * step_s <= max(2 * quiet, floor_s)]
+        if not normal:
+            break
+        runs += normal  # a quiet run that recurs (a schedule) is normal
+        outages = [o for o in outages if o not in normal]
     if quiet > MAX_NORMAL_QUIET_S:
         return f"normally quiet for up to {quiet // 60} min: quiet can't be told from failure"
     return _Measured(
