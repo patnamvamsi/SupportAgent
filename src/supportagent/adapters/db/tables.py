@@ -511,6 +511,15 @@ onboarding_control = sa.Table(
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
 )
 
+# 0024 (WP-222): component summaries, one document per tenant (ADR-0023 §3).
+component_summaries = sa.Table(
+    "component_summaries",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("summaries_json", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

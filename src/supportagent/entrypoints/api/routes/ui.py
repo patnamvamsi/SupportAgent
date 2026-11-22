@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -308,6 +309,7 @@ def system_page(request: Request, ctx: ApiContext = Depends(context)) -> Respons
             o=system_view.overview(facts),
             groups=list(system_view.GROUPS),
             counts=ctx.queries().case_counts(),
+            summaries=_summaries(ctx),
             svg=graph_svg.render(facts, link=graph_svg.system_link) if facts else "",
         )
 
@@ -333,6 +335,7 @@ def component_page(
             user,
             c=found,
             groups=list(system_view.GROUPS),
+            summary=_summaries(ctx).get(id),
             svg=graph_svg.render(around, focus=id, link=graph_svg.system_link),
             cases=ctx.queries().cases(service=found.service, limit=50),
         )
@@ -580,6 +583,15 @@ def _review(ctx: ApiContext) -> GraphReview:
     if ctx.graph_review is None:
         raise NotFound("the graph review is not configured")  # noqa: TRY003
     return ctx.graph_review()
+
+
+def _summaries(ctx: ApiContext) -> dict[str, Any]:
+    """Each component's summary (WP-222); none before onboarding writes them."""
+    if ctx.component_summaries is None:
+        return {}
+    stored = ctx.component_summaries().load() or {}
+    found = stored.get("components", {})
+    return found if isinstance(found, dict) else {}
 
 
 def _requests(ctx: ApiContext) -> RequestReview:

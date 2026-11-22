@@ -45,6 +45,7 @@ EXPECTED_TABLES = frozenset(
         "onboarding_readiness",
         "onboarding_status",
         "onboarding_control",
+        "component_summaries",
         "cases",
         "alerts",
         "blobs",
