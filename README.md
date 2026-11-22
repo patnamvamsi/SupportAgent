@@ -140,6 +140,7 @@ uv run supportagent --help
 | Know the guarantees, contracts and schema (normative) | [docs/spec/ARCHITECTURE.md](docs/spec/ARCHITECTURE.md) |
 | See the capability registry, tiers and release map | [docs/spec/CAPABILITIES.md](docs/spec/CAPABILITIES.md) |
 | See phases, exit criteria, risks and metrics | [docs/spec/ROADMAP.md](docs/spec/ROADMAP.md) |
+| Point it at a new system and let it learn it (setup, what it does by itself, what to review) | [docs/self-onboarding.md](docs/self-onboarding.md) |
 | Deploy outside a laptop (your own config, IdP, Postgres) | [docs/quickstart.md](docs/quickstart.md) |
 | Understand why it wins (positioning, demo story) | [docs/PITCH.md](docs/PITCH.md) |
 | Build it (contracts, schema, tests, standards, work packages) | [docs/tech-spec/](docs/tech-spec/README.md) |
