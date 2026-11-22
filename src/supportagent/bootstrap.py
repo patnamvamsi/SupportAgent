@@ -5688,7 +5688,10 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 
     try:
         manifest = manifest_path.read_text(encoding="utf-8")
-        inputs = digest(manifest)
+        # Each hour the sources are looked at again: one read longer ago than its
+        # kind allows is re-read (code hourly, tickets and docs daily); an unchanged
+        # read changes nothing downstream, since the later steps key on what was read.
+        inputs = digest(manifest, clock.now().strftime("%Y-%m-%dT%H"))
         if not skip("ingest", inputs):
             try:
                 reports = ingest_system(

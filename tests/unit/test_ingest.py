@@ -442,3 +442,54 @@ def test_excluded_paths_are_neither_read_nor_walked(tmp_path: Path) -> None:
     assert not into.skipped, "an excluded directory isn't walked"
     source = GitSource(repo="file:/srv/shop", paths=["**/*.py"], exclude=["backups/**"])
     assert source.exclude == ["backups/**"]
+
+
+def test_a_source_is_read_again_when_its_definition_changes_or_it_ages(tmp_path: Path) -> None:
+    """ADR-0023: a changed manifest takes effect, and the instance keeps up with the code."""
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    from supportagent.adapters.files.workspace import Workspace  # noqa: PLC0415
+    from supportagent.app.ingest import MAX_AGE_S, IngestService  # noqa: PLC0415
+    from supportagent.config.loader import load_system_manifest  # noqa: PLC0415
+
+    root = tmp_path / "shop"
+    for rel in ("app/main.py", "backups/old/app/main.py"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x = 1\n")
+    now = [datetime(2026, 11, 22, 9, tzinfo=UTC)]
+    reads: list[list[str]] = []
+
+    def git(source: GitSource, *, max_files: int, max_file_bytes: int) -> IngestedFiles:
+        found = IngestedFiles()
+        read_local(
+            source.repo.split(":", 1)[1],
+            source.paths,
+            max_files=max_files,
+            max_file_bytes=max_file_bytes,
+            into=found,
+            exclude=source.exclude,
+        )
+        reads.append(sorted(found.files))
+        return found
+
+    service = IngestService(
+        workspace=Workspace(tmp_path / "ws"), redact=lambda s: s, now=lambda: now[0], git=git
+    )
+
+    def run(exclude: str) -> str:
+        text = (
+            "system: {id: shop, name: Shop}\nsources:\n  git:\n"
+            f"    - repo: file:{root}\n      paths: ['**/*.py']\n      exclude: {exclude}\n"
+        )
+        path = tmp_path / "system.yaml"
+        path.write_text(text)
+        [report] = service.run(load_system_manifest(path, {}), text)
+        return report.status
+
+    assert run("[]") == "read"
+    assert run("[]") == "resumed", "current: nothing to read again"
+    assert run("['backups/**']") == "read", "the manifest changed: read again"
+    assert reads[-1] == ["shop/app/main.py"]
+    assert not (tmp_path / "ws/sources/git/shop/backups").exists(), "excluded files are gone"
+    now[0] += timedelta(seconds=MAX_AGE_S["git"])
+    assert run("['backups/**']") == "read", "an hour on, the code is read again"
