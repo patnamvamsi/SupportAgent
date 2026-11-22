@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block title %}Cases{% endblock %}
+{% block content %}
+<h1>Cases{% if service %}: {{ service }}{% endif %}</h1>
+<form class="filters" method="get" action="/ui/cases">
+  <label>Service <input name="service" value="{{ service }}" size="16"></label>
+  <label>Status <select name="status"><option value="">any</option>{% for s in ("open", "triaged", "in_progress", "human_owned", "resolved", "reopened") %}<option value="{{ s }}"{% if s == status_filter %} selected{% endif %}>{{ s | replace("_", " ") }}</option>{% endfor %}</select></label>
+  <button type="submit">Filter</button>
+</form>
+{% if cases %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Last alert</th><th>Service</th><th>From</th><th>Classification</th><th>Severity</th><th>Status</th><th>Repeats</th></tr></thead>
+  <tbody>{% for k in cases %}
+  <tr><td><a href="/ui/cases/{{ k.id }}">{{ k.last_alert_ts | age(now_ts) }} ago</a></td>
+    <td>{% if k.service %}<a href="/ui/cases?service={{ k.service | urlencode }}">{{ k.service }}</a>{% else %}<span class="muted">unresolved</span>{% endif %}</td>
+    <td>{{ k.ticket_number or k.source or k.origin }}</td>
+    <td>{{ k.classification or "—" }}{% if k.outcome %}<br><span class="muted">{{ k.outcome | replace("_", " ") }}{% if k.reason %}: {{ k.reason | replace("-", " ") }}{% endif %}</span>{% endif %}</td>
+    <td class="sev-{{ k.severity }}">{{ k.severity or "—" }}</td><td>{{ k.status | replace("_", " ") }}</td><td>{{ k.duplicate_count }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No cases{% if service or status_filter %} match{% else %} yet: alerts and tickets become cases here{% endif %}.</p>{% endif %}
+{% endblock %}

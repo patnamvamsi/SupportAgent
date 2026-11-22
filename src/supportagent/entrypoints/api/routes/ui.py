@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
+from supportagent.app import system_view
 from supportagent.app.graph_review import LAYER_LABELS, GraphReview
 from supportagent.app.onboarding_control import OnboardingControl
 from supportagent.app.queries import auto_timeline
@@ -269,6 +270,71 @@ def case_page(
             can_hand_back=can_hand_back,
             auto=auto,
             can_retract=user.can(Permission.DECIDE_PROPOSAL, scope),
+        )
+
+    return _page(request, ctx, Permission.VIEW, build)
+
+
+@router.get("/ui/cases")
+def cases_page(
+    request: Request,
+    service: str = "",
+    status: str = "",
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    """WP-225: every case, newest first: what each alert or ticket became."""
+
+    def build(user: SessionUser) -> Response:
+        rows = ctx.queries().cases(service=service or None, status=status or None)
+        return _render(
+            request, ctx, "cases.html", user, cases=rows, service=service, status_filter=status
+        )
+
+    return _page(request, ctx, Permission.VIEW, build)
+
+
+# --- the system (ADR-0023 §3, WP-225) ------------------------------------------------
+
+
+@router.get("/ui/system")
+def system_page(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def build(user: SessionUser) -> Response:
+        facts = _review(ctx).facts()
+        return _render(
+            request,
+            ctx,
+            "system.html",
+            user,
+            o=system_view.overview(facts),
+            groups=list(system_view.GROUPS),
+            counts=ctx.queries().case_counts(),
+            svg=graph_svg.render(facts, link=graph_svg.system_link) if facts else "",
+        )
+
+    return _page(request, ctx, Permission.VIEW, build)
+
+
+@router.get("/ui/system/component")
+def component_page(
+    request: Request,
+    id: str = "",
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def build(user: SessionUser) -> Response:
+        facts = _review(ctx).facts()
+        found = system_view.components(facts).get(id)
+        if found is None:
+            raise NotFound(f"no component {id!r} in the system graph")  # noqa: TRY003
+        around = system_view.neighbourhood(facts, id)
+        return _render(
+            request,
+            ctx,
+            "component.html",
+            user,
+            c=found,
+            groups=list(system_view.GROUPS),
+            svg=graph_svg.render(around, focus=id, link=graph_svg.system_link),
+            cases=ctx.queries().cases(service=found.service, limit=50),
         )
 
     return _page(request, ctx, Permission.VIEW, build)

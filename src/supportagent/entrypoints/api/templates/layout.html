@@ -11,6 +11,8 @@
     <span class="brand">SupportAgent</span>
     {% if user %}
     <nav>
+      <a href="/ui/system">System</a>
+      <a href="/ui/cases">Cases</a>
       <a href="/ui/approvals">Approvals</a>
       <a href="/ui/stats">Stats</a>
       {% if can_review %}<a href="/ui/trace">Trace</a><a href="/ui/onboarding">Onboarding</a>{% endif %}

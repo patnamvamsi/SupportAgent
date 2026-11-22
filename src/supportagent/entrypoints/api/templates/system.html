@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block title %}System{% endblock %}
+{% block content %}
+<h1>The system</h1>
+{% if not o.components %}
+<p class="muted">SupportAgent hasn't learned this system yet. {% if can_review %}<a href="/ui/onboarding">Start onboarding</a>: it reads the system's code and configuration and builds this view.{% endif %}</p>
+{% else %}
+<p class="lede">{{ o.components | length }} components, learned from the system's own code, configuration and signals.
+  {% for kind, n in o.kinds.items() %}<span class="pill">{{ n }} {{ kind | lower }}{{ "s" if n != 1 and not kind.endswith("s") }}</span>{% endfor %}
+  {% if o.proposed %}<a href="/ui/onboarding/graph?status=proposed#cards">{{ o.proposed }} fact{{ "s" if o.proposed != 1 }} to review</a>{% endif %}</p>
+<div class="components">
+{% for c in o.components %}
+  {% set n = counts.get(c.service, {}) %}
+  <a class="component-card {{ c.kind | lower }}" href="/ui/system/component?id={{ c.id | urlencode }}">
+    <span class="title">{{ c.name }}</span> <span class="muted">{{ c.kind }}</span>
+    {% if n.get("open") %}<span class="badge bad">{{ n.open }} open case{{ "s" if n.open != 1 }}</span>{% elif n.get("total") %}<span class="badge">{{ n.total }} case{{ "s" if n.total != 1 }}</span>{% endif %}
+    {% if c.tech %}<span class="tech">{{ c.tech | join(" · ") }}</span>{% endif %}
+    <span class="facts">{% for g in groups %}{% if c.count(g) %}<span>{{ c.count(g) }} {{ g }}</span>{% endif %}{% endfor %}</span>
+  </a>
+{% endfor %}
+</div>
+<details class="whole"><summary>The whole graph</summary>
+  <div class="graph-pane">{{ svg }}</div>
+  <p class="muted">Solid lines are confirmed, dashed ones proposed. Select a component to open it.</p>
+</details>
+{% endif %}
+{% endblock %}
