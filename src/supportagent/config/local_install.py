@@ -288,6 +288,9 @@ def render_config(answers: Answers) -> str:
         llm.kind, "ollama"
     )
     slot = f"{{model_id: {q(llm.model_id)}, timeout_s: {timeout}, max_output_tokens: {max_tokens}}}"
+    # Onboarding's calls read whole components and pages: a local model that reasons
+    # before answering needs far longer than triage's (a frontier model overrides these).
+    long_slot = f"{{model_id: {q(llm.model_id)}, timeout_s: 300, max_output_tokens: 16000}}"
     sn = answers.servicenow
     if sn.kind == "oauth":
         sn_auth = (
@@ -349,6 +352,15 @@ def render_config(answers: Answers) -> str:
         f"    classify: {slot}",
         f"    propose_hypotheses: {slot}",
         f"    entail: {slot}",
+        *(
+            [
+                f"    summarize_component: {long_slot}",
+                f"    extract_graph: {long_slot}",
+                f"    map_incidents: {long_slot}",
+            ]
+            if local_model
+            else []
+        ),
         "  daily_budget_tokens: 2000000",
         "  deprecation_feed: null",
         *_onboarding_block(llm.onboarding),

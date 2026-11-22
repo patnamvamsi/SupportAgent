@@ -131,8 +131,13 @@ def test_autopilot_runs_as_worker_job(tmp_path: Path, db: Any, clock: Any) -> No
         config, engine=db, master_key=_MASTER_KEY, clock=clock, llm_provider=_UnrecordedProvider()
     )
     assert status is not None
-    steps = {s.step: s.state for s in status.steps}
-    assert steps["ingest"] == "done" and steps["graph"] == "done"
+    steps = {s.step: s for s in status.steps}
+    assert steps["ingest"].state == "done"
+    # The model never answers here: the graph is built, and its summaries wait on the model,
+    # so the next run retries them.
+    graph = steps["graph"]
+    assert graph.state == "blocked" and graph.on == "model", graph.detail
+    assert "unread by the model" in graph.detail
     assert (tmp_path / "ws" / "system.yaml").read_text() == _manifest(tmp_path / "system")
     state = control.state()
     assert state["finished_ts"] >= state["started_ts"] and "step(s)" in state["last_detail"]
