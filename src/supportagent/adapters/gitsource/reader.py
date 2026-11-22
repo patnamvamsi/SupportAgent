@@ -6,12 +6,23 @@ never whole repositories, and within budget: at most ``max_files`` files of
 at most ``max_file_bytes`` each. A file over the size cap is skipped and
 reported, never truncated silently. Keys are ``<repo>/<path>``, the layout
 the onboarding lab and detection read.
+
+Whatever the globs say, two things are never read (ADR-0023):
+
+- **dependencies and build output**: virtualenvs (a directory holding
+  ``pyvenv.cfg`` or ``conda-meta``), ``site-packages``, ``node_modules``,
+  ``.git`` and tool caches. They are not the system's code, and would spend
+  the file budget;
+- **files that hold secrets by convention**: ``.env`` files, private keys and
+  keystores, and files other than source code named for tokens, passwords,
+  secrets or credentials (``git_token.txt``; ``token_utils.py`` is still read).
 """
 
 from __future__ import annotations
 
 import base64
 import fnmatch
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -22,6 +33,62 @@ from supportagent.domain.onboarding import IngestedFiles
 
 _API = "https://api.github.com"
 _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+
+
+#: Directories that are never the system's own code.
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        "site-packages",
+        "dist-packages",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".gradle",
+        ".idea",
+    }
+)
+#: A directory holding one of these is an environment, not code.
+_ENV_MARKERS = ("pyvenv.cfg", "conda-meta")
+#: File names that hold secrets by convention (case-insensitive globs).
+_SECRET_NAMES = (
+    ".env",
+    ".env.*",
+    "*.env",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.jks",
+    "*.keystore",
+    "id_rsa*",
+    "id_ed25519*",
+    ".netrc",
+    ".pgpass",
+)
+#: Words that name a secret-holding file, unless it is source code (``token_utils.py``).
+_SECRET_WORDS = ("*token*", "*password*", "*secret*", "*credential*")
+_CODE_SUFFIXES = frozenset(
+    {".py", ".java", ".kt", ".scala", ".js", ".ts", ".tsx", ".go", ".rb", ".rs", ".cs", ".sql"}
+)
+
+
+def never_read(path: str) -> bool:
+    """A dependency, cache or secret-holding file (see the module docstring)."""
+    parts = path.split("/")
+    if any(part in _SKIP_DIRS for part in parts[:-1]):
+        return True
+    name = parts[-1].lower()
+    if any(fnmatch.fnmatchcase(name, pattern) for pattern in _SECRET_NAMES):
+        return True
+    code = Path(name).suffix in _CODE_SUFFIXES
+    return not code and any(fnmatch.fnmatchcase(name, word) for word in _SECRET_WORDS)
 
 
 def path_matches(path: str, globs: Sequence[str]) -> bool:
@@ -44,11 +111,27 @@ def read_local(
         raise ConfigError(f"no directory matches {spec!r}")  # noqa: TRY003
     for root in roots:
         into.repos.append(root.name)
-        for path in sorted(root.rglob("*")):
+        for path in _walk(root):
             rel = path.relative_to(root).as_posix()
-            if not path.is_file() or ".git/" in f"{rel}/" or not path_matches(rel, globs):
+            if never_read(rel) or not path_matches(rel, globs):
                 continue
             _add(into, f"{root.name}/{rel}", path.read_bytes(), max_files, max_file_bytes)
+
+
+def _walk(root: Path) -> list[Path]:
+    """Every file under ``root``, not descending into dependencies or environments."""
+    found: list[Path] = []
+    for here, dirs, files in os.walk(root):
+        base = Path(here)
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if d not in _SKIP_DIRS
+            and not any((base / d / marker).exists() for marker in _ENV_MARKERS)
+            and not (base / d).is_symlink()
+        )
+        found.extend(base / f for f in sorted(files) if (base / f).is_file())
+    return sorted(found)
 
 
 class GitHubReader:
@@ -83,7 +166,7 @@ class GitHubReader:
                 if not isinstance(item, dict):
                     continue
                 path = str(item.get("path", ""))
-                if item.get("type") != "blob" or not path_matches(path, globs):
+                if item.get("type") != "blob" or never_read(path) or not path_matches(path, globs):
                     continue
                 key = f"{repo['name']}/{path}"
                 if int(item.get("size") or 0) > max_file_bytes:
