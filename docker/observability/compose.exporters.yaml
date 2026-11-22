@@ -101,6 +101,8 @@ services:
     volumes:
       - ${ALERTMANAGER_CONFIG:-./alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
+    # SupportAgent's bearer token, for the receiver's credentials_file (README).
+    secrets: [supportagent_token]
     restart: unless-stopped
 
 networks:
@@ -111,6 +113,8 @@ networks:
 secrets:
   pg_exporter_password:
     file: ${PG_EXPORTER_PASSWORD_FILE:-./exporters/no-password}
+  supportagent_token:
+    file: ${ALERTMANAGER_TOKEN_FILE:-./alertmanager/no-token}
 
 volumes:
   alertmanager-data:

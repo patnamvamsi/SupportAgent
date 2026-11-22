@@ -52,6 +52,15 @@ def test_exporter_targets_from_settings_only() -> None:
     assert "${EXPORTERS_TARGET_NETWORK" in _compose()["networks"]["target"]["name"]
 
 
+def test_alertmanager_reads_the_supportagent_token_from_a_file() -> None:
+    compose = _compose()
+    assert compose["services"]["alertmanager"]["secrets"] == ["supportagent_token"]
+    assert "${ALERTMANAGER_TOKEN_FILE" in compose["secrets"]["supportagent_token"]["file"]
+    assert (_DIR / "alertmanager" / "no-token").read_text("utf-8") == "", "a placeholder only"
+    readme = (_DIR / "README.md").read_text("utf-8")
+    assert "credentials_file: /run/secrets/supportagent_token" in readme
+
+
 def test_exporters_discovered_by_dns_not_listed() -> None:
     scrape = yaml.safe_load((_DIR / "exporters" / "scrape.yml").read_text("utf-8"))
     jobs = {job["job_name"]: job for job in scrape["scrape_configs"]}
