@@ -27,6 +27,12 @@ from supportagent.domain.errors import ConfigError
 from supportagent.domain.onboarding import IngestedPage
 
 _STATE = "ingest.json"
+_EMPTY_HISTORY = {
+    "incidents": "[]",
+    "problems": "[]",
+    "changes": "[]",
+    "cmdb": "{cis: [], relationships: []}",
+}
 
 
 class Workspace:
@@ -41,6 +47,13 @@ class Workspace:
         live = self.sources / "live" / "discovery.yaml"
         if not live.exists():
             live.write_text("# Read-only discovery results land here (WP-O5).\n{}\n", "utf-8")
+        # ADR-0022: a system may have no ticket history (alerts only). Its
+        # ServiceNow files start empty, so every stage reads "no history"
+        # rather than a missing file; a ServiceNow ingest overwrites them.
+        for name, empty in _EMPTY_HISTORY.items():
+            path = self.sources / "servicenow" / f"{name}.yaml"
+            if not path.exists():
+                path.write_text(f"# No ticket source configured.\n{empty}\n", "utf-8")
 
     # -- state (resume) -------------------------------------------------------------
 
