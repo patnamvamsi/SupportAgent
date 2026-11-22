@@ -45,8 +45,13 @@ class DetectorReview:
         *,
         system: str,
         days: int,
+        observed: Sequence[str] | None = None,
     ) -> None:
-        """A new measurement; decisions are kept."""
+        """A new measurement; decisions are kept.
+
+        ``observed``: the components the deployment sees running (their containers),
+        or ``None`` when it doesn't measure containers (then nothing is said either way).
+        """
         state = self.state()
         enabled: Mapping[str, Any] = state.get("enabled", {})
         fresh = review_document(detectors, skipped, system)
@@ -65,6 +70,7 @@ class DetectorReview:
                 "system": system,
                 "detectors": [e | {"enabled": e["id"] in enabled} for e in entries],
                 "not_proposed": fresh["not_proposed"],
+                "observed": sorted(observed) if observed is not None else None,
             }
         )
 

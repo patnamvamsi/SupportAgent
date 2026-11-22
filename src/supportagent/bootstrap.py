@@ -6542,7 +6542,14 @@ def onboard_detector_step(
     signals = reader.measure(components, now=clock.now(), days=DETECTOR_HISTORY_DAYS)
     drafts, skipped = draft_detectors(components, signals)
     review = detector_review_for(config, engine, clock)
-    review.save_measurement(drafts, skipped, system=workspace.name, days=DETECTOR_HISTORY_DAYS)
+    measures_containers = history is not None or config.tools.prometheus is not None
+    review.save_measurement(
+        drafts,
+        skipped,
+        system=workspace.name,
+        days=DETECTOR_HISTORY_DAYS,
+        observed=sorted(signals.containers) if measures_containers else None,
+    )
     enabled = len(review.enabled())
     return (
         f"{len(drafts)} detector(s) measured over {DETECTOR_HISTORY_DAYS} days, "

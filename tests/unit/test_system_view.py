@@ -94,3 +94,28 @@ def test_case_links_to_its_component(
     component = http.get("/ui/system/component?id=service:feed").text
     assert 'href="/ui/cases/case_1"' in component, "the component lists its cases"
     assert "1 open case" in http.get("/ui/system").text
+
+
+def test_defined_not_running_marked(
+    db: Any, clock: Any, client: tuple[TestClient, FakeOIDC]
+) -> None:
+    """WP-221 part 2: a file can define a service nobody runs any more."""
+    facts = _save(db, clock).facts()
+    found = system_view.components(facts, observed=["feed", "trader_worker", "broker"])
+    assert found["service:feed"].running is True
+    assert found["service:trader-worker"].running is True, "_ and - name one service"
+    assert found["service:trader"].running is False, "defined, not running"
+    assert found["job:feed.sync_bars"].running is None, "only services run as containers"
+    assert all(c.running is None for c in system_view.components(facts).values()), "unmeasured"
+    ranked = [c.id for c in system_view.overview(facts, ["feed", "broker"]).components]
+    assert ranked.index("service:trader") > ranked.index("service:broker"), "running first"
+
+    from supportagent.app.detector_review import DetectorReview, DetectorReviewStore  # noqa: PLC0415
+
+    DetectorReview(
+        DetectorReviewStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=TENANT), clock
+    ).save_measurement([], [], system="platform", days=7, observed=["feed"])
+    http, oidc = client
+    login(http, oidc, ADA)
+    page = http.get("/ui/system").text
+    assert "defined, not running" in page and ">running<" in page

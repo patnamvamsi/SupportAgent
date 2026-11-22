@@ -4,6 +4,7 @@
 <p class="muted"><a href="/ui/system">System</a> › {{ c.kind }}</p>
 <h1>{{ c.name }} {% if c.status == "proposed" %}<span class="badge status-proposed">proposed</span>{% endif %}</h1>
 {% if c.tech %}<p class="tech">{{ c.tech | join(" · ") }}</p>{% endif %}
+{% if c.running is false %}<p class="muted"><span class="badge">defined, not running</span> A file defines it, but the deployment's container metrics don't show it running: retired, or not started.</p>{% elif c.running %}<p class="muted"><span class="badge ok">running</span> seen in the deployment's container metrics.</p>{% endif %}
 {% if summary and summary.sentences %}
 <section class="summary" aria-label="What it does">
   <p>{% for s in summary.sentences %}{{ s.text }}<sup class="cites">{% for n in s.cites %}<abbr title="{{ summary.facts.get(n | string, '') }}">F{{ n }}</abbr>{% if not loop.last %},{% endif %}{% endfor %}</sup> {% endfor %}</p>

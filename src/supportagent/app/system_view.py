@@ -16,11 +16,16 @@ runtime    ``depends_on``, ``runs_on``
 ========== ===================================================================
 
 Rejected facts are left out; proposed ones are shown as such.
+
+**Running or only defined** (WP-221 part 2): given the components the
+deployment sees running (``observed``, measured from its container metrics),
+a service is ``running`` or ``defined, not running``. A file can define a
+service nobody runs any more; without container metrics nothing is said.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from supportagent.app.graph_review import FactView
@@ -82,6 +87,8 @@ class Component:
     tech: tuple[str, ...] = ()
     status: str = "proposed"
     groups: dict[str, list[Relation]] = field(default_factory=dict)
+    #: Seen running (``True``), defined but not running (``False``), or not measured.
+    running: bool | None = None
 
     @property
     def name(self) -> str:
@@ -121,15 +128,27 @@ def _live(facts: Iterable[FactView]) -> list[FactView]:
     return [f for f in facts if f.status != "rejected" and f.present]
 
 
-def components(facts: Sequence[FactView]) -> dict[str, Component]:
+def _same(name: str) -> str:
+    return name.replace("_", "-").lower()
+
+
+def components(
+    facts: Sequence[FactView], observed: Collection[str] | None = None
+) -> dict[str, Component]:
     """Every component, with its facts grouped (rejected and retired facts left out)."""
     kept = _live(facts)
     nodes = {f.src: f for f in kept if f.fact == "node"}
     edges = [f for f in kept if f.fact == "edge" and f.dst is not None]
     found: dict[str, Component] = {}
+    seen = {_same(o) for o in observed} if observed is not None else None
     for node_id, node in sorted(nodes.items()):
         if node_id.startswith(COMPONENT_PREFIXES):
-            found[node_id] = Component(node_id, node.kind, node.tech, node.status)
+            running = (
+                _same(node_id.partition(":")[2]) in seen
+                if seen is not None and node.kind == "Service"
+                else None
+            )
+            found[node_id] = Component(node_id, node.kind, node.tech, node.status, running=running)
     touching: dict[str, list[tuple[str, str]]] = {}
     for edge in edges:
         if edge.kind in _SHARED and edge.src in found and edge.dst is not None:
@@ -165,16 +184,21 @@ def components(facts: Sequence[FactView]) -> dict[str, Component]:
     return found
 
 
-def overview(facts: Sequence[FactView]) -> SystemOverview:
+def overview(facts: Sequence[FactView], observed: Collection[str] | None = None) -> SystemOverview:
     kept = _live(facts)
     kinds: dict[str, int] = {}
     for f in kept:
         if f.fact == "node":
             kinds[f.kind] = kinds.get(f.kind, 0) + 1
-    found = components(facts)
-    ranked = sorted(
+    found = components(facts, observed)
+    ranked = sorted(  # what runs first; services defined but not running last of them
         found.values(),
-        key=lambda c: (c.kind != "Service", -sum(c.count(g) for g in GROUPS), c.id),
+        key=lambda c: (
+            c.kind != "Service",
+            c.running is False,
+            -sum(c.count(g) for g in GROUPS),
+            c.id,
+        ),
     )
     return SystemOverview(
         components=tuple(ranked),
