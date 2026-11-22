@@ -186,3 +186,19 @@ def test_the_job_runs_beside_the_loop_and_holds_its_lease() -> None:
     idle = AutopilotJob(claim=lambda: None, run=run, lease=_Lease(), owner="w1", ttl_s=60)
     assert idle.tick() == JobResult(name="onboard.autopilot", ran=True, rows=0)
     assert held == set()
+
+
+def test_an_installer_sets_the_system_without_a_browser(
+    tmp_path: Path, db: Any, clock: Any
+) -> None:
+    from supportagent.bootstrap import onboard_system  # noqa: PLC0415
+    from supportagent.domain.errors import ConfigError  # noqa: PLC0415
+
+    config = _config(tmp_path)
+    path = tmp_path / "system.yaml"
+    path.write_text(_manifest(_source(tmp_path)))
+    state = onboard_system(config, manifest=path, run=True, engine=db, clock=clock)
+    assert state["system"] == "shop" and state["requested_by"] == "cli"
+    path.write_text("system: {id: Not Valid}\n")
+    with pytest.raises(ConfigError):
+        onboard_system(config, manifest=path, engine=db, clock=clock)

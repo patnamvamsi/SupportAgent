@@ -5462,6 +5462,40 @@ def onboarding_control_for(config: AppConfig, engine: Engine, clock: Clock) -> O
     return OnboardingControl(store, clock, validate=validate_manifest_text)
 
 
+def onboard_system(  # noqa: PLR0913 — the inputs and the seams
+    config: AppConfig,
+    *,
+    manifest: Path | None = None,
+    run: bool = False,
+    actor: str = "cli",
+    engine: Engine | None = None,
+    clock: Clock | None = None,
+) -> dict[str, object]:
+    """``onboard system`` (ADR-0023 §2): set the stored manifest and ask for a run, without a UI.
+
+    For the installer and its answers file. The worker's ``onboard.autopilot`` runs it.
+    """
+    clock = clock or SystemClock()
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    try:
+        control = onboarding_control_for(config, db, clock)
+        if manifest is not None:
+            try:
+                control.save_manifest(manifest.read_text(encoding="utf-8"), actor=actor)
+            except DomainValidationError as exc:
+                raise ConfigError(str(exc)) from exc
+        if run:
+            try:
+                control.request_run(actor=actor)
+            except DomainValidationError as exc:
+                raise ConfigError(str(exc)) from exc
+        return control.state()
+    finally:
+        if own:
+            db.dispose()
+
+
 def run_autopilot(  # noqa: PLR0913 — the config and the seams
     config: AppConfig,
     *,
