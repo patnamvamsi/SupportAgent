@@ -70,11 +70,12 @@ version_ge() { # version_ge 2.24.1 2.20 -> true
 }
 
 port_in_use() {
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-  else
-    (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+  # lsof run without root misses a socket another user owns (Docker's proxy, say),
+  # so a port that answers a connection counts as in use too.
+  if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; then
+    return 0
   fi
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
 }
 
 free_port() { # the first free port from $1 upwards
@@ -197,7 +198,7 @@ sync_realm() {
   local realm="$LOCAL/keycloak/supportagent-realm.json" stamp="$LOCAL/keycloak/.imported" sum
   sum=$(cksum <"$realm" | awk '{print $1}')
   [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$sum" ] && return 0
-  if [ -f "$stamp" ] || [ -n "$(docker volume ls -q --filter name=supportagent-local_kcdata)" ]; then
+  if [ -f "$stamp" ] || [ -n "$(docker volume ls -q --filter "name=${PROJECT}_kcdata")" ]; then
     step "Updating the sign-in realm from your answers"
     if compose run --rm --no-deps -T keycloak import --dir /opt/keycloak/data/import --override true \
         >"$LOCAL/keycloak/import.log" 2>&1; then
@@ -235,7 +236,11 @@ wait_healthy() {
   port=$(envval SA_APP_PORT)
   printf '  waiting for SupportAgent on http://localhost:%s ' "$port"
   for _ in $(seq 1 90); do
-    if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then printf '\n'; ok "SupportAgent is up"; return 0; fi
+    # Another server on the port would answer too: this install's app must be running.
+    if [ -n "$(compose ps -q --status running app 2>/dev/null)" ] &&
+        curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
+      printf '\n'; ok "SupportAgent is up"; return 0
+    fi
     printf '.'; sleep 2
   done
   printf '\n'; bad "SupportAgent did not come up in 3 minutes"
