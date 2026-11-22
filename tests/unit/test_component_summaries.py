@@ -198,3 +198,34 @@ def test_onboarding_budget_enforced(tmp_path: Path, db: Any, clock: Any) -> None
     assert again.summaries is not None and not again.summaries.unwritten
     assert again.summaries.reused == 2, "the next run continues where the budget stopped"
     assert not again.budget_spent
+
+
+def test_an_upgraded_step_runs_again_on_unchanged_sources(
+    tmp_path: Path, db: Any, clock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build that changes a step's work (summaries, here) re-runs it after an upgrade."""
+    import supportagent.bootstrap as boot  # noqa: PLC0415
+
+    config = _config(tmp_path)
+    workspace = _workspace(tmp_path, budget=100000)
+
+    def run() -> dict[str, str]:
+        status = boot.onboard_run(
+            config,
+            workspace / "system.yaml",
+            workspace,
+            provider=_Provider(),
+            engine=db,
+            clock=clock,
+            master_key=b"test" * 8,
+        )
+        return {s.step: s.at for s in status.steps}
+
+    first = run()
+    clock.advance(60)
+    assert run()["graph"] == first["graph"], "unchanged: skipped"
+    monkeypatch.setitem(boot._STEP_VERSIONS, "graph", "next")
+    clock.advance(60)
+    upgraded = run()
+    assert upgraded["graph"] != first["graph"], "its work changed: it runs again"
+    assert upgraded["sense"] == first["sense"]

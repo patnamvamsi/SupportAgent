@@ -5728,6 +5728,8 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                     _live_digest(db, config),
                 )
                 if step in ("readiness", "gaps")
+                else digest(sensed, _STEP_VERSIONS[step])
+                if step in _STEP_VERSIONS
                 else sensed
             )
             if skip(step, inputs):
@@ -5750,6 +5752,11 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
     finally:
         if own:
             db.dispose()
+
+
+#: A step whose work changed in this build: an upgrade re-runs it on unchanged sources
+#: (WP-222: the graph step writes component summaries).
+_STEP_VERSIONS: dict[str, str] = {"graph": "2"}
 
 
 def _graph_detail(report: OnboardGraphReport) -> str:
