@@ -195,6 +195,9 @@ def comms_cadence(*, run: Callable[[], int], lease: Lease, owner: str) -> JobRes
 #: 02 §7: ``proposals.expire`` every 60 s (BL-028).
 PROPOSALS_EXPIRE_LEASE = "proposals.expire"
 PROPOSALS_EXPIRE_INTERVAL_S = 60
+#: ADR-0023 §4 (WP-224): the instance evaluates the enabled detectors every minute.
+DETECTORS_EVALUATE_LEASE = "detectors.evaluate"
+DETECTORS_EVALUATE_INTERVAL_S = 60
 #: 02 §7: ``retention.sweep`` every hour (BL-028).
 RETENTION_SWEEP_LEASE = "retention.sweep"
 RETENTION_SWEEP_INTERVAL_S = 3600
@@ -213,6 +216,11 @@ def _leased(name: str, run: Callable[[], int], lease: Lease, owner: str, ttl_s: 
 def proposals_expire(*, expire: Callable[[], int], lease: Lease, owner: str) -> JobResult:
     """Expire ``pending_approval`` proposals past their TTL (01 §7.10)."""
     return _leased(PROPOSALS_EXPIRE_LEASE, expire, lease, owner, ttl_s=120)
+
+
+def detectors_evaluate(*, run: Callable[[], int], lease: Lease, owner: str) -> JobResult:
+    """Evaluate the enabled detectors; ``rows`` is the alerts they sent."""
+    return _leased(DETECTORS_EVALUATE_LEASE, run, lease, owner, ttl_s=120)
 
 
 def retention_sweep(*, sweep: Callable[[], int], lease: Lease, owner: str) -> JobResult:
@@ -377,6 +385,8 @@ class AutopilotJob:
 __all__ = [
     "COMMS_CADENCE_INTERVAL_S",
     "COMMS_CADENCE_LEASE",
+    "DETECTORS_EVALUATE_INTERVAL_S",
+    "DETECTORS_EVALUATE_LEASE",
     "GROUPS_CLOSE_INTERVAL_S",
     "GROUPS_CLOSE_LEASE",
     "LLM_DEPRECATION_INTERVAL_S",
@@ -402,6 +412,7 @@ __all__ = [
     "JobResult",
     "Poller",
     "comms_cadence",
+    "detectors_evaluate",
     "groups_close",
     "llm_deprecation_check",
     "onboard_verify",

@@ -22,6 +22,10 @@
       </li>{% endfor %}</ul>
   {% endif %}{% endfor %}
   {% if not c.groups %}<p class="muted">Nothing is known about what it does yet.</p>{% endif %}
+  <h2>Detectors <span class="muted">({{ detectors | length }})</span></h2>
+  {% if detectors %}<ul class="relations">{% for d in detectors | sort(attribute="id") %}<li><span class="verb">{{ "on" if d.enabled else "off" }}</span> {{ d.summary }}</li>{% endfor %}</ul>
+  <p class="muted"><a href="/ui/onboarding/detectors">Enable or turn off detectors</a></p>
+  {% else %}<p class="muted">None measured for it yet.</p>{% endif %}
   <h2>Cases <span class="muted">({{ cases | length }})</span></h2>
   {% if cases %}<div class="table-wrap"><table><thead><tr><th>Last alert</th><th>From</th><th>Became</th><th>Status</th></tr></thead><tbody>
     {% for k in cases %}<tr><td><a href="/ui/cases/{{ k.id }}">{{ k.last_alert_ts | age(now_ts) }} ago</a></td><td>{{ k.source or k.origin }}</td><td>{{ k.classification or "—" }}{% if k.outcome %} <span class="muted">({{ k.outcome | replace("_", " ") }})</span>{% endif %}</td><td>{{ k.status }}</td></tr>{% endfor %}

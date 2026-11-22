@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
 from supportagent.app import system_view
+from supportagent.app.detector_review import DetectorReview
 from supportagent.app.graph_review import LAYER_LABELS, GraphReview
 from supportagent.app.onboarding_control import OnboardingControl
 from supportagent.app.queries import auto_timeline
@@ -338,6 +339,7 @@ def component_page(
             summary=_summaries(ctx).get(id),
             svg=graph_svg.render(around, focus=id, link=graph_svg.system_link),
             cases=ctx.queries().cases(service=found.service, limit=50),
+            detectors=_component_detectors(ctx, found.service),
         )
 
     return _page(request, ctx, Permission.VIEW, build)
@@ -763,6 +765,63 @@ async def onboarding_run_now(request: Request, ctx: ApiContext = Depends(context
         return RedirectResponse("/ui/onboarding", status_code=303)
 
     return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)
+
+
+def _detectors(ctx: ApiContext) -> DetectorReview:
+    if ctx.detector_review is None:
+        raise NotFound("detector review is not configured")  # noqa: TRY003
+    return ctx.detector_review()
+
+
+def _component_detectors(ctx: ApiContext, service: str) -> list[Mapping[str, Any]]:
+    """The detectors measured for one component, each marked enabled or not."""
+    if ctx.detector_review is None:
+        return []
+    state = _detectors(ctx).state()
+    return [d for d in state.get("detectors", []) if d.get("subject") == service]
+
+
+_CLASS_LABELS = {
+    "container_down": "Container down",
+    "crash_loop": "Crash loop",
+    "log_silence": "Log silence",
+    "progress_stopped": "Progress stopped",
+    "host_restart": "Host restart",
+}
+
+
+@router.get("/ui/onboarding/detectors")
+def onboarding_detectors(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """ADR-0023 §2: what onboarding measured, to enable or leave off."""
+
+    def build(user: SessionUser) -> Response:
+        state = _detectors(ctx).state()
+        return _render(
+            request,
+            ctx,
+            "onboarding_detectors.html",
+            user,
+            state=state,
+            labels=_CLASS_LABELS,
+            enabled=state.get("enabled", {}),
+            watches=ctx.detector_watches() if ctx.detector_watches is not None else {},
+            saved=request.query_params.get("saved"),
+        )
+
+    return _page(request, ctx, Permission.VIEW, build)
+
+
+@router.post("/ui/onboarding/detectors")
+async def onboarding_detectors_save(
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        ids = [k.removeprefix("on:") for k in form if k.startswith("on:")]
+        changed = _detectors(ctx).decide(ids, actor=user.id)
+        return RedirectResponse(f"/ui/onboarding/detectors?saved={changed}", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)
 
 
 @router.get("/ui/onboarding/readiness")

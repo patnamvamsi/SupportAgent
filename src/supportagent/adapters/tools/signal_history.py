@@ -23,7 +23,7 @@ import httpx
 
 from supportagent.adapters.tools._http import get_json
 from supportagent.domain.errors import ToolError
-from supportagent.domain.signal_detectors import STEP_S, Signals
+from supportagent.domain.signal_detectors import STEP_S, Engine, Signals
 
 _TIMEOUT_S = 30.0
 _NS = 1_000_000_000
@@ -139,6 +139,23 @@ class HttpSignalHistory:
             topic_progress=topics,
             start_ts=grid.start,
         )
+
+    def instant(self, engine: Engine, expr: str) -> list[dict[str, str]]:
+        """WP-224: one detector's query now; each series it returns, by its labels."""
+        if engine == "prometheus":
+            if self._prom is None:
+                raise ToolError("no Prometheus to query: configure tools.prometheus")  # noqa: TRY003
+            return [labels for labels, _ in self._instant(self._prom, expr)]
+        if self._loki is None:
+            raise ToolError("no Loki to query: configure tools.loki")  # noqa: TRY003
+        body = get_json(
+            self._loki,
+            "/loki/api/v1/query",
+            params={"query": expr},
+            headers=self._loki_headers,
+            timeout_s=_TIMEOUT_S,
+        )
+        return [labels for labels, _ in _vector(body)]
 
     @staticmethod
     def _instant(client: httpx.Client, query: str) -> list[tuple[dict[str, str], float]]:
