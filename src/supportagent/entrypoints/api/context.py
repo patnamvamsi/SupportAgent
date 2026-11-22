@@ -10,6 +10,7 @@ from supportagent.app.approvals import ApprovalService
 from supportagent.app.comms import CommsPlans
 from supportagent.app.graph_review import GraphReview
 from supportagent.app.lifecycle import LifecycleService
+from supportagent.app.onboarding_control import OnboardingControl
 from supportagent.app.queries import AdminQueries
 from supportagent.app.readiness_store import OnboardingStatusStore, ReadinessStore
 from supportagent.app.replay import ReplayView
@@ -55,6 +56,8 @@ class ApiContext:
     readiness: Callable[[], ReadinessStore] | None = None
     #: ADR-0017 (WP-A4): the last ``onboard run``'s steps and needs.
     onboarding_status: Callable[[], OnboardingStatusStore] | None = None
+    #: ADR-0023 §2 (WP-223): the stored manifest and the autopilot's run requests.
+    onboarding_control: Callable[[], OnboardingControl] | None = None
     #: ADR-0017 (WP-A6): the tenant's onboarding events, newest first.
     onboarding_history: Callable[[], list[dict[str, object]]] | None = None
     #: ADR-0017 (WP-A6): which calibration triage scores with (``fitted`` or

@@ -189,6 +189,11 @@ from supportagent.app.live_proof import LiveProof, LiveRca
 from supportagent.app.memory import CaseMemory
 from supportagent.app.onboarding_audit import OnboardingAudit
 from supportagent.app.onboarding_audit import history as audit_history
+from supportagent.app.onboarding_control import (
+    STALE_RUN_S,
+    OnboardingControl,
+    OnboardingControlStore,
+)
 from supportagent.app.outbox import OutboxExecutor, OutboxWriter
 from supportagent.app.queries import AdminQueries
 from supportagent.app.rca import (
@@ -332,6 +337,8 @@ from supportagent.entrypoints.worker.jobs import (
     GROUPS_CLOSE_LEASE,
     LLM_DEPRECATION_INTERVAL_S,
     LLM_DEPRECATION_LEASE,
+    ONBOARD_AUTOPILOT_INTERVAL_S,
+    ONBOARD_AUTOPILOT_LEASE,
     ONBOARD_VERIFY_LEASE,
     OUTBOX_EXECUTE_INTERVAL_S,
     OUTBOX_EXECUTE_LEASE,
@@ -343,6 +350,7 @@ from supportagent.entrypoints.worker.jobs import (
     RETENTION_SWEEP_LEASE,
     WEBHOOKS_DRAIN_INTERVAL_S,
     WEBHOOKS_DRAIN_LEASE,
+    AutopilotJob,
     JobResult,
     comms_cadence,
     groups_close,
@@ -1617,6 +1625,24 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
                 run=lambda: rca_run(run=rca_job.run_once, lease=lease, owner=owner),
             )
         )
+    autopilot = AutopilotJob(
+        claim=lambda: onboarding_control_for(config, engine, clock).claim(
+            interval_s=config.onboarding.autopilot_interval_h * 3600
+        ),
+        run=lambda claim: run_autopilot(
+            config, engine=engine, master_key=key, clock=clock, llm_provider=llm_provider
+        ),
+        lease=lease,
+        owner=owner,
+        ttl_s=STALE_RUN_S,
+    )
+    jobs.append(
+        ScheduledJob(
+            name=ONBOARD_AUTOPILOT_LEASE,
+            interval_s=float(ONBOARD_AUTOPILOT_INTERVAL_S),
+            run=autopilot.tick,
+        )
+    )
     if config.onboarding.verify_interval_h > 0:
         jobs.append(
             ScheduledJob(
@@ -3413,6 +3439,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     calibration_in_use: Callable[[], tuple[str, str]] | None = None,
     flows: Callable[[], Mapping[str, Flow]] | None = None,
     trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None,
+    validate_manifest: Callable[[str], str] | None = None,
 ) -> ApiContext:
     """The API's per-request factories over one engine (10-wp WP-012/013).
 
@@ -3515,6 +3542,10 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def onboarding_status() -> OnboardingStatusStore:
         return OnboardingStatusStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
 
+    def onboarding_control() -> OnboardingControl:
+        store = OnboardingControlStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+        return OnboardingControl(store, clock, validate=validate_manifest)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -3529,6 +3560,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         readiness=readiness,
         onboarding_status=onboarding_status,
         onboarding_history=onboarding_history,
+        onboarding_control=onboarding_control,
         calibration_in_use=calibration_in_use,
         flows=flows,
         trace=trace,
@@ -3581,6 +3613,7 @@ def build_api_context(
         promotion_gate=_promotion_gate(config),
         calibration_in_use=lambda: calibration_source(config, engine, clock),
         flows=lambda: {k: f for k, f in load_flows(config).items() if f.reviewed},
+        validate_manifest=validate_manifest_text,
         trace=lambda flow, object_id, actor: trace_object(
             config, flow, object_id, actor=actor, engine=engine, master_key=key, clock=clock
         ),
@@ -5396,6 +5429,83 @@ def _previous_steps(workspace: Path) -> dict[str, StepRecord]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     steps = raw.get("steps", []) if isinstance(raw, dict) else []
     return {r.step: r for s in steps if isinstance(s, dict) and (r := StepRecord.of(s)) is not None}
+
+
+def validate_manifest_text(text: str) -> str:
+    """A manifest edited on ``/ui/onboarding/system`` (ADR-0023 §2): its system id, or why not.
+
+    Credentials stay in the environment: a manifest stored by the instance
+    names its variables (``token_env``), never holds a secret itself.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "system.yaml"
+        path.write_text(text, encoding="utf-8")
+        try:
+            manifest = load_system_manifest(path, {}, need_secrets=False)
+        except ConfigError as exc:
+            raise DomainValidationError(str(exc).replace(str(path), "the manifest")) from exc
+    inline = [f"git {g.repo}" for g in manifest.sources.git if g.token is not None] + [
+        f"confluence {c.space}" for c in manifest.sources.confluence if c.user or c.token
+    ]
+    if inline:
+        raise DomainValidationError(  # noqa: TRY003
+            "credentials go in environment variables (token_env, user_env), not in the "
+            f"manifest: {', '.join(inline)}"
+        )
+    return manifest.system.id
+
+
+def onboarding_control_for(config: AppConfig, engine: Engine, clock: Clock) -> OnboardingControl:
+    store = OnboardingControlStore(
+        uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id
+    )
+    return OnboardingControl(store, clock, validate=validate_manifest_text)
+
+
+def run_autopilot(  # noqa: PLR0913 — the config and the seams
+    config: AppConfig,
+    *,
+    engine: Engine,
+    master_key: bytes | None = None,
+    clock: Clock | None = None,
+    llm_provider: LLMProvider | None = None,
+    env: Mapping[str, str] | None = None,
+) -> OnboardingStatus | None:
+    """One onboarding run inside the instance (ADR-0023 §2), for ``onboard.autopilot``.
+
+    The stored manifest is written into the instance's workspace, and every
+    step runs as ``onboard run`` would; how it ended is recorded for the UI.
+    """
+    clock = clock or SystemClock()
+    control = onboarding_control_for(config, engine, clock)
+    manifest = control.manifest()
+    if manifest is None:
+        control.finish(ok=False, detail="no manifest")
+        return None
+    workspace = Path(config.onboarding.workspace)
+    try:
+        workspace.mkdir(parents=True, exist_ok=True)
+        path = workspace / "system.yaml"
+        path.write_text(manifest, encoding="utf-8")
+        status = onboard_run(
+            config,
+            path,
+            workspace,
+            provider=llm_provider,
+            engine=engine,
+            clock=clock,
+            env=env,
+            master_key=master_key,
+        )
+    except (ConfigError, ExternalServiceError, OSError) as exc:
+        control.finish(ok=False, detail=str(exc))
+        raise
+    failed = [s.step for s in status.steps if s.state == "failed"]
+    detail = f"{len(status.steps)} step(s); " + (
+        f"failed: {', '.join(failed)}" if failed else f"{len(status.needs)} need(s)"
+    )
+    control.finish(ok=not failed, detail=detail)
+    return status
 
 
 def onboard_run(  # noqa: PLR0913 — the inputs and the seams

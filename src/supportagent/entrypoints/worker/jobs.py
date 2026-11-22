@@ -15,6 +15,7 @@ drives the executor, and releases the lease. It never runs SQL or HTTP itself
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -302,6 +303,71 @@ def onboard_verify(
     return _leased(ONBOARD_VERIFY_LEASE, run, lease, owner, ttl_s=1800)
 
 
+#: ADR-0023 §2: ``onboard.autopilot`` looks for a requested or due run every minute.
+ONBOARD_AUTOPILOT_LEASE = "onboard.autopilot"
+ONBOARD_AUTOPILOT_INTERVAL_S = 60
+
+
+class AutopilotJob:
+    """Onboarding in the instance (ADR-0023 §2): claim a run, run it on its own thread.
+
+    A run reads every source and may call the model for an hour or more, so it
+    runs beside the loop, not in it. The lease is held for the whole run (up to
+    ``ttl_s``), so another replica never starts a second one; this process
+    never starts a second while its thread is alive.
+    """
+
+    def __init__(
+        self,
+        *,
+        claim: Callable[[], object | None],
+        run: Callable[[object], object],
+        lease: Lease,
+        owner: str,
+        ttl_s: int,
+    ) -> None:
+        self._claim = claim
+        self._run = run
+        self._lease = lease
+        self._owner = owner
+        self._ttl_s = ttl_s
+        self._thread: threading.Thread | None = None
+
+    def tick(self) -> JobResult:
+        """One look: ``rows`` is 1 when a run started."""
+        name = ONBOARD_AUTOPILOT_LEASE
+        if self._thread is not None and self._thread.is_alive():
+            return JobResult(name=name, ran=False)
+        if not self._lease.acquire(name=name, owner=self._owner, ttl_s=self._ttl_s):
+            return JobResult(name=name, ran=False)
+        try:
+            claim = self._claim()
+        except Exception:
+            self._lease.release(name=name, owner=self._owner)
+            raise
+        if claim is None:
+            self._lease.release(name=name, owner=self._owner)
+            return JobResult(name=name, ran=True, rows=0)
+        self._thread = threading.Thread(
+            target=self._body, args=(claim,), name="onboard-autopilot", daemon=True
+        )
+        self._thread.start()
+        return JobResult(name=name, ran=True, rows=1)
+
+    def join(self, timeout: float | None = None) -> None:
+        """Wait for the run in flight (tests, shutdown)."""
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    def _body(self, claim: object) -> None:
+        try:
+            self._run(claim)
+        except Exception:  # noqa: BLE001 — a thread's failure is logged, never lost
+            _log.exception("onboard.autopilot: the run failed")
+        finally:
+            self._lease.release(name=ONBOARD_AUTOPILOT_LEASE, owner=self._owner)
+
+
 __all__ = [
     "COMMS_CADENCE_INTERVAL_S",
     "COMMS_CADENCE_LEASE",
@@ -309,6 +375,8 @@ __all__ = [
     "GROUPS_CLOSE_LEASE",
     "LLM_DEPRECATION_INTERVAL_S",
     "LLM_DEPRECATION_LEASE",
+    "ONBOARD_AUTOPILOT_INTERVAL_S",
+    "ONBOARD_AUTOPILOT_LEASE",
     "ONBOARD_VERIFY_LEASE",
     "OUTBOX_EXECUTE_INTERVAL_S",
     "OUTBOX_EXECUTE_LEASE",
@@ -322,6 +390,7 @@ __all__ = [
     "SYNC_POLL_LEASE_TTL_S",
     "WEBHOOKS_DRAIN_INTERVAL_S",
     "WEBHOOKS_DRAIN_LEASE",
+    "AutopilotJob",
     "Executor",
     "JobResult",
     "Poller",

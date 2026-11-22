@@ -714,6 +714,12 @@ class OnboardingConfig(DomainModel):
     #: ADR-0019 §6: the worker re-runs every bound credential's probes this often
     #: (``onboard verify``); one that can write now is unbound. ``0`` turns it off.
     verify_interval_h: int = Field(default=24, ge=0, le=24 * 30)
+    #: ADR-0023 §2: the worker re-runs onboarding (``onboard.autopilot``) this often,
+    #: once a manifest is set on ``/ui/onboarding/system``. ``0``: only on "Run now".
+    autopilot_interval_h: float = Field(default=24, ge=0, le=24 * 30)
+    #: ADR-0023 §2: where the instance keeps its onboarding workspace (sources read,
+    #: drafts, review files). Keep it on the instance's persistent data volume.
+    workspace: str = "data/onboarding"
 
 
 #: ADR-0021 §4a: Presidio's entity names that are on by default. Dates and URLs are
