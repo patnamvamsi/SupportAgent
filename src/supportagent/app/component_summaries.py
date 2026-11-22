@@ -85,8 +85,13 @@ def summarize_components(
     files: Mapping[str, str],
     summarize: Summarizer | None,
     previous: Mapping[str, Any] | None,
+    *,
+    version: str = "",
 ) -> tuple[GraphBuild, SummaryRun]:
-    """Summaries for ``built``'s components, and the build with their inferred facts."""
+    """Summaries for ``built``'s components, and the build with their inferred facts.
+
+    ``version`` names the model and prompt: a summary another one wrote is written again.
+    """
     graph = built.graph
     edges = list(graph.edges.values())
     stored: Mapping[str, Any] = (previous or {}).get("components", {})
@@ -108,7 +113,11 @@ def summarize_components(
         if not b.facts:
             continue
         old = stored.get(node.id)
-        if isinstance(old, Mapping) and old.get("digest") == b.digest:
+        if (
+            isinstance(old, Mapping)
+            and old.get("digest") == b.digest
+            and old.get("version", "") == version
+        ):
             summary = _from_stored(node.id, old)
             run.reused += 1
         else:
@@ -131,7 +140,7 @@ def summarize_components(
         kept = tuple(i for i in summary.inferred if i.dst in ids)
         added.extend(i.fact(node.id) for i in kept)
         run.inferred += len(kept)
-        run.summaries[node.id] = _stored(summary)
+        run.summaries[node.id] = _stored(summary) | {"version": version}
     if not added:
         return built, run
     facts = [*built.facts, *added]

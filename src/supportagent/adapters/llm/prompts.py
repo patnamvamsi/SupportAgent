@@ -13,6 +13,7 @@ wrapped in ``<untrusted_ticket>`` tags). The registry:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -96,6 +97,12 @@ class PromptRegistry:
                     f"prompt {slot.value}: uses {sorted(used - supplied)} not supplied, "
                     f"ignores {sorted(supplied - used)} (BL-009)"
                 )
+
+    def fingerprint(self, slot: SlotName) -> str:
+        """The slot's current prompt: its version and a hash of its text."""
+        version = self._latest_version(slot)
+        text = (self._root / slot.value / f"{version}.md").read_bytes()
+        return f"{version}:{hashlib.sha256(text).hexdigest()[:12]}"
 
     def _latest_version(self, slot: SlotName) -> str:
         slot_dir = self._root / slot.value

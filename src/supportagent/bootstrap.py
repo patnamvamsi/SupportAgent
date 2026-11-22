@@ -4154,6 +4154,13 @@ class OnboardingPipeline:
     ) -> None:
         self._config = _onboarding_config(config)
         self.model_id = self._config.llm.slots[SlotName.EXTRACT_GRAPH.value].model_id
+        #: WP-222: a summary written by another model or prompt is written again.
+        self.summary_version = ":".join(
+            [
+                self._config.llm.slots[SlotName.SUMMARIZE_COMPONENT.value].model_id,
+                _prompts(self._config).fingerprint(SlotName.SUMMARIZE_COMPONENT),
+            ]
+        )
         clock = ReplayClock()
         clock.set(datetime(2026, 1, 1, tzinfo=UTC))
         self._llm = _build_llm(
@@ -5420,7 +5427,11 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
     if pipeline is not None:
         store = ComponentSummaryStore(uow=SqlUnitOfWork(db), clock=now, tenant_id=tenant)
         built, summaries = summarize_components(
-            built, snapshot_from_sources(workspace).files, pipeline.summarize, store.load()
+            built,
+            snapshot_from_sources(workspace).files,
+            pipeline.summarize,
+            store.load(),
+            version=pipeline.summary_version,
         )
         store.save({"v": 1, "components": summaries.summaries})
     links = {

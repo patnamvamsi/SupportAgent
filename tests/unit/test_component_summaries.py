@@ -136,6 +136,9 @@ def test_summary_cached_by_content_hash() -> None:
     assert len(model.calls) == calls, "nothing changed: no model call"
     assert again.reused == calls and again.summaries == first.summaries
     assert again.inferred == 1, "a reused summary keeps its inferred facts"
+    _, other = summarize_components(_built(), _system(), model, stored, version="v2:abc")
+    assert other.written == calls, "another model or prompt writes every summary again"
+    model.calls = model.calls[:calls]
 
     files = _system()
     files["platform/trader/app.py"] = files["platform/trader/app.py"].replace(
