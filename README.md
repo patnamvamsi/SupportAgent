@@ -27,14 +27,15 @@ cd SupportAgent
    | Question | What you need | Notes |
    |---|---|---|
    | Language model | **Anthropic** or **OpenAI** API key, or the URL of a **local server**: LM Studio, vLLM, llama.cpp (OpenAI-compatible) or **Ollama** | It lists the models the server offers and you pick one. `localhost` works: the containers reach your laptop through `host.docker.internal`. |
-   | ServiceNow | Instance URL and an integration user (basic auth or OAuth client credentials), **or the demo instance** | For a real instance it reads your recent incidents and offers their CIs as the services to watch. The demo needs nothing and sends a sample incident every 5 minutes. |
+   | The system | Its name, and where its code is: a **checkout on this machine** (mounted read-only) and/or **GitHub repositories** (`github:acme/*`, with a read-only token). Optionally a plugin catalogue: a directory, or a git URL and a full commit id | Writes `local/system.yaml`. After setup the instance reads the code itself (dependencies and secret files are never read) and builds its picture of the system. |
+   | Signals (optional) | Your **Prometheus** and **Loki** URLs, and whether an **Alertmanager** or Grafana will send alerts | Read-only. SupportAgent measures what normal looks like from their history, proposes detectors and evaluates the ones you enable. |
+   | Tickets | A ServiceNow instance URL and an integration user (basic auth or OAuth client credentials), **the demo instance**, or **none** | For a real instance it reads your recent incidents and offers their CIs as the services to watch, and can read the system's past incidents for onboarding. The demo needs nothing and sends a sample incident every 5 minutes. With none, alerts are the intake (shadow mode). |
    | Confluence (optional) | The space URL, your Atlassian email, an [API token](https://id.atlassian.com/manage-profile/security/api-tokens) | Paste the space URL from your browser; it finds the space key itself. |
    | PagerDuty (optional) | A REST API key and a From email | SupportAgent only attaches notes to pages that are already open. It never creates one. |
-   | Onboard this system (optional) | The ServiceNow assignment groups that handle its incidents (and its business service), its repositories (`github:acme/*`) with a read-only token, and optionally a plugin catalogue: a directory, or a git URL and a full commit id | Writes `local/system.yaml`, with the Confluence space you gave. Not offered with the demo instance. |
    | Your sign-in | A user name and a password (or let it generate one) | A bundled Keycloak handles sign-in. The first person to sign in becomes the admin. |
 
 4. **Calibrates your model** on 27 built-in cases. This takes about a minute with a hosted API, and up to about 15 minutes with a large local model.
-5. **Starts everything**. If you chose to onboard a system, it then runs `onboard run` (read-only) and lists what onboarding needs from you: access to grant, plugins to provide, things to review. `./install.sh onboard` runs it again once you've acted. Then it prints where to sign in:
+5. **Starts everything** and hands the system to the instance (ADR-0023). The instance onboards it by itself in the background, read-only, and again every day: it reads the code, builds the system graph with a summary of each component, measures detectors, and lists what it needs from you on **Onboarding** (access to grant, facts and detectors to review). Then the installer prints where to sign in:
 
    ```
    Open      http://localhost:8800/ui

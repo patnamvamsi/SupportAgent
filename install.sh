@@ -257,6 +257,11 @@ summary() {
   port=$(envval SA_APP_PORT); kc=$(envval SA_KEYCLOAK_PORT)
   user=$(envval SA_ADMIN_USER); pass=$(envval SA_ADMIN_PASSWORD)
   [ "$(envval COMPOSE_PROFILES)" = demo ] && demo=$'    - The demo ServiceNow sends a new sample incident every 5 minutes.\n'
+  if grep -q "source: alertmanager" "$LOCAL/supportagent.yaml" 2>/dev/null; then
+    demo+="    - Alerts: point an Alertmanager webhook receiver at"$'\n'
+    demo+="      http://<this machine>:${port}/api/v1/webhooks/alertmanager with a bearer token"$'\n'
+    demo+="      (SUPPORTAGENT_ALERTMANAGER_TOKEN in local/.env); its own detectors need nothing."$'\n'
+  fi
 
   cat <<EOF
 
@@ -274,19 +279,30 @@ ${demo}    - ./install.sh doctor      check everything, with a fix for each prob
 EOF
 }
 
-onboard() { # ADR-0017: onboard the system the wizard described; 1 if it couldn't run
+onboard() { # ADR-0023: hand the system to the instance; it onboards it itself
   [ -f "$LOCAL/system.yaml" ] || return 0
-  local name status=0
+  local name port
   name=$(sed -n 's/^  name: *//p' "$LOCAL/system.yaml" | head -1 | tr -d '"')
-  step "Onboarding ${name:-your system} (read-only: it never writes to a source)"
-  printf '  %sreads its incidents, docs and repositories; a first run can take a while%s\n' "$D" "$N"
-  compose exec -T app supportagent onboard run --system local/system.yaml \
-    --workspace local/onboarding --config local/supportagent.yaml || status=$?
-  case $status in
-    0) ok "ready to support" ;;
-    1) ok "onboarded so far: the list above is what it needs from you; ./install.sh onboard re-runs it" ;;
-    *) warn "onboarding couldn't run"; fix "./install.sh doctor, then ./install.sh onboard"; return 1 ;;
-  esac
+  port=$(envval SA_APP_PORT)
+  step "Handing ${name:-your system} to SupportAgent (read-only: it never writes to a source)"
+  if compose exec -T app supportagent onboard system --config local/supportagent.yaml \
+      --set local/system.yaml --run >/dev/null; then
+    ok "it reads the system now, in the background, and again every day"
+    fix "follow it on http://localhost:${port}/ui/onboarding (what it needs from you is listed there)"
+  else
+    warn "the instance didn't take the system"; fix "./install.sh doctor, then ./install.sh onboard"
+    return 1
+  fi
+}
+
+system_dir() { # the checkout the wizard named, mounted read-only; an empty one otherwise
+  local dir
+  dir=$(envval SA_SYSTEM_DIR)
+  mkdir -p "$LOCAL/.no-system"
+  if [ -n "$dir" ] && [ ! -d "$dir" ]; then
+    warn "the system's directory $dir doesn't exist: onboarding will find nothing there"
+    fix "./install.sh reconfigure, and give the checkout's absolute path"
+  fi
 }
 
 cmd_install() {
@@ -304,6 +320,7 @@ cmd_install() {
   check_machine || die "fix the problems above, then run ./install.sh again"
   build_image
   run_wizard "$answers"
+  system_dir
   step "Starting the database and sign-in (the first start downloads about 600 MB)"
   local early="postgres keycloak"
   [ "$(envval COMPOSE_PROFILES)" = demo ] && early="$early demo-servicenow"

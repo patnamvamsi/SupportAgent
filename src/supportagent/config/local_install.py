@@ -38,6 +38,23 @@ GENERATED = (
     "SA_SESSION_SECRET",
     "KEYCLOAK_ADMIN_PASSWORD",
     "OIDC_CLIENT_SECRET",
+    "SUPPORTAGENT_ALERTMANAGER_TOKEN",
+)
+#: Where the app container sees the system's code (``SA_SYSTEM_DIR``), read-only.
+SYSTEM_MOUNT = "/mnt/system"
+#: What onboarding reads from a checkout on this machine (dependencies and
+#: secret-named files are never read, whatever these match).
+LOCAL_PATHS: tuple[str, ...] = (
+    "**/*.py",
+    "**/*compose*.y*ml",
+    "**/Dockerfile*",
+    "**/requirements*.txt",
+    "**/pyproject.toml",
+    "**/package.json",
+    "**/pom.xml",
+    "**/go.mod",
+    "**/*.sql",
+    "**/*.md",
 )
 
 
@@ -62,9 +79,10 @@ class LlmAnswers:
 
 @dataclass(frozen=True, slots=True)
 class ServiceNowAnswers:
-    """``demo`` uses the bundled demo instance; ``basic``/``oauth`` a real one."""
+    """``demo`` uses the bundled demo instance; ``basic``/``oauth`` a real one; ``none``:
+    no ticket system, so alerts are the only intake (ADR-0022, ADR-0023 §5)."""
 
-    kind: Literal["demo", "basic", "oauth"]
+    kind: Literal["demo", "basic", "oauth", "none"]
     instance_url: str = DEMO_SN_URL
     user: str | None = None
     password: str | None = None
@@ -98,13 +116,26 @@ class PagerDutyAnswers:
 
 
 @dataclass(frozen=True, slots=True)
+class SignalsAnswers:
+    """ADR-0023 §5: what the system measures, and whether its alerting sends alerts here."""
+
+    prometheus_url: str | None = None
+    loki_url: str | None = None
+    #: An Alertmanager (or Grafana) posts alerts to the ``alertmanager`` webhook.
+    alertmanager: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class OnboardAnswers:
     """The system ``onboard run`` reads (ADR-0015 §1), written as ``local/system.yaml``."""
 
     system_id: str
     system_name: str
-    assignment_groups: tuple[str, ...]
+    #: The ticket system's groups that handle its incidents (none: no ticket history).
+    assignment_groups: tuple[str, ...] = ()
     business_service: str | None = None
+    #: ADR-0023 §1: a checkout on this machine, mounted read-only at ``SYSTEM_MOUNT``.
+    local_dir: str | None = None
     #: ``github:<owner>/<name glob>`` each.
     repos: tuple[str, ...] = ()
     github_token: str | None = field(default=None, repr=False)
@@ -147,6 +178,8 @@ class Answers:
     pagerduty: PagerDutyAnswers | None = None
     #: ADR-0017: the system to onboard, and where plugins come from (optional).
     onboard: OnboardAnswers | None = None
+    #: ADR-0023 §5: Prometheus, Loki and alerts (optional).
+    signals: SignalsAnswers | None = None
     #: Values from an earlier run (``local/.env``): generated secrets are kept.
     previous: Mapping[str, str] = field(default_factory=dict)
 
@@ -183,6 +216,7 @@ def generated_secrets(previous: Mapping[str, str]) -> dict[str, str]:
         "SA_SESSION_SECRET": secrets.token_urlsafe(48),
         "KEYCLOAK_ADMIN_PASSWORD": secrets.token_urlsafe(18),
         "OIDC_CLIENT_SECRET": secrets.token_urlsafe(32),
+        "SUPPORTAGENT_ALERTMANAGER_TOKEN": secrets.token_urlsafe(32),
     }
     return {k: previous.get(k) or v for k, v in fresh.items()}
 
@@ -210,7 +244,7 @@ def render_env(answers: Answers, generated: Mapping[str, str]) -> str:
     if sn.kind == "oauth":
         values["SN_CLIENT_ID"] = sn.client_id or ""
         values["SN_CLIENT_SECRET"] = sn.client_secret or ""
-    else:
+    elif sn.kind != "none":
         values["SN_USER"] = sn.user or INTEGRATION_USER
         values["SN_PASSWORD"] = sn.password or "demo"
     if answers.confluence is not None:
@@ -220,6 +254,8 @@ def render_env(answers: Answers, generated: Mapping[str, str]) -> str:
         values["PAGERDUTY_TOKEN"] = answers.pagerduty.token
     if answers.onboard is not None and answers.onboard.github_token:
         values["GITHUB_TOKEN"] = answers.onboard.github_token
+    if answers.onboard is not None and answers.onboard.local_dir:
+        values["SA_SYSTEM_DIR"] = answers.onboard.local_dir
     lines = [
         "# SupportAgent local install: written by `supportagent init` (./install.sh).",
         "# Secrets live only here. Keep it private (chmod 600) and never commit it.",
@@ -275,19 +311,27 @@ def render_config(answers: Answers) -> str:
         "mode: shadow",
         "database:",
         "  url_env: SUPPORTAGENT_DB_URL",
-        "servicenow:",
-        f"  instance_url: {q(sn.instance_url)}"
-        + ("   # the bundled demo instance" if sn.kind == "demo" else ""),
-        "  auth:",
-        sn_auth,
-        f"  integration_user: {q(sn.integration_user)}",
-        "  tables: [incident]",
-        "  poll_interval_s: 60",
-        "  overlap_s: 120",
-        "  page_size: 200",
-        "  qps_limit: 5",
-        '  resolved_states: ["6", "7", "8"]',
-        "  classification_map: {}",
+    ]
+    if sn.kind == "none":
+        out.append("# No ticket system: alerts are the intake (ADR-0022). Shadow mode only.")
+    else:
+        out += [
+            "servicenow:",
+            f"  instance_url: {q(sn.instance_url)}"
+            + ("   # the bundled demo instance" if sn.kind == "demo" else ""),
+            "  auth:",
+            sn_auth,
+            f"  integration_user: {q(sn.integration_user)}",
+            "  tables: [incident]",
+            "  poll_interval_s: 60",
+            "  overlap_s: 120",
+            "  page_size: 200",
+            "  qps_limit: 5",
+            '  resolved_states: ["6", "7", "8"]',
+            "  classification_map: {}",
+        ]
+    out += _signals_block(answers)
+    out += [
         "identity:                            # the bundled Keycloak (docker/local/compose.yaml)",
         f"  oidc_issuer: {q(f'http://localhost:{answers.keycloak_port}/realms/{REALM}')}",
         f"  backchannel_url: {q(KEYCLOAK_BACKCHANNEL)}   # how the app container reaches it",
@@ -357,12 +401,42 @@ def render_config(answers: Answers) -> str:
         ]
     out += _plugins_block(answers.onboard)
     out += [
+        "onboarding:                          # ADR-0023: the instance onboards the system itself",
+        "  workspace: local/onboarding",
+        "  autopilot_interval_h: 24",
         "retention:",
         "  events_days: 395",
         "  comms_days: 395",
         "  alerts_days: 90",
     ]
     return "\n".join(out) + "\n"
+
+
+def alerts_webhook(answers: Answers) -> bool:
+    """Alerts arrive by webhook: an Alertmanager says so, or there's no ticket system."""
+    signals = answers.signals
+    return answers.servicenow.kind == "none" or bool(signals and signals.alertmanager)
+
+
+def _signals_block(answers: Answers) -> list[str]:
+    """ADR-0023 §4-5: the alert webhook, and the Prometheus and Loki the instance reads."""
+    q = json.dumps
+    out: list[str] = []
+    if alerts_webhook(answers):
+        out += [
+            "webhooks:                     # Alertmanager/Grafana: bearer token in local/.env",
+            "  - source: alertmanager",
+            "    kind: alertmanager",
+            "    secret_env: SUPPORTAGENT_ALERTMANAGER_TOKEN",
+        ]
+    signals = answers.signals
+    if signals is not None and (signals.prometheus_url or signals.loki_url):
+        out.append("tools:                               # read-only: detectors are measured here")
+        if signals.prometheus_url:
+            out += ["  prometheus:", f"    base_url: {q(signals.prometheus_url)}"]
+        if signals.loki_url:
+            out += ["  loki:", f"    base_url: {q(signals.loki_url)}"]
+    return out
 
 
 def _plugins_block(onboard: OnboardAnswers | None) -> list[str]:
@@ -394,19 +468,22 @@ def render_system(answers: Answers) -> str | None:
     q = json.dumps
     out = [
         "# The system to onboard (ADR-0015 §1): written by `supportagent init` (./install.sh).",
-        "# ./install.sh onboard reads it. Onboarding is read-only: it never writes to a source.",
+        "# The installer stores it in the instance, which onboards the system itself",
+        "# (ADR-0023): edit it later on /ui/onboarding/system. Onboarding is read-only.",
         "system:",
         f"  id: {q(onboard.system_id)}",
         f"  name: {q(onboard.system_name)}",
         "sources:",
-        "  servicenow:",
     ]
-    if onboard.business_service:
-        out.append(f"    business_service: {q(onboard.business_service)}")
-    out += [
-        f"    assignment_groups: [{', '.join(q(g) for g in onboard.assignment_groups)}]",
-        "    history: 12mo",
-    ]
+    tickets = answers.servicenow.kind in ("basic", "oauth") and onboard.assignment_groups
+    if tickets:
+        out.append("  servicenow:")
+        if onboard.business_service:
+            out.append(f"    business_service: {q(onboard.business_service)}")
+        out += [
+            f"    assignment_groups: [{', '.join(q(g) for g in onboard.assignment_groups)}]",
+            "    history: 12mo",
+        ]
     if answers.confluence is not None:
         c = answers.confluence
         out += [
@@ -414,8 +491,15 @@ def render_system(answers: Answers) -> str | None:
             f"    - {{space: {q(c.space_key)}, base_url: {q(c.base_url)}, "
             "user_env: CONFLUENCE_USER, token_env: CONFLUENCE_API_TOKEN}",
         ]
-    if onboard.repos:
+    if onboard.repos or onboard.local_dir:
         out.append("  git:")
+    if onboard.local_dir:
+        out += [
+            f"    - repo: {q('file:' + SYSTEM_MOUNT)}   # {onboard.local_dir}, read-only",
+            f"      paths: [{', '.join(q(p) for p in LOCAL_PATHS)}]",
+            '      exclude: ["backups/**", "**/archive*/**"]',
+        ]
+    if onboard.repos:
         for repo in onboard.repos:
             out.append(f"    - repo: {q(repo)}")
             out.append(f"      paths: [{', '.join(q(p) for p in REPO_PATHS)}]")
@@ -436,7 +520,14 @@ def render_catalog(answers: Answers) -> str:
         "services:",
     ]
     docs = "    docs: [confluence]" if answers.confluence is not None else None
-    for svc in answers.services:
+    services = answers.services
+    if not services:  # alerts only: onboarding drafts the real catalog from the system
+        name = service_name(answers.onboard.system_name if answers.onboard else answers.team_name)
+        out.insert(
+            -1, "# Alerts only: one entry for the whole system until onboarding drafts more."
+        )
+        services = (ServiceAnswer(name, (name,)),)
+    for svc in services:
         # ARCH §14: triage needs a paging_integration on every service. Without a
         # configured provider it resolves to the Null Object (no page lookups,
         # enrich_page a no-op) and doctor only warns.
