@@ -21,6 +21,8 @@ class SlotName(StrEnum):
     EXTRACT_GRAPH = "extract_graph"
     #: ADR-0015 (WP-O4): a batch of past incidents mapped to labels and causes.
     MAP_INCIDENTS = "map_incidents"
+    #: ADR-0023 (WP-222): a component's summary from its cited facts and code lines.
+    SUMMARIZE_COMPONENT = "summarize_component"
     #: ADR-0021 §5: a traced object's answer over numbered facts, and the check
     #: that keeps a sentence only when the facts it cites support it.
     EXPLAIN_TRACE = "explain_trace"
@@ -48,6 +50,7 @@ SLOT_VARIABLES: dict[SlotName, frozenset[str]] = {
     SlotName.ENTAIL: frozenset({"claim", "evidence"}),
     SlotName.EXTRACT_GRAPH: frozenset({"vocabulary", "known_entities", "page_title", "page_text"}),
     SlotName.MAP_INCIDENTS: frozenset({"labels", "causes", "incidents"}),
+    SlotName.SUMMARIZE_COMPONENT: frozenset({"component", "facts", "code", "known_entities"}),
     SlotName.EXPLAIN_TRACE: frozenset({"object", "object_id", "flow", "facts"}),
     SlotName.CHECK_TRACE: frozenset({"sentence", "facts"}),
 }

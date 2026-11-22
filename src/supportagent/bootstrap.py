@@ -108,6 +108,7 @@ from supportagent.adapters.knowledge.confluence import (
     load_confluence_space,
     site_root,
 )
+from supportagent.adapters.llm.budget import BudgetedProvider
 from supportagent.adapters.llm.client import (
     OLLAMA_DEFAULT_BASE_URL,
     CachingLLMProvider,
@@ -172,6 +173,12 @@ from supportagent.app.access_binding import AccessBinding, BindOutcome
 from supportagent.app.approvals import ApprovalService
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
+from supportagent.app.component_summaries import (
+    ComponentSummaryStore,
+    SummaryAnswer,
+    SummaryRun,
+    summarize_components,
+)
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.doctor.base import OnboardingFacts
 from supportagent.app.extend import Scaffold, runbook_from_doc, scenario_from_incident
@@ -246,6 +253,7 @@ from supportagent.config.schema import (
 )
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
 from supportagent.config.schema import ServiceNow as ServiceNowConfig
+from supportagent.config.system_manifest import Budget as ManifestBudget
 from supportagent.config.system_manifest import ConfluenceSpace, GitSource, SystemManifest
 from supportagent.domain.auto import AutoConditions
 from supportagent.domain.autopilot import (
@@ -3546,6 +3554,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         store = OnboardingControlStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
         return OnboardingControl(store, clock, validate=validate_manifest)
 
+    def component_summaries() -> ComponentSummaryStore:
+        return ComponentSummaryStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -3561,6 +3572,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         onboarding_status=onboarding_status,
         onboarding_history=onboarding_history,
         onboarding_control=onboarding_control,
+        component_summaries=component_summaries,
         calibration_in_use=calibration_in_use,
         flows=flows,
         trace=trace,
@@ -4088,14 +4100,15 @@ def reference_system_dirs(root: Path = ONBOARDING_DIR) -> list[Path]:
     return sorted(d for d in root.iterdir() if (d / "truth.yaml").is_file())
 
 
-_ONBOARDING_SLOTS = (SlotName.EXTRACT_GRAPH, SlotName.MAP_INCIDENTS)
+_ONBOARDING_SLOTS = (SlotName.EXTRACT_GRAPH, SlotName.MAP_INCIDENTS, SlotName.SUMMARIZE_COMPONENT)
 
 
 def _onboarding_config(config: AppConfig) -> AppConfig:
     """The config onboarding's LLM calls run with (ADR-0015 decision 3).
 
     With ``llm.onboarding`` set, the frontier model serves the onboarding
-    slots (``extract_graph``, ``map_incidents``); otherwise each falls back to
+    slots (``extract_graph``, ``map_incidents``, ``summarize_component``); otherwise each
+    falls back to
     the triage model (``classify``).
     """
     llm = config.llm
@@ -4163,6 +4176,18 @@ class OnboardingPipeline:
             "page_text": text,
         }
         return self._llm.structured(SlotName.EXTRACT_GRAPH, variables, ExtractionAnswer, trace)
+
+    def summarize(self, component: str, facts: str, code: str, known: str) -> SummaryAnswer | None:
+        trace = TraceContext(
+            self._config.tenant.id, f"summary-{abs(hash(component)) % 10**8}", "summary"
+        )
+        variables = {
+            "component": component,
+            "facts": facts,
+            "code": code,
+            "known_entities": known,
+        }
+        return self._llm.structured(SlotName.SUMMARIZE_COMPONENT, variables, SummaryAnswer, trace)
 
     def read_incidents(self, labels: str, causes: str, incidents: str) -> IncidentsAnswer | None:
         trace = TraceContext(
@@ -5016,6 +5041,10 @@ class OnboardGraphReport:
     pages_skipped: int
     rejected: int
     failed_pages: Sequence[str]
+    #: WP-222: component summaries written, reused (unchanged) and not written.
+    summaries: SummaryRun | None = None
+    #: The run's ``budget.llm_tokens`` was spent before everything was read.
+    budget_spent: bool = False
 
 
 def onboard_incidents(
@@ -5373,26 +5402,34 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
     CMDB and live discovery only.
     """
     pipeline: OnboardingPipeline | None = None
+    budgets: list[BudgetedProvider] = []
     if docs:
 
         def cache(inner: LLMProvider) -> LLMProvider:
+            budgets.append(BudgetedProvider(inner, limit=_token_budget(workspace)))
             return CachingLLMProvider(
-                inner, directory=workspace / "recordings", snapshot_id="graph"
+                budgets[-1], directory=workspace / "recordings", snapshot_id="graph"
             )
 
         pipeline = OnboardingPipeline(config, provider=provider, decorate=cache)
     built = build_system_graph(workspace, pipeline)
+    own = engine is None
+    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
+    tenant, now = config.tenant.id, clock or SystemClock()
+    summaries: SummaryRun | None = None
+    if pipeline is not None:
+        store = ComponentSummaryStore(uow=SqlUnitOfWork(db), clock=now, tenant_id=tenant)
+        built, summaries = summarize_components(
+            built, snapshot_from_sources(workspace).files, pipeline.summarize, store.load()
+        )
+        store.save({"v": 1, "components": summaries.summaries})
     links = {
         f"confluence:{page.page_id}": page.url
         for page in snapshot_from_sources(workspace).docs
         if page.url
     }
-    own = engine is None
-    db = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     try:
-        review = GraphReview(
-            uow=SqlUnitOfWork(db), clock=clock or SystemClock(), tenant_id=config.tenant.id
-        )
+        review = GraphReview(uow=SqlUnitOfWork(db), clock=now, tenant_id=tenant)
         saved = review.save(built, links)
     finally:
         if own:
@@ -5406,7 +5443,17 @@ def onboard_graph(  # noqa: PLR0913 — the config, the workspace and the seams
         pages_skipped=len(built.pages_skipped),
         rejected=len(built.rejected),
         failed_pages=built.failed,
+        summaries=summaries,
+        budget_spent=any(b.refused for b in budgets),
     )
+
+
+def _token_budget(workspace: Path) -> int:
+    """The manifest's ``budget.llm_tokens`` for one onboarding run."""
+    manifest = workspace / "system.yaml"
+    if not manifest.is_file():
+        return ManifestBudget().llm_tokens
+    return load_system_manifest(manifest, {}, need_secrets=False).budget.llm_tokens
 
 
 # --- ADR-0017 (WP-A1): the onboarding autopilot ----------------------------------------------
@@ -5707,7 +5754,17 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 
 def _graph_detail(report: OnboardGraphReport) -> str:
     failed = f"; {len(report.failed_pages)} page(s) unread" if report.failed_pages else ""
-    return f"{report.nodes} nodes, {report.edges} edges, {report.questions} question(s){failed}"
+    detail = f"{report.nodes} nodes, {report.edges} edges, {report.questions} question(s){failed}"
+    run = report.summaries
+    if run is not None and (run.summaries or run.unwritten):
+        detail += f"; {len(run.summaries) - len(run.unwritten)} component summaries"
+        detail += f" ({run.written} new)" if run.written else ""
+        detail += f", {run.inferred} inferred fact(s)" if run.inferred else ""
+        if run.unwritten:
+            detail += f", {len(run.unwritten)} not written"
+    if report.budget_spent:
+        detail += "; the token budget (budget.llm_tokens) ran out: the next run continues"
+    return detail
 
 
 def _incidents_detail(mapped: IncidentMap) -> str:
