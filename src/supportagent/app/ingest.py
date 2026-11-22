@@ -13,12 +13,20 @@ stored. Each source runs within the manifest's budget; a cap reached is
 reported, never silent. Each finished source is recorded in the workspace,
 so an interrupted run resumes where it stopped and ``refresh`` re-reads.
 
+A recorded source is **resumed** only while it is current (ADR-0023): its
+definition in the manifest is unchanged (paths, exclusions, scope, budget),
+and it was read recently enough for its kind (:data:`MAX_AGE_S`: code moves
+faster than ticket history). Otherwise it is read again, so a changed
+manifest takes effect and the instance keeps up with the system's code.
+
 The workspace has the onboarding lab's layout, so detection (WP-O1) and the
 later stages read a real system exactly as they read a reference one.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -63,6 +71,14 @@ class _Workspace(Protocol):
     def replace_repos(self, repos: Sequence[str], files: Mapping[str, str]) -> None: ...
 
 
+#: How long a source read stays current, by kind.
+MAX_AGE_S: Mapping[str, int] = {"git": 3600, "confluence": 86_400, "tickets": 86_400}
+
+
+def _spec(*parts: object) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class SourceReport:
     source: str
@@ -104,23 +120,42 @@ class IngestService:
     ) -> list[SourceReport]:
         self._ws.prepare(manifest_text)
         done = {} if refresh else self._ws.state()
+        budget = manifest.budget
         reports: list[SourceReport] = []
         if self._history_label is not None:
             label = self._history_label
-            reports.append(self._once(label, done, partial(self._tickets, label, manifest)))
+            scope = getattr(manifest.sources, label, None)  # the ticket source it names
+            spec = _spec(scope.model_dump() if scope else None, budget.max_incidents)
+            step = partial(self._tickets, label, manifest)
+            reports.append(self._once(label, "tickets", spec, done, step))
         for space in manifest.sources.confluence:
             name = f"confluence:{space.space}"
-            reports.append(self._once(name, done, partial(self._space, space, manifest)))
+            spec = _spec(space.model_dump(exclude={"user", "token"}), budget.max_pages)
+            step = partial(self._space, space, manifest)
+            reports.append(self._once(name, "confluence", spec, done, step))
         for source in manifest.sources.git:
             name = f"git:{source.repo}"
-            reports.append(self._once(name, done, partial(self._repos, source, manifest)))
+            spec = _spec(
+                source.model_dump(exclude={"token"}), budget.max_files, budget.max_file_bytes
+            )
+            step = partial(self._repos, source, manifest)
+            reports.append(self._once(name, "git", spec, done, step))
         return reports
 
     def _once(
-        self, name: str, done: Mapping[str, object], step: Callable[[], SourceReport]
+        self,
+        name: str,
+        kind: str,
+        spec: str,
+        done: Mapping[str, object],
+        step: Callable[[], SourceReport],
     ) -> SourceReport:
         previous = done.get(name)
-        if isinstance(previous, Mapping) and previous.get("done"):
+        if (
+            isinstance(previous, Mapping)
+            and previous.get("done")
+            and self._current(previous, kind, spec)
+        ):
             counts = previous.get("counts")
             return SourceReport(name, "resumed", counts if isinstance(counts, dict) else {})
         report = step()
@@ -132,9 +167,20 @@ class IngestService:
                     "counts": dict(report.counts),
                     "truncated": report.truncated,
                     "at": self._now().isoformat(),
+                    "spec": spec,
                 },
             )
         return report
+
+    def _current(self, previous: Mapping[str, object], kind: str, spec: str) -> bool:
+        """Read under this definition of the source, recently enough for its kind."""
+        if previous.get("spec") != spec:
+            return False
+        try:
+            at = datetime.fromisoformat(str(previous.get("at")))
+        except ValueError:
+            return False
+        return (self._now() - at).total_seconds() < MAX_AGE_S[kind]
 
     def _tickets(self, label: str, manifest: SystemManifest) -> SourceReport:
         if self._history is None:
