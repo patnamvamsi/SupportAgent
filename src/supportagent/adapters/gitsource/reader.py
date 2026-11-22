@@ -111,27 +111,56 @@ def read_local(
         raise ConfigError(f"no directory matches {spec!r}")  # noqa: TRY003
     for root in roots:
         into.repos.append(root.name)
-        for path in _walk(root):
+        for path in _walk(root, into, root.name):
             rel = path.relative_to(root).as_posix()
             if never_read(rel) or not path_matches(rel, globs):
                 continue
-            _add(into, f"{root.name}/{rel}", path.read_bytes(), max_files, max_file_bytes)
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                into.skipped[f"{root.name}/{rel}"] = f"unreadable ({exc.strerror})"
+                continue
+            _add(into, f"{root.name}/{rel}", raw, max_files, max_file_bytes)
 
 
-def _walk(root: Path) -> list[Path]:
-    """Every file under ``root``, not descending into dependencies or environments."""
+def _walk(root: Path, into: IngestedFiles, repo: str) -> list[Path]:
+    """Every file under ``root``, not descending into dependencies or environments.
+
+    A directory the reader may not open is skipped and reported, never fatal:
+    a checkout mounted read-only often holds a few private directories.
+    """
     found: list[Path] = []
-    for here, dirs, files in os.walk(root):
+
+    def unreadable(exc: OSError) -> None:
+        where = Path(exc.filename).relative_to(root).as_posix() if exc.filename else "?"
+        into.skipped[f"{repo}/{where}/"] = f"unreadable ({exc.strerror})"
+
+    for here, dirs, files in os.walk(root, onerror=unreadable):
         base = Path(here)
-        dirs[:] = sorted(
-            d
-            for d in dirs
-            if d not in _SKIP_DIRS
-            and not any((base / d / marker).exists() for marker in _ENV_MARKERS)
-            and not (base / d).is_symlink()
-        )
-        found.extend(base / f for f in sorted(files) if (base / f).is_file())
+        dirs[:] = sorted(d for d in dirs if _descend(base / d, d, into, root, repo))
+        found.extend(base / f for f in sorted(files) if _is_file(base / f))
     return sorted(found)
+
+
+def _descend(path: Path, name: str, into: IngestedFiles, root: Path, repo: str) -> bool:
+    if name in _SKIP_DIRS:
+        return False
+    try:
+        if path.is_symlink():
+            return False
+        return not any((path / marker).exists() for marker in _ENV_MARKERS)
+    except OSError as exc:
+        into.skipped[f"{repo}/{path.relative_to(root).as_posix()}/"] = (
+            f"unreadable ({exc.strerror})"
+        )
+        return False
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
 
 
 class GitHubReader:
