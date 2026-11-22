@@ -21,7 +21,7 @@ from supportagent.domain.errors import DomainValidationError
 from supportagent.domain.kinds import ActionKind
 from supportagent.domain.model.action import ActionSpec, TargetRef
 from supportagent.domain.model.case import Case
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.routing import Route
 from supportagent.domain.scopes import is_service_scoped, record_scope, service_scope
 from supportagent.domain.sop import SopMatch, sop_scope
@@ -35,7 +35,7 @@ _RCA_PAGE_TEMPLATE_ID = "enrich_page_rca_v1"
 _RETRACTION_TEMPLATE_ID = "retraction_v1"
 
 
-def build_action_specs(route: Route, case: Case, catalog: Catalog) -> list[ActionSpec]:
+def build_action_specs(route: Route, case: Case, catalog: CatalogView) -> list[ActionSpec]:
     """One :class:`ActionSpec` per action the route requests, targeting the case.
 
     The target service must resolve in ``catalog`` (else the gate would reject

@@ -52,7 +52,7 @@ from supportagent.domain.ids import IdPrefix
 from supportagent.domain.knowledge import DocHit, DocScope, guidance_text, suggested_hypotheses
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.base import DomainModel
-from supportagent.domain.model.catalog import Catalog, ServiceEntry
+from supportagent.domain.model.catalog import CatalogView, ServiceEntry
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.model.runbook import Probe, RcaBudget, Runbook
@@ -795,7 +795,7 @@ class RcaJob:
         *,
         uow: _UoW,
         service: RcaService,
-        catalog: Catalog,
+        catalog: CatalogView,
         buffer: BufferedEvents,
         events: EventSink,
         lite_routes: Collection[str],

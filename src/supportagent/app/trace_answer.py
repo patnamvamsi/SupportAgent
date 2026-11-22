@@ -31,7 +31,7 @@ from supportagent.app.tracing import TraceRun
 from supportagent.domain.errors import PiiUnavailable
 from supportagent.domain.flow_answer import Fact, facts, template_answer, valid_cites
 from supportagent.domain.model.base import DomainModel
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.model.flow import Flow
 from supportagent.domain.slots import SlotName
 from supportagent.domain.trace import TraceContext
@@ -90,7 +90,7 @@ class TraceExplainer:
         self,
         *,
         llm: StructuredLLM | None,
-        catalog: Catalog,
+        catalog: CatalogView,
         rca: RunRca | None = None,
         budget: Callable[[], Budget] = Budget,
     ) -> None:

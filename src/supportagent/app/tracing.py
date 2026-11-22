@@ -31,7 +31,7 @@ from supportagent.domain.events import EventKind
 from supportagent.domain.fieldpath import values_at
 from supportagent.domain.flow_trace import StageObservation, Verdict, judge
 from supportagent.domain.ids import IdPrefix
-from supportagent.domain.model.catalog import Catalog, ServiceEntry
+from supportagent.domain.model.catalog import CatalogView, ServiceEntry
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.flow import REF, SAFE_VALUE, Flow, FlowStage
 from supportagent.domain.trace import TraceContext
@@ -97,7 +97,7 @@ class FlowTracer:
         self,
         *,
         tools: ToolRegistry,
-        catalog: Catalog,
+        catalog: CatalogView,
         pii: PiiAnalyzer | None,
         events: EventSink,
         ids: IdGenerator,

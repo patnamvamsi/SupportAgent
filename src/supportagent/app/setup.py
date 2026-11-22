@@ -44,7 +44,7 @@ from supportagent.domain.errors import (
 from supportagent.domain.events import EventKind
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.kinds import ActionKind
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.model.event import Event
 from supportagent.domain.rbac import Permission, RoleGrant, can, validate_scope
 from supportagent.domain.roles import Role, satisfies
@@ -138,7 +138,7 @@ class SetupState:
 
 
 def expand_grant_requests(
-    requests: Iterable[GrantRequest], catalog: Catalog
+    requests: Iterable[GrantRequest], catalog: CatalogView
 ) -> list[tuple[ActionKind, str]]:
     """Literal ``(kind, scope)`` pairs for ``grants_request`` entries (ARCH §6.4).
 
@@ -190,7 +190,7 @@ class SetupService:
         clock: Clock,
         ids: IdGenerator,
         events: EventSink,
-        catalog: Catalog,
+        catalog: CatalogView,
         tenant_id: str,
         grant_validity: timedelta = DEFAULT_GRANT_VALIDITY,
     ) -> None:

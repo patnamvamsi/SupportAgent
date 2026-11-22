@@ -48,6 +48,7 @@ EXPECTED_TABLES = frozenset(
         "component_summaries",
         "detector_review",
         "detector_watch",
+        "catalog_review",
         "cases",
         "alerts",
         "blobs",
