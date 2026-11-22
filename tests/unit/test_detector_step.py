@@ -51,6 +51,13 @@ class _History:
         )
 
 
+class _OnlyContainers(_History):
+    """A later measurement: the api's logs no longer support a silence detector."""
+
+    def measure(self, components: Iterable[str], *, now: datetime, days: int) -> Signals:
+        return Signals(containers=frozenset({"api"}))
+
+
 def _run(tmp_path: Path, db: Any, clock: Any, history: _History | None) -> dict[str, Any]:
     config = _config(tmp_path)
     if not (tmp_path / "system").exists():
@@ -122,9 +129,7 @@ def test_enabled_detectors_survive_a_new_measurement(
 
     # The next day's measurement no longer proposes the api's silence detector: still enabled.
     clock.advance(86400)
-    quiet = _History()
-    quiet.measure = lambda c, *, now, days: Signals(containers=frozenset({"api"}))  # type: ignore[method-assign]
-    _run(tmp_path, db, clock, quiet)
+    _run(tmp_path, db, clock, _OnlyContainers())
     kept = {d.id for d in review.enabled()}
     assert kept == {"log-silence/api", "container-down/api"}
     stale = next(d for d in review.state()["detectors"] if d["id"] == "log-silence/api")
