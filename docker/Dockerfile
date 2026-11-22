@@ -38,7 +38,10 @@ ENV PYTHONUNBUFFERED=1 \
 # container as the host user, so files it writes under local/ stay theirs.
 RUN groupadd --gid 10001 supportagent \
     && useradd --uid 10001 --gid supportagent --create-home --home-dir /app supportagent \
-    && chmod 755 /app
+    && chmod 755 /app \
+    && install -d -o supportagent -g supportagent -m 750 /app/data
+# /app/data: the instance's own state (ADR-0023: the onboarding workspace). A named
+# volume mounted here starts owned by the app user.
 WORKDIR /app
 # The non-editable install puts supportagent in /venv/site-packages; the
 # runtime image carries no source tree and no project metadata.

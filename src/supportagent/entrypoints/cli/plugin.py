@@ -40,6 +40,7 @@ from supportagent.bootstrap import (
     onboard_readiness,
     onboard_requests,
     onboard_run,
+    onboard_system,
     onboard_unbind,
     onboard_verify,
     pin_plugins,
@@ -556,6 +557,37 @@ def onboard_status_command(
     typer.echo(f"  needed from you: {len(needs) or 'nothing'}")
     for need in needs:
         typer.echo(f"    {need['kind']:<8} {need['what']} -> {need['how']}")
+
+
+@onboard_app.command("system")
+def onboard_system_command(
+    config: Path = typer.Option(Path("supportagent.yaml"), "--config"),  # noqa: B008
+    set_manifest: Path | None = typer.Option(  # noqa: B008
+        None, "--set", help="Store this system.yaml as the instance's manifest."
+    ),
+    run: bool = typer.Option(False, "--run", help="Ask the worker to run onboarding now."),
+) -> None:
+    """The system the instance onboards (ADR-0023 §2): show it, set it, or ask for a run.
+
+    The same as /ui/onboarding/system and "Run onboarding now", for an installer
+    or a script. The manifest names environment variables for credentials
+    (token_env), never a secret. The worker's onboard.autopilot job does the run.
+    """
+    try:
+        state = onboard_system(load_config_default(config), manifest=set_manifest, run=run)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not state.get("manifest"):
+        typer.echo("no system yet: set one with --set system.yaml (or on /ui/onboarding/system)")
+        return
+    typer.echo(f"system: {state.get('system')}")
+    if state.get("requested_ts"):
+        typer.echo("a run is requested: the worker starts it within a minute")
+    if state.get("finished_ts"):
+        typer.echo(
+            f"last run: {'ok' if state.get('last_ok') else 'failed'}: {state.get('last_detail')}"
+        )
 
 
 @onboard_app.command("flows")
