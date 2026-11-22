@@ -101,8 +101,21 @@ def path_matches(path: str, globs: Sequence[str]) -> bool:
     return False
 
 
-def read_local(
-    spec: str, globs: Sequence[str], *, max_files: int, max_file_bytes: int, into: IngestedFiles
+def excluded(path: str, exclude: Sequence[str]) -> bool:
+    """``path`` (a file, or a directory) is one the manifest's ``exclude`` leaves out."""
+    if path_matches(path, exclude):
+        return True
+    return any(g.endswith("/**") and path_matches(path, [g[:-3]]) for g in exclude)
+
+
+def read_local(  # noqa: PLR0913 — the source and its limits
+    spec: str,
+    globs: Sequence[str],
+    *,
+    max_files: int,
+    max_file_bytes: int,
+    into: IngestedFiles,
+    exclude: Sequence[str] = (),
 ) -> None:
     """``file:<directory glob>``: each matching directory is one repository."""
     pattern = Path(spec).expanduser()
@@ -111,9 +124,9 @@ def read_local(
         raise ConfigError(f"no directory matches {spec!r}")  # noqa: TRY003
     for root in roots:
         into.repos.append(root.name)
-        for path in _walk(root, into, root.name):
+        for path in _walk(root, into, root.name, exclude):
             rel = path.relative_to(root).as_posix()
-            if never_read(rel) or not path_matches(rel, globs):
+            if never_read(rel) or not path_matches(rel, globs) or excluded(rel, exclude):
                 continue
             try:
                 raw = path.read_bytes()
@@ -123,7 +136,7 @@ def read_local(
             _add(into, f"{root.name}/{rel}", raw, max_files, max_file_bytes)
 
 
-def _walk(root: Path, into: IngestedFiles, repo: str) -> list[Path]:
+def _walk(root: Path, into: IngestedFiles, repo: str, exclude: Sequence[str] = ()) -> list[Path]:
     """Every file under ``root``, not descending into dependencies or environments.
 
     A directory the reader may not open is skipped and reported, never fatal:
@@ -137,7 +150,12 @@ def _walk(root: Path, into: IngestedFiles, repo: str) -> list[Path]:
 
     for here, dirs, files in os.walk(root, onerror=unreadable):
         base = Path(here)
-        dirs[:] = sorted(d for d in dirs if _descend(base / d, d, into, root, repo))
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if not excluded((base / d).relative_to(root).as_posix(), exclude)
+            and _descend(base / d, d, into, root, repo)
+        )
         found.extend(base / f for f in sorted(files) if _is_file(base / f))
     return sorted(found)
 
@@ -174,7 +192,7 @@ class GitHubReader:
             base_url=_API, headers=headers, timeout=_TIMEOUT, transport=transport
         )
 
-    def read(
+    def read(  # noqa: PLR0913 — the source and its limits
         self,
         spec: str,
         globs: Sequence[str],
@@ -182,6 +200,7 @@ class GitHubReader:
         max_files: int,
         max_file_bytes: int,
         into: IngestedFiles,
+        exclude: Sequence[str] = (),
     ) -> None:
         owner, _, name_glob = spec.partition("/")
         for repo in self._repos(owner, name_glob):
@@ -195,7 +214,12 @@ class GitHubReader:
                 if not isinstance(item, dict):
                     continue
                 path = str(item.get("path", ""))
-                if item.get("type") != "blob" or never_read(path) or not path_matches(path, globs):
+                if (
+                    item.get("type") != "blob"
+                    or never_read(path)
+                    or not path_matches(path, globs)
+                    or excluded(path, exclude)
+                ):
                     continue
                 key = f"{repo['name']}/{path}"
                 if int(item.get("size") or 0) > max_file_bytes:
