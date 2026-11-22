@@ -92,7 +92,10 @@ def test_every_llm_choice_renders_a_config_that_loads(tmp_path: Path, llm: LlmAn
     env = _write(tmp_path, answers)
     config = load_config(tmp_path / "supportagent.yaml", env)
     assert config.mode == "shadow"
-    assert set(config.llm.slots) == {"classify", "propose_hypotheses", "entail"}
+    triage = {"classify", "propose_hypotheses", "entail"}
+    onboarding = {"summarize_component", "extract_graph", "map_incidents"}
+    local = llm.kind in ("local", "ollama")  # a local model gets onboarding's long timeouts
+    assert set(config.llm.slots) == triage | (onboarding if local else set())
     assert config.llm.base_url == llm.base_url
     assert config.identity.backchannel_url == "http://keycloak:8080"
     assert config.identity.oidc_issuer == "http://localhost:8880/realms/supportagent"
@@ -597,3 +600,20 @@ def test_installer_alerts_only_answers(tmp_path: Path) -> None:
     assert repo.repo == "file:/mnt/system" and "backups/**" in repo.exclude
     catalog = yaml.safe_load((out / "catalog.yaml").read_text())
     assert [s["name"] for s in catalog["services"]] == ["trading"]
+
+
+def test_a_local_model_gets_time_for_onboarding(tmp_path: Path) -> None:
+    """A reasoning model reads a whole component: triage's 90 s isn't enough for it."""
+    answers = Answers(
+        team_name="Acme",
+        llm=LlmAnswers(kind="local", model_id="qwen/qwen3.8-27b", base_url="http://h:1234/v1"),
+        servicenow=ServiceNowAnswers(kind="demo"),
+        services=DEMO_SERVICES,
+        admin_user="ada",
+        admin_email="ada@acme.test",
+        admin_password="pw",
+    )
+    slots = yaml.safe_load(render_config(answers))["llm"]["slots"]
+    assert slots["classify"]["timeout_s"] == 90
+    assert slots["summarize_component"]["timeout_s"] == 300
+    assert slots["extract_graph"]["max_output_tokens"] == 16000

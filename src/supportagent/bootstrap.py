@@ -5863,11 +5863,11 @@ def _graph_detail(report: OnboardGraphReport) -> str:
     detail = f"{report.nodes} nodes, {report.edges} edges, {report.questions} question(s){failed}"
     run = report.summaries
     if run is not None and (run.summaries or run.unwritten):
-        detail += f"; {len(run.summaries) - len(run.unwritten)} component summaries"
+        detail += f"; {run.written + run.reused} component summaries"
         detail += f" ({run.written} new)" if run.written else ""
         detail += f", {run.inferred} inferred fact(s)" if run.inferred else ""
-        if run.unwritten:
-            detail += f", {len(run.unwritten)} not written"
+        if run.unwritten:  # " unread": the step waits on the model, and the next run retries
+            detail += f"; {len(run.unwritten)} unread by the model: the next run retries them"
     if report.budget_spent:
         detail += "; the token budget (budget.llm_tokens) ran out: the next run continues"
     return detail
