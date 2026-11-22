@@ -179,6 +179,7 @@ from supportagent.app.component_summaries import (
     SummaryRun,
     summarize_components,
 )
+from supportagent.app.detector_review import DetectorReview, DetectorReviewStore
 from supportagent.app.doctor import Bundle, Doctor, DoctorContext, DoctorReport, default_checks
 from supportagent.app.doctor.base import OnboardingFacts
 from supportagent.app.extend import Scaffold, runbook_from_doc, scenario_from_incident
@@ -3557,6 +3558,10 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     def component_summaries() -> ComponentSummaryStore:
         return ComponentSummaryStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
 
+    def detector_review() -> DetectorReview:
+        store = DetectorReviewStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+        return DetectorReview(store, clock)
+
     return ApiContext(
         setup=setup,
         approvals=approvals,
@@ -3573,6 +3578,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         onboarding_history=onboarding_history,
         onboarding_control=onboarding_control,
         component_summaries=component_summaries,
+        detector_review=detector_review,
         calibration_in_use=calibration_in_use,
         flows=flows,
         trace=trace,
@@ -5562,6 +5568,7 @@ def run_autopilot(  # noqa: PLR0913 — the config and the seams
     clock: Clock | None = None,
     llm_provider: LLMProvider | None = None,
     env: Mapping[str, str] | None = None,
+    signal_history: SignalHistoryReader | None = None,
 ) -> OnboardingStatus | None:
     """One onboarding run inside the instance (ADR-0023 §2), for ``onboard.autopilot``.
 
@@ -5588,6 +5595,7 @@ def run_autopilot(  # noqa: PLR0913 — the config and the seams
             clock=clock,
             env=env,
             master_key=master_key,
+            signal_history=signal_history,
         )
     except (ConfigError, ExternalServiceError, OSError) as exc:
         control.finish(ok=False, detail=str(exc))
@@ -5611,6 +5619,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
     transports: IngestTransports = IngestTransports(),
     env: Mapping[str, str] | None = None,
     master_key: bytes | None = None,
+    signal_history: SignalHistoryReader | None = None,
 ) -> OnboardingStatus:
     """``onboard run`` (ADR-0017): every onboarding step, resumable; writes ``onboarding.json``.
 
@@ -5688,6 +5697,12 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                 ),
             ),
             (
+                "detectors",
+                lambda: onboard_detector_step(
+                    config, workspace, engine=db, clock=clock, history=signal_history
+                ),
+            ),
+            (
                 "incidents",
                 lambda: _incidents_detail(
                     onboard_incidents(config, workspace, provider=provider)[0]
@@ -5739,6 +5754,11 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                     _live_digest(db, config),
                 )
                 if step in ("readiness", "gaps")
+                # Re-measured daily (the history grows) and when the reviewed components change.
+                else digest(
+                    sensed, clock.now().date().isoformat(), *_reviewed_components(db, config, clock)
+                )
+                if step == "detectors"
                 else digest(sensed, _STEP_VERSIONS[step])
                 if step in _STEP_VERSIONS
                 else sensed
@@ -5830,6 +5850,16 @@ def _autopilot_status(
     status.needs.extend(_step_needs(status.steps))
     status.needs.extend(_catalogue_needs(workspace))
     status.needs.extend(_gap_needs(workspace))
+    unseen = detector_review_for(config, engine, clock).unseen()
+    if unseen:
+        status.needs.append(
+            Need(
+                "review",
+                f"{len(unseen)} measured detector(s) to enable or leave off",
+                0.0,
+                "/ui/onboarding/detectors",
+            )
+        )
     review = GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant).progress()
     pending = int(str(review["total"])) - int(str(review["reviewed"]))
     if pending:
@@ -6327,6 +6357,54 @@ def onboard_detectors(  # noqa: PLR0913 — the workspace plus test seams
     drafts, skipped = draft_detectors(components, signals)
     path = write_review(workspace, drafts, skipped, system=workspace.name)
     return drafts, skipped, path
+
+
+def detector_review_for(config: AppConfig, engine: Engine, clock: Clock) -> DetectorReview:
+    store = DetectorReviewStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id)
+    return DetectorReview(store, clock)
+
+
+def _reviewed_components(engine: Engine, config: AppConfig, clock: Clock) -> list[str]:
+    """What runs, from the graph under review (a rejected component gets no detectors)."""
+    facts = GraphReview(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id).facts()
+    return sorted(
+        {
+            target_name(f.src, f.tech)
+            for f in facts
+            if f.fact == "node"
+            and f.kind in _SERVING_KINDS
+            and f.status != "rejected"
+            and f.present
+        }
+    )
+
+
+#: How much history the detectors step measures.
+DETECTOR_HISTORY_DAYS = 7
+
+
+def onboard_detector_step(
+    config: AppConfig,
+    workspace: Path,
+    *,
+    engine: Engine,
+    clock: Clock,
+    history: SignalHistoryReader | None = None,
+) -> str:
+    """The ``detectors`` step (ADR-0023 §2): measure, and store the proposals for review."""
+    if history is None and config.tools.prometheus is None and config.tools.loki is None:
+        return "nothing to do: no Prometheus or Loki under tools: to measure"
+    components = _reviewed_components(engine, config, clock)
+    reader = history if history is not None else _signal_history(config)
+    signals = reader.measure(components, now=clock.now(), days=DETECTOR_HISTORY_DAYS)
+    drafts, skipped = draft_detectors(components, signals)
+    review = detector_review_for(config, engine, clock)
+    review.save_measurement(drafts, skipped, system=workspace.name, days=DETECTOR_HISTORY_DAYS)
+    enabled = len(review.enabled())
+    return (
+        f"{len(drafts)} detector(s) measured over {DETECTOR_HISTORY_DAYS} days, "
+        f"{len(skipped)} not proposed; {enabled} enabled"
+    )
 
 
 def apply_detectors(workspace: Path, rules_dir: Path) -> tuple[list[SignalDetector], list[Path]]:

@@ -15,7 +15,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="primary">Run onboarding now</button>
     </form>
-    <a class="button" href="/ui/onboarding/system">The system's sources</a></p>
+    <a class="button" href="/ui/onboarding/system">The system's sources</a>
+    <a class="button" href="/ui/onboarding/detectors">Detectors</a></p>
   {% else %}
   <p class="verdict bad"><strong>Start here:</strong> tell SupportAgent which system to learn and where it is described. It reads the sources itself and builds everything below.</p>
   <p class="actions"><a class="button primary" href="/ui/onboarding/system">Describe the system →</a></p>

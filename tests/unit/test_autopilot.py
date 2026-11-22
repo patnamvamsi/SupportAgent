@@ -81,6 +81,7 @@ def test_one_command_takes_a_new_system_through_every_step(
         "ingest",
         "sense",
         "graph",
+        "detectors",
         "incidents",
         "requests",
         "evidence",
@@ -103,7 +104,7 @@ def test_one_command_takes_a_new_system_through_every_step(
     assert any(n.kind == "review" for n in status.needs)  # the graph facts to confirm
     assert status.bar == 0.70
     saved = json.loads((tmp_path / "ws" / AUTOPILOT_STATE).read_text())
-    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 8
+    assert saved["system"] == "shipment-tracking" and len(saved["steps"]) == 9
 
 
 def test_a_rerun_skips_what_is_done_and_clears_what_a_person_did(
