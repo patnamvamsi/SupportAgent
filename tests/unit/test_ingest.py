@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -396,3 +397,21 @@ def test_dependencies_and_secret_files_are_never_read(tmp_path: Path) -> None:
         "shop/app/token_utils.py",
         "shop/docker-compose.yml",
     ]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+def test_an_unreadable_directory_is_skipped_not_fatal(tmp_path: Path) -> None:
+    root = tmp_path / "shop"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "main.py").write_text("x = 1\n")
+    private = root / ".private"
+    private.mkdir()
+    (private / "notes.py").write_text("y = 2\n")
+    private.chmod(0)
+    try:
+        into = IngestedFiles()
+        read_local(str(root), ["**/*.py"], max_files=10, max_file_bytes=10_000, into=into)
+    finally:
+        private.chmod(0o700)
+    assert sorted(into.files) == ["shop/app/main.py"]
+    assert into.skipped["shop/.private/"].startswith("unreadable")

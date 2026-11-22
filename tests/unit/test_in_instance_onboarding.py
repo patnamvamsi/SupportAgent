@@ -7,6 +7,7 @@ and ``test_catalog_and_detectors_are_steps`` land with those steps.)
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -202,3 +203,28 @@ def test_an_installer_sets_the_system_without_a_browser(
     path.write_text("system: {id: Not Valid}\n")
     with pytest.raises(ConfigError):
         onboard_system(config, manifest=path, engine=db, clock=clock)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+def test_what_the_instance_cannot_read_is_a_need(tmp_path: Path, db: Any, clock: Any) -> None:
+    config = _config(tmp_path)
+    source = _source(tmp_path)
+    private = source / "private"
+    private.mkdir()
+    (private / "x.py").write_text("x = 1\n")
+    private.chmod(0)
+    try:
+        control = onboarding_control_for(config, db, clock)
+        control.save_manifest(_manifest(source), actor="ada")
+        status = run_autopilot(
+            config,
+            engine=db,
+            master_key=_MASTER_KEY,
+            clock=clock,
+            llm_provider=_UnrecordedProvider(),
+        )
+    finally:
+        private.chmod(0o700)
+    assert status is not None
+    access = [n for n in status.needs if n.kind == "access"]
+    assert access and "can't be read" in access[0].what and "private" in access[0].what

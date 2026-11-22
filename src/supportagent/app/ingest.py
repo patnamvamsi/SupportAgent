@@ -201,11 +201,16 @@ class IngestService:
         )
         files = {k: self._redact(v) for k, v in found.files.items()}
         self._ws.replace_repos(found.repos, files)
-        notes = [f"skipped {k}: {why}" for k, why in sorted(found.skipped.items())][:10]
+        unreadable = sorted(k for k, why in found.skipped.items() if why.startswith("unreadable"))
+        notes = [f"unreadable: {', '.join(unreadable[:5])}"] if unreadable else []
+        notes += [f"skipped {k}: {why}" for k, why in sorted(found.skipped.items())][:10]
+        counts = {"repos": len(found.repos), "files": len(files), "skipped": len(found.skipped)}
+        if unreadable:
+            counts["unreadable"] = len(unreadable)  # ADR-0023: a need, not a silent gap
         return SourceReport(
             name,
             "read",
-            {"repos": len(found.repos), "files": len(files), "skipped": len(found.skipped)},
+            counts,
             truncated=found.truncated,
             notes=notes,
         )
