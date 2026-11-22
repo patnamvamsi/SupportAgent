@@ -55,6 +55,9 @@ class GitSource(DomainModel):
 
     repo: str = Field(min_length=1)
     paths: list[str] = Field(min_length=1)
+    #: Paths never read, whatever ``paths`` matches (an archived copy, a vendored tree).
+    #: A directory glob (``backups/**``) is not even walked.
+    exclude: list[str] = Field(default_factory=list)
     token: SecretStr | None = None
 
     @field_validator("repo")

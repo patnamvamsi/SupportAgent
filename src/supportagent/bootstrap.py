@@ -4961,14 +4961,24 @@ def ingest_system(  # noqa: PLR0913 — the config, the manifest, the workspace 
         spec = source.repo.split(":", 1)[1]
         if source.host == "file":
             read_local(
-                spec, source.paths, max_files=max_files, max_file_bytes=max_file_bytes, into=found
+                spec,
+                source.paths,
+                max_files=max_files,
+                max_file_bytes=max_file_bytes,
+                into=found,
+                exclude=source.exclude,
             )
             return found
         token = source.token.get_secret_value() if source.token is not None else None
         reader = GitHubReader(token=token, transport=transports.github)
         try:
             reader.read(
-                spec, source.paths, max_files=max_files, max_file_bytes=max_file_bytes, into=found
+                spec,
+                source.paths,
+                max_files=max_files,
+                max_file_bytes=max_file_bytes,
+                into=found,
+                exclude=source.exclude,
             )
         finally:
             reader.close()
