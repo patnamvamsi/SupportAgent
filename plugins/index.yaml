@@ -5,7 +5,7 @@ plugins:
   - {id: airflow, version: 0.1.1, sha256: 8ee7e1813b42817d39fa3f4ed6d6f8605bbfcaa6ada4a6bae7fda6889241ed13}
   - {id: angular, version: 0.1.0, sha256: 1ccc924dc33d967964991e7cc5f7ac3ab87c3f1be04f509332252f73ba683b39}
   - {id: data-quality, version: 0.2.0, sha256: 03361cb1805a24699afff6a37f91635b7b20955e121ea9eb1f34890680b308ad}
-  - {id: docker-compose, version: 0.1.0, sha256: a19d9eeb5115fff325f3bd2ed6365d2588f68425fdee782956320d4c0cb735a2}
+  - {id: docker-compose, version: 0.2.0, sha256: e713eddffb34f5cae1fb123d86b810b00c1a25a4002170991a2a7213a184271b}
   - {id: github, version: 0.1.0, sha256: 23d806711072233c92f5f32aa977249a44be960021cd27fef8adc1bcc8a3b44a}
   - {id: grafana, version: 0.1.0, sha256: 7c60c03659ea856872ec72908b69d4215853f3d311fdf5213259d892f56114cb}
   - {id: java-spring, version: 0.2.0, sha256: 954a8342a4d76df33711412aaab3ef8b9df1a203236cbfd9482ee83191adf503}
@@ -15,6 +15,7 @@ plugins:
   - {id: nodejs, version: 0.1.0, sha256: 54115eb4da788ca1521fe2d33557bd71b500b0478d1acdc5f5847b39a034b278}
   - {id: oracle, version: 0.2.2, sha256: 65a94403760c0f9bcbe3213dacdd2c47fb42f674f2109105bce5e9dc0c8a5394}
   - {id: python-postgres, version: 1.2.0, sha256: 08b3a06d925f7d9385ddaae40bdc5c1fffbf1458d28c600f614958d9c9dad98a}
+  - {id: python-runtime, version: 0.1.0, sha256: 68c54f0dadabe9090a12ab8011f6bd16dcd615d3ff5ed6f6a5c09fe45fe14620}
   - {id: rabbitmq, version: 0.1.1, sha256: b8005117f917f3dbb1c6ff2267081d8d1a01f60491960be9faa196f44f63026c}
   - {id: snowflake, version: 0.2.0, sha256: 184deb9dd4b83b3535df01f12898c650b11552b9fc9686955734a149b4d2abb2}
   - {id: spark, version: 0.2.0, sha256: 2260c289a4df69bf5c33d2e6a48364f9cd2cacaba0890dfc797ac4b8e7952fd2}
