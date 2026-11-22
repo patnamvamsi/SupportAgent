@@ -5603,7 +5603,8 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                     )
                 else:
                     read = ", ".join(r.line().split(maxsplit=1)[-1] for r in reports)
-                    record("ingest", "done", inputs, read)
+                    hidden = [n for r in reports for n in r.notes if n.startswith("unreadable:")]
+                    record("ingest", "done", inputs, "; ".join([read, *hidden]))
             except (ConfigError, ExternalServiceError) as exc:
                 record("ingest", "failed", inputs, str(exc)[:200])
         if not (workspace / "sources").is_dir():
@@ -5792,6 +5793,15 @@ def _step_needs(steps: Sequence[StepRecord]) -> list[Need]:
     """A step that failed, or waits on its config or the model, is a source to fix."""
     out = []
     for r in steps:
+        if r.step == "ingest" and r.state == "done" and " unreadable" in r.detail:
+            out.append(
+                Need(
+                    "access",
+                    f"some sources can't be read by the instance ({r.detail})",
+                    0.0,
+                    "give the instance's user read access to them, or leave them out",
+                )
+            )
         if r.state == "failed" or (r.state == "blocked" and r.on == "config"):
             out.append(Need("source", f"{r.step}: {r.detail}", 0.0, "fix it, then re-run"))
         elif r.state == "blocked" and r.on == "model":
