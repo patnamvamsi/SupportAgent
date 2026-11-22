@@ -116,6 +116,7 @@ _RESET_ORDER: tuple[str, ...] = (
     "onboarding_control",
     "component_summaries",
     "detector_review",
+    "detector_watch",
     "graph_facts",
     "graph_questions",
     # 0014 (BL-031): the last doctor report.

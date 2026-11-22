@@ -804,6 +804,7 @@ def onboarding_detectors(request: Request, ctx: ApiContext = Depends(context)) -
             state=state,
             labels=_CLASS_LABELS,
             enabled=state.get("enabled", {}),
+            watches=ctx.detector_watches() if ctx.detector_watches is not None else {},
             saved=request.query_params.get("saved"),
         )
 

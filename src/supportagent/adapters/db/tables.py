@@ -529,6 +529,15 @@ detector_review = sa.Table(
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
 )
 
+# 0025 (WP-224): each evaluated detector's state.
+detector_watch = sa.Table(
+    "detector_watch",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("watch_json", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

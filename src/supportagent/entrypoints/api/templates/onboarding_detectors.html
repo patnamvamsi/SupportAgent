@@ -7,16 +7,23 @@
 <p class="muted">Nothing measured yet. Onboarding's <strong>detectors</strong> step reads the last 7 days of Prometheus and Loki for every component it found, and proposes a detector only where the history shows what normal looks like. It needs Prometheus or Loki under <code>tools:</code> in the configuration.</p>
 {% else %}
 <p class="lede">Measured over the last {{ state.get("days", 7) }} days{% if state.get("measured_ts") %}, {{ state.measured_ts | age(now_ts) }} ago{% endif %}. Each threshold comes from this system's history, never from a default: a silence threshold is twice the longest normal quiet run. Nothing fires until you enable it.</p>
-{% if saved is not none %}<p class="ok" role="status">Saved{% if saved != "0" %}: {{ saved }} change{{ "s" if saved != "1" }}{% endif %}.</p>{% endif %}
+{% if saved is not none %}<p class="ok" role="status">Saved{% if saved != "0" %}: {{ saved }} change{{ "s" if saved != "1" }}{% endif %}. The instance evaluates the enabled detectors itself every minute; a firing one becomes a case.</p>{% endif %}
 <form method="post" action="/ui/onboarding/detectors">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="table-wrap"><table class="detectors">
-    <thead><tr><th>On</th><th>Detector</th><th>Fires when</th><th>Measured</th></tr></thead>
+    <thead><tr><th>On</th><th>Detector</th><th>Now</th><th>Fires when</th><th>Measured</th></tr></thead>
     <tbody>{% for d in state.detectors | sort(attribute="id") %}{% set m = d.get("measured", {}) %}
     <tr class="{{ 'on' if d.id in enabled else '' }}">
       <td><input type="checkbox" name="on:{{ d.id }}" value="1" aria-label="Enable {{ d.id }}" {% if d.id in enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}></td>
       <td><strong>{{ labels.get(d["class"], d["class"]) }}</strong>: {{ d.subject }}{% if d.get("stale") %} <span class="badge">not re-measured</span>{% endif %}
         {% if d.id in enabled %}<br><span class="muted">enabled by {{ enabled[d.id].by }}, {{ enabled[d.id].mode }}</span>{% endif %}</td>
+      <td>{% set w = watches.get(d.id) %}{% if d.id not in enabled %}<span class="muted">off</span>
+        {% elif not w %}<span class="muted">not evaluated yet</span>
+        {% elif w.get("error") %}<span class="bad" title="{{ w.error }}">can't evaluate</span>
+        {% elif w.get("fired") %}<span class="badge bad">firing</span> for {{ w.fired | age(now_ts) }}
+        {% elif w.get("since") %}<span class="badge">pending</span>
+        {% else %}<span class="ok">ok</span>{% endif %}
+        {% if w and w.get("checked") %}<br><span class="muted">checked {{ w.checked | age(now_ts) }} ago</span>{% endif %}</td>
       <td>{{ d.summary }}<details class="cite"><summary>query</summary><code>{{ d.expr }}</code>{% if d.for_s %} for {{ (d.for_s / 60) | round | int }} min{% endif %} ({{ d.engine }})</details></td>
       <td class="muted">{% if m.get("binary") %}no rate needed: it either happened or not{% else %}normally quiet up to {{ m.get("longest_normal_quiet_min", m.get("longest_normal_idle_min")) }} min, so it fires after {{ m.get("threshold_min") }} min ({{ m.get("history_h") }} h of history)
         {% if m.get("suspected_outages") %}<br><span class="bad">set aside as suspected outages: {{ m.suspected_outages | join(", ") }}</span>{% endif %}{% endif %}</td>

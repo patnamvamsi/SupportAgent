@@ -304,7 +304,8 @@ def draft_detectors(
     return drafts, skipped
 
 
-def _rule(det: SignalDetector) -> dict[str, object]:
+def alert_rule(det: SignalDetector) -> dict[str, object]:
+    """``det`` as one alerting rule (Prometheus and Loki share the shape)."""
     subject_label = "topic" if det.cls == "progress_stopped" else "service"
     rule: dict[str, object] = {
         "alert": "".join(part.title() for part in det.cls.split("_")),
@@ -323,7 +324,7 @@ def _rule(det: SignalDetector) -> dict[str, object]:
 
 def rules_document(detectors: Sequence[SignalDetector], engine: Engine) -> dict[str, object]:
     """The enabled detectors of one engine as a Prometheus or Loki rule document."""
-    rules = [_rule(d) for d in detectors if d.enabled and d.engine == engine]
+    rules = [alert_rule(d) for d in detectors if d.enabled and d.engine == engine]
     return {"groups": [{"name": "supportagent-detectors", "rules": rules}]}
 
 
@@ -382,6 +383,7 @@ __all__ = [
     "SignalClass",
     "SignalDetector",
     "Signals",
+    "alert_rule",
     "detector_id",
     "draft_detectors",
     "enabled_ids",

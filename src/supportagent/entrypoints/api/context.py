@@ -64,6 +64,8 @@ class ApiContext:
     component_summaries: Callable[[], ComponentSummaryStore] | None = None
     #: ADR-0023 §2 (WP-223): measured detectors, and which ones a person enabled.
     detector_review: Callable[[], DetectorReview] | None = None
+    #: ADR-0023 §4 (WP-224): each evaluated detector's state, by id.
+    detector_watches: Callable[[], Mapping[str, Mapping[str, object]]] | None = None
     #: ADR-0017 (WP-A6): the tenant's onboarding events, newest first.
     onboarding_history: Callable[[], list[dict[str, object]]] | None = None
     #: ADR-0017 (WP-A6): which calibration triage scores with (``fitted`` or
