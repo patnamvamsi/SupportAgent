@@ -14,7 +14,8 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from supportagent.app.doctor.base import CheckResult, ConnectorDoctor, DoctorContext
-from supportagent.domain.errors import ConnectorError
+from supportagent.config.schema import ServiceNow
+from supportagent.domain.errors import ConfigError, ConnectorError
 from supportagent.ports.diagnostics import RecordProbe
 
 _FORBIDDEN = 403
@@ -37,6 +38,13 @@ MIN_AUDIT_DAYS = 7
 #: BL-030: values per ``fieldIN`` query. A real instance answers 414 (URI too
 #: long) when one query lists every ACL of a role-rich user.
 IN_CHUNK = 50
+
+
+def _sn(ctx: DoctorContext) -> ServiceNow:
+    """This doctor runs only for a configured ServiceNow (``connector_manifest``)."""
+    if ctx.config.servicenow is None:
+        raise ConfigError("servicenow is not configured")  # noqa: TRY003
+    return ctx.config.servicenow
 
 
 def _forbidden(exc: Exception) -> bool:
@@ -79,14 +87,13 @@ class AuthCheck:
     name = "servicenow.auth"
 
     def run(self, ctx: DoctorContext) -> CheckResult:
-        tables = ctx.config.servicenow.tables
+        tables = _sn(ctx).tables
         for table in tables:
             ctx.records.read(table, query="", fields=["sys_id"], limit=1)
         return CheckResult(
             self.name,
             "pass",
-            f"authenticated as {ctx.config.servicenow.auth.kind}; read probe ok on "
-            + ", ".join(tables),
+            f"authenticated as {_sn(ctx).auth.kind}; read probe ok on " + ", ".join(tables),
         )
 
 
@@ -97,9 +104,7 @@ class JournalVisibilityCheck:
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         sn = ctx.records
-        names = sorted(
-            {f"{t}.work_notes" for t in ctx.config.servicenow.tables} | {"task.work_notes"}
-        )
+        names = sorted({f"{t}.work_notes" for t in _sn(ctx).tables} | {"task.work_notes"})
         try:
             acls = sn.read(
                 "sys_security_acl",
@@ -163,7 +168,7 @@ class IntegrationRoleCheck:
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         sn = ctx.records
-        user_name = ctx.config.servicenow.integration_user
+        user_name = _sn(ctx).integration_user
         users = sn.read("sys_user", query=f"user_name={user_name}", fields=["sys_id"], limit=1).rows
         if not users:
             return CheckResult(
@@ -198,7 +203,7 @@ class IntegrationRoleCheck:
             if not _forbidden(exc):
                 raise
             write_acls = None
-        allowed = set(ctx.config.servicenow.tables)
+        allowed = set(_sn(ctx).tables)
         extra = sorted(
             name
             for name in write_acls or []
@@ -270,7 +275,7 @@ class RateLimitCheck:
     name = "servicenow.rate_limit"
 
     def run(self, ctx: DoctorContext) -> CheckResult:
-        sn_cfg = ctx.config.servicenow
+        sn_cfg = _sn(ctx)
         probe = ctx.records.read(sn_cfg.tables[0], query="", fields=["sys_id"], limit=1)
         limit_s = probe.headers.get("x-ratelimit-limit")
         remaining_s = probe.headers.get("x-ratelimit-remaining")
@@ -330,7 +335,7 @@ class HistoryAccessCheck:
 
     def run(self, ctx: DoctorContext) -> CheckResult:
         sn = ctx.records
-        table = ctx.config.servicenow.tables[0]
+        table = _sn(ctx).tables[0]
         blocked: list[str] = []
         journal_rows = 0
         for history_table, query in (
@@ -406,7 +411,7 @@ class AuditRetentionCheck:
 
 def discover_automation_actors(ctx: DoctorContext) -> list[tuple[str, str]]:
     """ARCH §8.2: recent ``assigned_to`` setters that can't log in interactively."""
-    sn_cfg = ctx.config.servicenow
+    sn_cfg = _sn(ctx)
     since = (ctx.clock.now() - DISCOVERY_WINDOW).strftime("%Y-%m-%d %H:%M:%S")
     audits = ctx.records.read(
         "sys_audit",

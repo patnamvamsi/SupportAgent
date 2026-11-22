@@ -804,7 +804,9 @@ class AppConfig(DomainModel):
     tenant: Tenant
     mode: Literal["shadow", "assisted", "standard"]
     database: Database
-    servicenow: ServiceNow
+    #: The ticket connector. ADR-0022: optional in shadow mode, where a system
+    #: with no ticket source sends its alerts by webhook instead.
+    servicenow: ServiceNow | None = None
     identity: Identity
     llm: LLM
     redaction: Redaction
@@ -843,6 +845,20 @@ class AppConfig(DomainModel):
         names = [w.source for w in self.webhooks]
         if len(names) != len(set(names)):
             raise ValueError("webhook sources must be unique")  # noqa: TRY003
+        return self
+
+    @model_validator(mode="after")
+    def _intake(self) -> AppConfig:
+        if self.servicenow is not None:
+            return self
+        if self.mode != "shadow":
+            raise ValueError(  # noqa: TRY003
+                f"mode '{self.mode}' acts on tickets: configure a ticket connector (servicenow)"
+            )
+        if not self.webhooks:
+            raise ValueError(  # noqa: TRY003
+                "nothing to triage: configure servicenow or at least one webhook source"
+            )
         return self
 
     @model_validator(mode="after")

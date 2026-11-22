@@ -204,10 +204,20 @@ def test_worker_survives_a_servicenow_outage(
     assert _scalar(db, "SELECT COUNT(*) FROM leases") == 0, "released even on error"
 
 
+@pytest.mark.parametrize("ticketless", [False, True], ids=["with-servicenow", "alerts-only"])
 def test_worker_drains_webhooks_into_shadow(  # noqa: PLR0913, PLR0917
-    tmp_path: Path, db: Engine, clock: Any, ids: Any, master_key: bytes, sn: FakeServiceNowHTTP
+    tmp_path: Path,
+    db: Engine,
+    clock: Any,
+    ids: Any,
+    master_key: bytes,
+    sn: FakeServiceNowHTTP,
+    ticketless: bool,
 ) -> None:
-    """WP-113 through the worker: a verified delivery is triaged by the shadow runner."""
+    """WP-113 through the worker: a verified delivery is triaged by the shadow runner.
+
+    ADR-0022: alerts-only, with no ticket connector, nothing polls a ticket system.
+    """
     import json  # noqa: PLC0415
 
     from supportagent.adapters.fakes.oidc import FakeOIDC  # noqa: PLC0415
@@ -218,7 +228,10 @@ def test_worker_drains_webhooks_into_shadow(  # noqa: PLR0913, PLR0917
     secret = "nagios-webhook-secret-0123456789abcdef"  # noqa: S105 — a test secret
     mapping = {"external_id": "$.id", "subject": "$.title", "resource": "$.host"}
     hook = Webhook(source="nagios", secret=secret, mapping=mapping)  # type: ignore[arg-type]
-    cfg = _config(tmp_path).model_copy(update={"webhooks": [hook]})
+    update: dict[str, object] = {"webhooks": [hook]}
+    if ticketless:
+        update["servicenow"] = None
+    cfg = AppConfig.model_validate({**_config(tmp_path).model_dump(), **update})
     worker = build_worker(
         cfg,
         master_key=master_key,
@@ -254,8 +267,11 @@ def test_worker_drains_webhooks_into_shadow(  # noqa: PLR0913, PLR0917
         },
         body,
     )
-    drained = [r for r in worker.run_once() if r.name == "webhooks.drain"]
+    results = worker.run_once()
+    drained = [r for r in results if r.name == "webhooks.drain"]
     assert drained == [JobResult(name="webhooks.drain", ran=True, rows=1)]
+    polls = [r.name for r in results if r.name.startswith("sync.poll.")]
+    assert polls == ([] if ticketless else [_POLL])
     assert _scalar(db, "SELECT COUNT(*) FROM shadow_records") == 1
     assert _scalar(db, "SELECT source FROM cases") == "webhook:nagios", (
         "the alert type defaults to the source name"

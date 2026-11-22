@@ -32,6 +32,7 @@ from supportagent.app.doctor.connectors.servicenow import (
     JournalVisibilityCheck,
     RateLimitCheck,
 )
+from supportagent.bootstrap import ticket_connector
 from supportagent.config.loader import load_config
 from supportagent.config.local_install import (
     DEMO_SERVICES,
@@ -115,7 +116,7 @@ def test_a_real_instance_with_oauth_confluence_and_pagerduty_loads(tmp_path: Pat
     )
     env = _write(tmp_path, answers)
     config = load_config(tmp_path / "supportagent.yaml", env)
-    assert config.servicenow.auth.kind == "oauth_client_credentials"
+    assert ticket_connector(config).auth.kind == "oauth_client_credentials"
     assert env["COMPOSE_PROFILES"] == ""  # no demo instance
     assert config.knowledge.sources[0].kind == "confluence"
     assert config.paging.pagerduty is not None
