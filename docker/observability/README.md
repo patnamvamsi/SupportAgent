@@ -126,10 +126,10 @@ receivers:
       - url: http://<supportagent>:8000/api/v1/webhooks/alertmanager
         send_resolved: true              # a resolved alert is noted on its open case, never closes it
         http_config:
-          authorization: {type: Bearer, credentials_file: /etc/alertmanager/supportagent.token}
+          authorization: {type: Bearer, credentials_file: /run/secrets/supportagent_token}
 ```
 
-Mount the token file next to the config (it must hold the same value as `SUPPORTAGENT_ALERTMANAGER_TOKEN`). Each alert becomes one incident candidate: its `fingerprint` is the identity, so Alertmanager's repeats land on the same case, and the first of `service_labels` it carries names the service for the catalog. A Grafana Alerting contact point works the same way with `kind: grafana` (webhook, `Authorization` header `Bearer <token>`).
+Set `ALERTMANAGER_TOKEN_FILE=/path/to/token` in `.env`: the file holds the same value as `SUPPORTAGENT_ALERTMANAGER_TOKEN`, and Compose mounts it as a secret, never as a value. It must be readable by Alertmanager's user (`nobody`). Each alert becomes one incident candidate: its `fingerprint` is the identity, so Alertmanager's repeats land on the same case, and the first of `service_labels` it carries names the service for the catalog. A Grafana Alerting contact point works the same way with `kind: grafana` (webhook, `Authorization` header `Bearer <token>`).
 
 ## Contract check
 
