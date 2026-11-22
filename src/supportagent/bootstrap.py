@@ -197,7 +197,6 @@ from supportagent.app.memory import CaseMemory
 from supportagent.app.onboarding_audit import OnboardingAudit
 from supportagent.app.onboarding_audit import history as audit_history
 from supportagent.app.onboarding_control import (
-    STALE_RUN_S,
     OnboardingControl,
     OnboardingControlStore,
 )
@@ -347,6 +346,7 @@ from supportagent.entrypoints.worker.jobs import (
     LLM_DEPRECATION_LEASE,
     ONBOARD_AUTOPILOT_INTERVAL_S,
     ONBOARD_AUTOPILOT_LEASE,
+    ONBOARD_AUTOPILOT_LEASE_TTL_S,
     ONBOARD_VERIFY_LEASE,
     OUTBOX_EXECUTE_INTERVAL_S,
     OUTBOX_EXECUTE_LEASE,
@@ -1634,15 +1634,18 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             )
         )
     autopilot = AutopilotJob(
+        # The claim is made under the lease, which a live run renews: a run still
+        # marked in flight once the lease lapsed belongs to a worker that died.
         claim=lambda: onboarding_control_for(config, engine, clock).claim(
-            interval_s=config.onboarding.autopilot_interval_h * 3600
+            interval_s=config.onboarding.autopilot_interval_h * 3600,
+            stale_s=ONBOARD_AUTOPILOT_LEASE_TTL_S,
         ),
         run=lambda claim: run_autopilot(
             config, engine=engine, master_key=key, clock=clock, llm_provider=llm_provider
         ),
         lease=lease,
         owner=owner,
-        ttl_s=STALE_RUN_S,
+        ttl_s=ONBOARD_AUTOPILOT_LEASE_TTL_S,
     )
     jobs.append(
         ScheduledJob(
