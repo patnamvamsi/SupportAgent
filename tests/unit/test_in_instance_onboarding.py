@@ -151,6 +151,11 @@ def test_a_run_is_claimed_when_requested_due_or_stale(db: Any, clock: Any) -> No
     assert control.claim(interval_s=3600) is None
     clock.advance(3600)
     assert control.claim(interval_s=3600) is not None, "due again"
+    assert control.claim(interval_s=3600, stale_s=600) is None, "in flight"
+    clock.advance(601)  # its lease lapsed: the worker died mid-run
+    control.request_run(actor="cy")
+    revived = control.claim(interval_s=3600, stale_s=600)
+    assert revived is not None and revived.actor == "cy", "claimed once the lease lapsed"
     clock.advance(STALE_RUN_S + 1)  # the worker died mid-run
     assert control.claim(interval_s=0) is None, "not requested and the schedule is off"
     control.request_run(actor="bob")
@@ -159,18 +164,22 @@ def test_a_run_is_claimed_when_requested_due_or_stale(db: Any, clock: Any) -> No
 
 
 def test_the_job_runs_beside_the_loop_and_holds_its_lease() -> None:
-    held: set[str] = set()
+    held: dict[str, str] = {}
+    renewals: list[str] = []
     started, release = threading.Event(), threading.Event()
 
     class _Lease:
         def acquire(self, *, name: str, owner: str, ttl_s: int) -> bool:
-            if name in held:
+            if held.get(name, owner) != owner:
                 return False
-            held.add(name)
+            if name in held:
+                renewals.append(owner)
+            held[name] = owner
             return True
 
         def release(self, *, name: str, owner: str) -> None:
-            held.discard(name)
+            if held.get(name) == owner:
+                del held[name]
 
     def run(claim: object) -> None:
         started.set()
@@ -180,13 +189,15 @@ def test_the_job_runs_beside_the_loop_and_holds_its_lease() -> None:
     assert job.tick() == JobResult(name="onboard.autopilot", ran=True, rows=1)
     assert started.wait(5)
     assert job.tick().ran is False, "never a second run while one is in flight"
-    assert held == {"onboard.autopilot"}
+    assert held == {"onboard.autopilot": "w1"} and renewals == ["w1"], "renewed while alive"
+    other = AutopilotJob(claim=lambda: "go", run=run, lease=_Lease(), owner="w2", ttl_s=60)
+    assert other.tick().ran is False, "another replica never starts a second run"
     release.set()
     job.join(5)
-    assert held == set(), "the lease is released when the run ends"
+    assert held == {}, "the lease is released when the run ends"
     idle = AutopilotJob(claim=lambda: None, run=run, lease=_Lease(), owner="w1", ttl_s=60)
     assert idle.tick() == JobResult(name="onboard.autopilot", ran=True, rows=0)
-    assert held == set()
+    assert held == {}
 
 
 def test_an_installer_sets_the_system_without_a_browser(
