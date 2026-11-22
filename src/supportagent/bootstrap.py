@@ -5820,7 +5820,10 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                 if step in ("readiness", "gaps")
                 # Re-measured daily (the history grows) and when the reviewed components change.
                 else digest(
-                    sensed, clock.now().date().isoformat(), *_reviewed_components(db, config, clock)
+                    sensed,
+                    _STEP_VERSIONS.get(step, ""),
+                    clock.now().date().isoformat(),
+                    *_reviewed_components(db, config, clock),
                 )
                 if step in ("catalog", "detectors")
                 else digest(sensed, _STEP_VERSIONS[step])
@@ -5850,8 +5853,9 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 
 
 #: A step whose work changed in this build: an upgrade re-runs it on unchanged sources
-#: (WP-222: the graph step writes component summaries).
-_STEP_VERSIONS: dict[str, str] = {"graph": "2"}
+#: (WP-222: the graph step writes component summaries; WP-221: detectors record what
+#: runs; a job joins its owner's catalog entry).
+_STEP_VERSIONS: dict[str, str] = {"graph": "2", "catalog": "2", "detectors": "2"}
 
 
 def _graph_detail(report: OnboardGraphReport) -> str:
@@ -6296,8 +6300,28 @@ def draft_catalog(
     service the configured catalog already has (by name or CMDB CI) keeps its
     entry. Onboarding can't know a service's paging integration, and triage
     refuses a service without one (ARCH §14), so each entry missing it says so.
+
+    A job ``part_of`` a service is that service's work, not a service of its own
+    (ADR-0023 §3): its name joins the owner's ``resources``, so an alert naming
+    the job resolves to the owner.
     """
-    serving = {target_name(n.id, n.tech) for n in graph.nodes.values() if n.kind in _SERVING_KINDS}
+    owner_of = {
+        e.src: e.dst
+        for e in graph.edges.values()
+        if e.kind == "part_of" and e.dst in graph.nodes and graph.nodes[e.dst].kind != "Job"
+    }
+    jobs_of: dict[str, list[str]] = {}
+    for job, owner in owner_of.items():
+        if job in graph.nodes and graph.nodes[job].kind == "Job":
+            node = graph.nodes[owner]
+            jobs_of.setdefault(target_name(owner, node.tech), []).append(
+                target_name(job, graph.nodes[job].tech)
+            )
+    serving = {
+        target_name(n.id, n.tech)
+        for n in graph.nodes.values()
+        if n.kind in _SERVING_KINDS and not (n.kind == "Job" and n.id in owner_of)
+    }
     cis = set(incident_cis)
     out: dict[str, CatalogDraftEntry] = {}
     for raw in sorted(serving | cis):
@@ -6316,7 +6340,7 @@ def draft_catalog(
             | {
                 "name": _catalog_name(raw),
                 "cmdb_ci": [raw] if raw in cis else [],
-                "resources": [raw],
+                "resources": [raw, *sorted(jobs_of.get(raw, []))],
             }
         )
         todo = ("add its paging_integration",) + (

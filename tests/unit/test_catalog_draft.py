@@ -78,3 +78,16 @@ def test_onboard_catalog_writes_the_draft_in_the_workspace(tmp_path: Path) -> No
     loaded = Catalog.model_validate(yaml.safe_load(path.read_text()))
     assert {"payment-service", "orders-service"} <= {s.name for s in loaded.services}
     assert len(entries) == len(loaded.services)
+
+
+def test_a_job_is_its_owners_work_not_a_service() -> None:
+    """ADR-0023 §3: scheduled jobs found in the code join their service's entry."""
+    from supportagent.adapters.files.graph_extract import structured_facts  # noqa: PLC0415
+    from supportagent.bootstrap import draft_catalog  # noqa: PLC0415
+    from supportagent.domain.graph import build  # noqa: PLC0415
+    from tests.unit.test_code_layer import _declared, _system  # noqa: PLC0415
+
+    graph = build(structured_facts(_system(), {}, {}, _declared()))
+    entries = {e.entry.name: e.entry for e in draft_catalog(graph, [], [])}
+    assert not any("sync-bars" in name for name in entries), "no service per job"
+    assert entries["feed"].resources == ["feed", "feed.sync_bars"], "an alert on it finds feed"
