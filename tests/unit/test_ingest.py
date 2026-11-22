@@ -366,3 +366,33 @@ def test_the_workspace_refuses_paths_outside_itself(tmp_path: Path) -> None:
         ws.replace_repos(["r"], {"r/../../escape.txt": "x"})
     with pytest.raises(ConfigError, match="outside the workspace"):
         ws.replace_repos(["r"], {"/etc/passwd": "x"})
+
+
+def test_dependencies_and_secret_files_are_never_read(tmp_path: Path) -> None:
+    """ADR-0023: a checkout's virtualenvs, packages and secret files stay unread."""
+    root = tmp_path / "shop"
+    files = {
+        "app/main.py": "print('hi')\n",
+        "app/token_utils.py": "def refresh(): ...\n",  # code named for tokens is code
+        "docker-compose.yml": "services: {}\n",
+        "venv/lib/python3.12/site-packages/requests/api.py": "x = 1\n",
+        "venv/pyvenv.cfg": "home = /usr\n",
+        "envs/py/pyvenv.cfg": "home = /usr\n",
+        "envs/py/lib/thing.py": "x = 1\n",
+        "web/node_modules/lib/index.py": "x = 1\n",
+        ".env": "SECRET=1\n",
+        "config/.env.prod": "SECRET=1\n",
+        "git_personal_token.txt": "ghp_x\n",
+        "deploy/server.key": "-----BEGIN PRIVATE KEY-----\n",
+        "db-ro.password": "x\n",
+    }
+    for rel, body in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(body)
+    into = IngestedFiles()
+    read_local(str(root), ["**/*"], max_files=100, max_file_bytes=10_000, into=into)
+    assert sorted(into.files) == [
+        "shop/app/main.py",
+        "shop/app/token_utils.py",
+        "shop/docker-compose.yml",
+    ]
