@@ -290,3 +290,44 @@ def test_alert_kind_config_uses_its_preset() -> None:
         )
     with pytest.raises(ValueError, match="mapping needs"):
         Webhook(source="nagios", secret=_TOKEN.decode())  # type: ignore[arg-type]
+
+
+def _alerts_only(**update: object) -> dict[str, Any]:
+    from tests.unit.test_triage_service import _shadow_config  # noqa: PLC0415
+
+    hook = Webhook(source="am", kind="alertmanager", secret=_TOKEN.decode())  # type: ignore[arg-type]
+    return {**_shadow_config().model_dump(), "servicenow": None, "webhooks": [hook], **update}
+
+
+def test_an_alerts_only_deployment_needs_no_ticket_connector() -> None:
+    """ADR-0022: a system with no ticket source is triaged from its alerts, in shadow only."""
+    from supportagent.config.schema import AppConfig  # noqa: PLC0415
+
+    assert AppConfig.model_validate(_alerts_only()).servicenow is None
+    with pytest.raises(ValueError, match="configure a ticket connector"):
+        AppConfig.model_validate(_alerts_only(mode="assisted"))
+    with pytest.raises(ValueError, match="nothing to triage"):
+        AppConfig.model_validate(_alerts_only(webhooks=[]))
+
+
+def test_the_doctor_of_an_alerts_only_deployment(tmp_path: Any) -> None:
+    from sqlalchemy import create_engine  # noqa: PLC0415
+
+    from supportagent.app.doctor.checks import default_checks  # noqa: PLC0415
+    from supportagent.app.doctor.connectors import connector_doctor  # noqa: PLC0415
+    from supportagent.bootstrap import build_doctor_context, ticket_connector  # noqa: PLC0415
+    from supportagent.config.schema import AppConfig  # noqa: PLC0415
+    from supportagent.domain.errors import ConfigError  # noqa: PLC0415
+
+    config = AppConfig.model_validate(_alerts_only())
+    ctx = build_doctor_context(config, engine=create_engine(f"sqlite:///{tmp_path}/d.db"))
+    assert ctx.connector.name == "none"
+    checks = {c.name: c for c in default_checks(ctx.connector.name)}
+    intake = checks["none.alert_intake"].run(ctx)
+    assert intake.status == "pass" and "(am)" in intake.detail
+    assert checks["connector"].run(ctx).status == "warn", "shadow only, said out loud"
+    assert connector_doctor("none").discover_automation(ctx) == [], "no ticket assignees"
+    with pytest.raises(ConfigError, match="no ticket connector"):
+        ctx.records.read("incident", query="", fields=["sys_id"], limit=1)
+    with pytest.raises(ConfigError, match="no ticket connector"):
+        ticket_connector(config)

@@ -240,6 +240,7 @@ from supportagent.config.schema import (
     Tools,
 )
 from supportagent.config.schema import BasicAuth as BasicAuthConfig
+from supportagent.config.schema import ServiceNow as ServiceNowConfig
 from supportagent.config.system_manifest import ConfluenceSpace, GitSource, SystemManifest
 from supportagent.domain.auto import AutoConditions
 from supportagent.domain.autopilot import (
@@ -399,7 +400,7 @@ from supportagent.evals.scoring import CaseRun
 from supportagent.evals.trace_lab import TraceGates, TraceOutcome, TraceScenario, TraceSuite
 from supportagent.ports.access import AccessVerifier
 from supportagent.ports.clock import Clock
-from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe
+from supportagent.ports.diagnostics import AutomationActorStore, DiscoveryProbe, ProbeRows
 from supportagent.ports.events import EventSink
 from supportagent.ports.identity import IdentityProvider
 from supportagent.ports.idgen import IdGenerator
@@ -937,7 +938,7 @@ def build_cadence_job(  # noqa: PLR0913 — config plus the injectable ports
         source=source,
         templates=_comms(config).templates,
         tenant_id=config.tenant.id,
-        integration_user=config.servicenow.integration_user,
+        integration_user=ticket_connector(config).integration_user,
         semantics=ticket_semantics(config),
     )
 
@@ -990,15 +991,28 @@ def _event_sink(uow: SqlUnitOfWork, master_key: bytes | None, clock: Clock) -> S
     return SqlEventSink(uow=uow, cipher=Aead(master_key=key, keys=SqlKeyStore(uow), clock=clock))
 
 
+#: ADR-0022: a shadow deployment with no ticket connector (webhook alerts only).
+NO_TICKET_CONNECTOR = ConnectorManifest(name="none", capabilities=frozenset())
+
+
 def connector_manifest(config: AppConfig) -> ConnectorManifest:
     """WP-M07: the configured connector's capabilities (ServiceNow is the only one)."""
-    del config
-    return SERVICENOW_MANIFEST
+    return SERVICENOW_MANIFEST if config.servicenow is not None else NO_TICKET_CONNECTOR
 
 
 def ticket_semantics(config: AppConfig) -> ServiceNowSemantics:
     """WP-M07: the connector's lifecycle and severity mapping (BL-032 custom states)."""
-    return ServiceNowSemantics.with_resolved_states(config.servicenow.resolved_states)
+    sn = config.servicenow
+    return ServiceNowSemantics.with_resolved_states(sn.resolved_states if sn else None)
+
+
+def ticket_connector(config: AppConfig) -> ServiceNowConfig:
+    """The configured ticket connector; ``ConfigError`` when the deployment has none."""
+    if config.servicenow is None:
+        raise ConfigError(  # noqa: TRY003
+            "no ticket connector configured (servicenow): this needs one"
+        )
+    return config.servicenow
 
 
 def require_connector_supports_mode(config: AppConfig, manifest: ConnectorManifest) -> None:
@@ -1038,7 +1052,7 @@ def _servicenow_http(
     max_tries: int | None = None,
 ) -> ServiceNowHTTP:
     """The instance's HTTP client with the configured auth (02 §1, §5)."""
-    sn = config.servicenow
+    sn = ticket_connector(config)
     auth: ServiceNowAuth
     if isinstance(sn.auth, BasicAuthConfig):
         auth = BasicAuth(
@@ -1084,7 +1098,7 @@ def _integration_ids(
     lookup succeeds only the user name is known; a hand-back by
     re-assignment is then missed, never invented.
     """
-    name = config.servicenow.integration_user
+    name = ticket_connector(config).integration_user
     resolved: set[str] = set()
 
     def ids() -> frozenset[str]:
@@ -1377,6 +1391,80 @@ def _housekeeping_jobs(  # noqa: PLR0913 — the worker's shared ports
     ]
 
 
+def _ticket_sync_jobs(  # noqa: PLR0913 — the worker's shared ports
+    config: AppConfig,
+    sn: ServiceNowConfig,
+    *,
+    engine: Engine,
+    runner: ShadowRunner | TriageRunner,
+    runner_uow: SqlUnitOfWork,
+    key: bytes,
+    clock: Clock,
+    ids: IdGenerator,
+    transport: httpx.BaseTransport | None,
+    lease: SqlLease,
+    owner: str,
+) -> list[ScheduledJob]:
+    """One ``sync.poll.<table>`` per ticket table, each feeding ``ShadowInbound``."""
+    inbound_events = _event_sink(runner_uow, key, clock)
+    inbound = ShadowInbound(
+        runner=runner,
+        uow=runner_uow,
+        cases=CaseRepo(runner_uow),
+        events=inbound_events,
+        ids=ids,
+        clock=clock,
+        tenant_id=config.tenant.id,
+        memory=_build_memory(config, runner_uow, clock),
+        feedback=FeedbackService(
+            uow=runner_uow,
+            clock=clock,
+            ids=ids,
+            events=inbound_events,
+            tenant_id=config.tenant.id,
+            integration_user=sn.integration_user,
+            classification_map=sn.classification_map,
+        ),
+        lifecycle=LifecycleService(
+            uow=runner_uow,
+            clock=clock,
+            ids=ids,
+            events=inbound_events,
+            tenant_id=config.tenant.id,
+            integration_user=sn.integration_user,
+            integration_ids=_integration_ids(config, clock=clock, transport=transport),
+            semantics=ticket_semantics(config),
+        ),
+    )
+    sync_uow = SqlUnitOfWork(engine)
+    sync = SyncService(
+        tenant_id=config.tenant.id,
+        uow=sync_uow,
+        repo=SyncRepo(sync_uow),
+        source=_build_servicenow_source(config, clock=clock, transport=transport),
+        handler=inbound,
+        clock=clock,
+        integration_user=sn.integration_user,
+        to_alert=record_to_alert,
+        semantics=ticket_semantics(config),
+        history=limits_for(connector_manifest(config)).takeover_detection,
+        page_size=sn.page_size,
+        overlap_s=sn.overlap_s,
+    )
+
+    def poll(table: RecordType) -> Callable[[], JobResult]:
+        return lambda: sync_poll(poller=sync, table=table, lease=lease, owner=owner)
+
+    return [
+        ScheduledJob(
+            name=sync_poll_lease(RecordType(name)),
+            interval_s=float(sn.poll_interval_s),
+            run=poll(RecordType(name)),
+        )
+        for name in sn.tables
+    ]
+
+
 def build_worker(  # noqa: PLR0913 — config plus the test seams
     config: AppConfig,
     *,
@@ -1428,66 +1516,26 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
             llm_provider=llm_provider,
             transport=transport,
         )
-    inbound_events = _event_sink(runner_uow, key, clock)
-    inbound = ShadowInbound(
-        runner=runner,
-        uow=runner_uow,
-        cases=CaseRepo(runner_uow),
-        events=inbound_events,
-        ids=ids,
-        clock=clock,
-        tenant_id=config.tenant.id,
-        memory=_build_memory(config, runner_uow, clock),
-        feedback=FeedbackService(
-            uow=runner_uow,
-            clock=clock,
-            ids=ids,
-            events=inbound_events,
-            tenant_id=config.tenant.id,
-            integration_user=config.servicenow.integration_user,
-            classification_map=config.servicenow.classification_map,
-        ),
-        lifecycle=LifecycleService(
-            uow=runner_uow,
-            clock=clock,
-            ids=ids,
-            events=inbound_events,
-            tenant_id=config.tenant.id,
-            integration_user=config.servicenow.integration_user,
-            integration_ids=_integration_ids(config, clock=clock, transport=transport),
-            semantics=ticket_semantics(config),
-        ),
-    )
-    sync_uow = SqlUnitOfWork(engine)
-    sn = config.servicenow
-    sync = SyncService(
-        tenant_id=config.tenant.id,
-        uow=sync_uow,
-        repo=SyncRepo(sync_uow),
-        source=_build_servicenow_source(config, clock=clock, transport=transport),
-        handler=inbound,
-        clock=clock,
-        integration_user=sn.integration_user,
-        to_alert=record_to_alert,
-        semantics=ticket_semantics(config),
-        history=limits_for(connector_manifest(config)).takeover_detection,
-        page_size=sn.page_size,
-        overlap_s=sn.overlap_s,
-    )
     lease = SqlLease(SqlUnitOfWork(engine), clock)
     owner = _worker_owner()
-
-    def poll(table: RecordType) -> Callable[[], JobResult]:
-        return lambda: sync_poll(poller=sync, table=table, lease=lease, owner=owner)
-
-    jobs = [
-        ScheduledJob(
-            name=sync_poll_lease(RecordType(name)),
-            interval_s=float(sn.poll_interval_s),
-            run=poll(RecordType(name)),
+    # ADR-0022: with no ticket connector, alerts arrive by webhook only.
+    jobs = (
+        []
+        if config.servicenow is None
+        else _ticket_sync_jobs(
+            config,
+            config.servicenow,
+            engine=engine,
+            runner=runner,
+            runner_uow=runner_uow,
+            key=key,
+            clock=clock,
+            ids=ids,
+            transport=transport,
+            lease=lease,
+            owner=owner,
         )
-        for name in sn.tables
-    ]
+    )
     if config.webhooks:
         inbox_uow = SqlUnitOfWork(engine)
         inbox_cipher = Aead(master_key=key, keys=SqlKeyStore(inbox_uow), clock=clock)
@@ -1681,6 +1729,14 @@ def _load_bundle(config: AppConfig) -> Bundle:
     )
 
 
+class _NoRecords:
+    """The record probe of a deployment with no ticket connector: nothing to read."""
+
+    def read(self, table: str, *, query: str, fields: Sequence[str], limit: int) -> ProbeRows:
+        del query, fields, limit
+        raise ConfigError(f"no ticket connector configured to read {table!r}")  # noqa: TRY003
+
+
 def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
     config: AppConfig,
     *,
@@ -1713,8 +1769,12 @@ def build_doctor_context(  # noqa: PLR0913 — config plus the test seams
         load_bundle=lambda: _load_bundle(config),
         load_calibration=lambda: _build_calibration(config),
         schema=SqlSchemaProbe(engine, head=_head_revision()),
-        records=ServiceNowTableProbe(
-            http=_servicenow_http(config, clock=clock, transport=transport, max_tries=2)
+        records=(
+            ServiceNowTableProbe(
+                http=_servicenow_http(config, clock=clock, transport=transport, max_tries=2)
+            )
+            if config.servicenow is not None
+            else _NoRecords()
         ),
         connector=connector_manifest(config),
         llm=_LazyModelProbe(lambda: _build_llm(config, _NullEvents(), ids, clock, llm_provider)),

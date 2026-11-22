@@ -246,7 +246,7 @@ def test_missing_marker_read_disables_writes() -> None:
 
 def test_connector_doctor_checks_registered() -> None:
     """Each connector's checks run in the default registry, then the generic ``connector`` check."""
-    assert set(CONNECTOR_DOCTORS) == {"servicenow"}
+    assert set(CONNECTOR_DOCTORS) == {"servicenow", "none"}
     for name, plugin in CONNECTOR_DOCTORS.items():
         assert plugin.name == name
         own = [c.name for c in plugin.checks]

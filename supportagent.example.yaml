@@ -9,6 +9,8 @@ tenant:
 mode: shadow
 database:
   url_env: SUPPORTAGENT_DB_URL        # sqlite:///data/sa.db | postgresql+psycopg://…
+# servicenow is optional in shadow mode (ADR-0022): leave it out and configure
+# `webhooks:` to triage a system that has alerts but no ticket source.
 servicenow:
   instance_url: https://acme.service-now.com
   auth:

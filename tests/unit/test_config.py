@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+from supportagent.bootstrap import ticket_connector
 from supportagent.config.loader import load_config
 from supportagent.config.schema import BasicAuth
 from supportagent.config.validation import validate_bundle
@@ -153,7 +154,7 @@ def test_config_basic_auth_variant_resolves(tmp_path: Path) -> None:
     cfg = load_config(
         path, {**SECRET_ENV, "SN_BASIC_USER": "sn-user", "SN_BASIC_PASSWORD": "sn-pass"}
     )
-    auth = cfg.servicenow.auth
+    auth = ticket_connector(cfg).auth
     assert isinstance(auth, BasicAuth)
     assert auth.user.get_secret_value() == "sn-user"
     assert auth.password.get_secret_value() == "sn-pass"

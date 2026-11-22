@@ -40,7 +40,8 @@ def validate_bundle(
     if cfg.default is not None:
         _row_issues(cfg.default, "default", known_labels, issues)
     # BL-035: every mapped ServiceNow category names a taxonomy label.
-    for key, label in sorted(cfg.servicenow.classification_map.items()):
+    mapping = cfg.servicenow.classification_map if cfg.servicenow is not None else {}
+    for key, label in sorted(mapping.items()):
         if label not in known_labels:
             issues.append(
                 ConfigIssue(

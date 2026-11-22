@@ -12,10 +12,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from supportagent.app.doctor.base import ConnectorDoctor
+from supportagent.app.doctor.connectors.none import NO_CONNECTOR_DOCTOR
 from supportagent.app.doctor.connectors.servicenow import SERVICENOW_DOCTOR
 from supportagent.domain.errors import ConfigError
 
-CONNECTOR_DOCTORS: Mapping[str, ConnectorDoctor] = {SERVICENOW_DOCTOR.name: SERVICENOW_DOCTOR}
+CONNECTOR_DOCTORS: Mapping[str, ConnectorDoctor] = {
+    d.name: d for d in (SERVICENOW_DOCTOR, NO_CONNECTOR_DOCTOR)
+}
 
 
 def connector_doctor(name: str) -> ConnectorDoctor:

@@ -15,7 +15,7 @@ from sqlalchemy import Engine, text
 
 from supportagent.adapters.fakes.llm import FakeLLMProvider
 from supportagent.adapters.fakes.servicenow import FakeServiceNowHTTP, SyncASGITransport
-from supportagent.bootstrap import build_worker
+from supportagent.bootstrap import build_worker, ticket_connector
 from supportagent.entrypoints.worker.loop import Worker
 from tests.integration.test_shadow_worker import _config
 from tests.integration.test_wp101_lifecycle import _SVC, _Ticket
@@ -92,7 +92,7 @@ def test_outcome_uses_the_classification_map(  # noqa: PLR0913, PLR0917
     config = _config(tmp_path)
     mapped = config.model_copy(
         update={
-            "servicenow": config.servicenow.model_copy(
+            "servicenow": ticket_connector(config).model_copy(
                 update={"classification_map": {"db/pool": "database/saturation"}}
             )
         }
