@@ -47,7 +47,7 @@ from supportagent.domain.ids import IdPrefix
 from supportagent.domain.lifecycle import CaseEvent
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.external import ExternalCaseRef
 from supportagent.domain.model.proposal import Proposal
@@ -171,7 +171,7 @@ class ShadowRunner:
         events: EventSink,
         case_repo: TriageCaseRepo,
         classifier: TriageClassifier,
-        catalog: Catalog,
+        catalog: CatalogView,
         repo: _ShadowRepo,
         tenant_constants: Sequence[str] = (),
         grouping: TriageGrouping | None = None,

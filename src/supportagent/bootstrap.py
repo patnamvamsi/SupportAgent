@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlparse
 
 import anthropic
@@ -171,6 +171,7 @@ from supportagent.adapters.tools.records import PsycopgRecordReader, RecordsQuer
 from supportagent.adapters.tools.signal_history import HttpSignalHistory, signal_history
 from supportagent.app.access_binding import AccessBinding, BindOutcome
 from supportagent.app.approvals import ApprovalService
+from supportagent.app.catalog_review import CatalogReview, CatalogReviewStore, LiveCatalog
 from supportagent.app.classify import Classifier
 from supportagent.app.comms import CadenceJob, CommsPlanner, CommsPlans
 from supportagent.app.component_summaries import (
@@ -292,7 +293,7 @@ from supportagent.domain.gaps import (
     unknown_capabilities,
     unmapped_cmdb_classes,
 )
-from supportagent.domain.graph import SystemGraph
+from supportagent.domain.graph import EdgeFact, Fact, Layer, NodeFact, NodeKind, SystemGraph, build
 from supportagent.domain.ids import IdPrefix
 from supportagent.domain.incident_map import Catalogue, IncidentMap, PastIncident, catalogue
 from supportagent.domain.knowledge import DocChunk, KnowledgeIndex, chunk_document
@@ -303,7 +304,7 @@ from supportagent.domain.model.calibration import (
     CalibrationTable,
 )
 from supportagent.domain.model.case import Case
-from supportagent.domain.model.catalog import Catalog, ServiceEntry
+from supportagent.domain.model.catalog import Catalog, CatalogView, ServiceEntry, merge_catalog
 from supportagent.domain.model.flow import Flow
 from supportagent.domain.model.knowledge import DocFrontMatter
 from supportagent.domain.model.plugin import Discovery, cause_hypothesis
@@ -453,6 +454,22 @@ def _build_uow(config: AppConfig) -> SqlUnitOfWork:
 def _build_catalog(config: AppConfig) -> Catalog:
     """The service catalog from ``paths.catalog`` (call-time file I/O)."""
     return load_catalog(Path(config.paths.catalog))
+
+
+def catalog_review_for(config: AppConfig, engine: Engine, clock: Clock) -> CatalogReview:
+    store = CatalogReviewStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id)
+    return CatalogReview(store, clock)
+
+
+def _catalog_view(config: AppConfig, engine: Engine, clock: Clock) -> CatalogView:
+    """ADR-0023 §2: the configured catalog plus the services accepted in the instance, live."""
+
+    def load() -> Catalog:
+        return merge_catalog(
+            _build_catalog(config), catalog_review_for(config, engine, clock).accepted()
+        )
+
+    return LiveCatalog(load, clock=clock)
 
 
 def _route_for_row(row: RoutingRow) -> RoutingRule:
@@ -809,7 +826,7 @@ def _build_live_triage(  # noqa: PLR0913 — config plus the injectable ports an
     """Assisted mode's triage (ADR-0008): proposals through the real gate."""
     ids = ids if ids is not None else UlidIdGenerator()
     events = _event_sink(uow, master_key, clock)
-    catalog = _build_catalog(config)
+    catalog = _catalog_view(config, uow.engine, clock)
     gate = GateService(
         uow=uow,
         clock=clock,
@@ -978,7 +995,7 @@ def _build_shadow_runner(  # noqa: PLR0913 — config plus the injectable ports
     uow = uow if uow is not None else _build_uow(config)
     ids = ids if ids is not None else UlidIdGenerator()
     events = _event_sink(uow, master_key, clock)
-    catalog = _build_catalog(config)
+    catalog = _catalog_view(config, uow.engine, clock)
     return ShadowRunner(
         uow=uow,
         clock=clock,
@@ -1274,7 +1291,7 @@ def build_rca_job(  # noqa: PLR0913 — config plus the worker's ports and seams
         readiness=_readiness_policy(config, uow, clock),
     )
     rows = [*config.routing, *([config.default] if config.default else [])]
-    catalog = _build_catalog(config)
+    catalog = _catalog_view(config, engine, clock)
     events = _event_sink(uow, master_key, clock)
     # ADR-0014: SOP steps become proposals in assisted mode; in shadow they
     # stay in the artifact. Only an auto-mode grant on the step's own scope
@@ -1601,7 +1618,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     grouping = GroupingService(
         uow=SqlUnitOfWork(engine),
         ids=ids,
-        catalog=_build_catalog(config),
+        catalog=_catalog_view(config, engine, clock),
         tenant_id=config.tenant.id,
     )
     jobs.append(
@@ -3451,7 +3468,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     engine: Engine,
     *,
     tenant_id: str,
-    catalog: Catalog,
+    catalog: CatalogView,
     master_key: bytes,
     clock: Clock,
     ids: IdGenerator,
@@ -3581,6 +3598,10 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         store = DetectorReviewStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
         return DetectorReview(store, clock)
 
+    def catalog_review() -> CatalogReview:
+        store = CatalogReviewStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
+        return CatalogReview(store, clock)
+
     def detector_watches() -> Mapping[str, Mapping[str, object]]:
         store = DetectorWatchStore(uow=SqlUnitOfWork(engine), clock=clock, tenant_id=tenant_id)
         found = (store.load() or {}).get("watches", {})
@@ -3603,6 +3624,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         onboarding_control=onboarding_control,
         component_summaries=component_summaries,
         detector_review=detector_review,
+        catalog_review=catalog_review,
         detector_watches=detector_watches,
         calibration_in_use=calibration_in_use,
         flows=flows,
@@ -3641,7 +3663,7 @@ def build_api_context(
     return api_context_for(
         engine,
         tenant_id=config.tenant.id,
-        catalog=_build_catalog(config),
+        catalog=_catalog_view(config, engine, clock),
         master_key=key,
         clock=clock,
         ids=UlidIdGenerator(),
@@ -4735,7 +4757,7 @@ class ShadowReplay:
         self,
         report: ReadinessReport,
         history: Sequence[PastIncident],
-        catalog: Catalog,
+        catalog: CatalogView,
         engine: Engine,
     ) -> list[ShadowCase]:
         cfg = self._config
@@ -5735,6 +5757,10 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                 ),
             ),
             (
+                "catalog",
+                lambda: onboard_catalog_step(config, workspace, engine=db, clock=clock),
+            ),
+            (
                 "detectors",
                 lambda: onboard_detector_step(
                     config, workspace, engine=db, clock=clock, history=signal_history
@@ -5796,7 +5822,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
                 else digest(
                     sensed, clock.now().date().isoformat(), *_reviewed_components(db, config, clock)
                 )
-                if step == "detectors"
+                if step in ("catalog", "detectors")
                 else digest(sensed, _STEP_VERSIONS[step])
                 if step in _STEP_VERSIONS
                 else sensed
@@ -5888,6 +5914,16 @@ def _autopilot_status(
     status.needs.extend(_step_needs(status.steps))
     status.needs.extend(_catalogue_needs(workspace))
     status.needs.extend(_gap_needs(workspace))
+    drafted = catalog_review_for(config, engine, clock).unreviewed()
+    if drafted:
+        status.needs.append(
+            Need(
+                "review",
+                f"{len(drafted)} drafted service(s) to accept into the catalog",
+                0.0,
+                "/ui/onboarding/catalog",
+            )
+        )
     unseen = detector_review_for(config, engine, clock).unseen()
     if unseen:
         status.needs.append(
@@ -6443,6 +6479,46 @@ def _reviewed_components(engine: Engine, config: AppConfig, clock: Clock) -> lis
             and f.status != "rejected"
             and f.present
         }
+    )
+
+
+def _reviewed_graph(engine: Engine, config: AppConfig, clock: Clock) -> SystemGraph:
+    """The graph under review, as a graph: what a person rejected is left out."""
+    facts: list[Fact] = []
+    for f in GraphReview(
+        uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id
+    ).facts():
+        if f.status == "rejected" or not f.present:
+            continue
+        layer = cast("Layer", min(max(f.layer, 1), 3))
+        ref = next((str(s["ref"]) for s in f.sources if s.get("ref")), "review")
+        if f.fact == "node":
+            kind = cast("NodeKind", f.kind)
+            facts.append(NodeFact(f.src, kind, ref, layer, "review", tuple(f.tech)))
+        elif f.dst is not None:
+            facts.append(EdgeFact(f.src, f.kind, f.dst, ref, layer, "review"))
+    return build(facts)
+
+
+def onboard_catalog_step(
+    config: AppConfig, workspace: Path, *, engine: Engine, clock: Clock
+) -> str:
+    """The ``catalog`` step (ADR-0023 §2): draft an entry per component, for review."""
+    try:
+        configured = _build_catalog(config).services
+    except (ConfigError, OSError):
+        configured = []
+    entries = draft_catalog(
+        _reviewed_graph(engine, config, clock),
+        [i.ci for i in _past_incidents(workspace)],
+        configured,
+    )
+    review = catalog_review_for(config, engine, clock)
+    review.save_drafts([(e.entry, e.status, e.todo) for e in entries])
+    new = sum(1 for e in entries if e.status == "new")
+    return (
+        f"{len(entries)} service(s) drafted: {new} new, {len(entries) - new} already in the "
+        f"catalog; {len(review.accepted())} accepted"
     )
 
 

@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block title %}Catalog{% endblock %}
+{% block content %}
+<p class="muted"><a href="/ui/onboarding">Onboarding</a> › Catalog</p>
+<h1>The services SupportAgent should know</h1>
+{% set accepted = state.get("accepted", {}) %}
+{% if not state.get("drafts") %}
+<p class="muted">Nothing drafted yet. Onboarding's <strong>catalog</strong> step drafts one entry for every component of the system graph, with the stack and databases the graph gives it.</p>
+{% else %}
+<p class="lede">Drafted from the system graph{% if state.get("drafted_ts") %} {{ state.drafted_ts | age(now_ts) }} ago{% endif %}. An alert or ticket is matched to a service by its resources, and the service's stack selects the packs that triage and RCA use. Accepted services take effect at once, with no restart.</p>
+<p class="muted">Each service needs a paging integration, because triage refuses a service without one: <code>pagerduty:&lt;service id&gt;</code>, <code>opsgenie:&lt;team&gt;</code>, or <code>none:&lt;who&gt;</code> when there's no pager. Onboarding can't know your pager, so you give it.</p>
+{% if saved is not none %}<p class="ok" role="status">Saved{% if saved != "0" %}: {{ saved }} change{{ "s" if saved != "1" }}{% endif %}.</p>{% endif %}
+<form method="post" action="/ui/onboarding/catalog">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="table-wrap"><table class="catalog">
+    <thead><tr><th>Service</th><th>Matched by</th><th>Stack</th><th>Paging</th><th></th></tr></thead>
+    <tbody>{% for d in state.drafts | sort(attribute="entry.name") %}{% set e = d.entry %}
+    <tr>
+      <td><strong>{{ e.name }}</strong>{% if d.status == "kept" %} <span class="badge">in the configured catalog</span>{% elif e.name in accepted %} <span class="badge ok">accepted</span>{% endif %}
+        {% if d.todo and e.name not in accepted %}<br><span class="muted">{{ d.todo | join("; ") }}</span>{% endif %}</td>
+      <td class="muted">{{ (e.get("resources") or []) | join(", ") }}{% if e.get("cmdb_ci") %}<br>CI {{ e.cmdb_ci | join(", ") }}{% endif %}</td>
+      <td>{{ (e.get("stack") or []) | join(" · ") }}{% if e.get("databases") %}<br><span class="muted">reads {{ e.databases | join(", ") }}</span>{% endif %}</td>
+      <td>{% if d.status == "kept" %}<span class="muted">{{ e.get("paging_integration") or "—" }}</span>
+        {% elif e.name in accepted %}{{ accepted[e.name].entry.paging_integration }}<br><span class="muted">by {{ accepted[e.name].by }}</span>
+        {% else %}<input type="text" name="paging:{{ e.name }}" aria-label="Paging integration for {{ e.name }}" placeholder="none:owner" {% if not is_admin %}disabled{% endif %}>{% endif %}</td>
+      <td>{% if is_admin and d.status != "kept" %}{% if e.name in accepted %}<label><input type="checkbox" name="withdraw:{{ e.name }}" value="1"> withdraw</label>
+        {% else %}<label><input type="checkbox" name="accept:{{ e.name }}" value="1"> accept</label>{% endif %}{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="actions">{% if is_admin %}<button type="submit" class="primary">Save</button>{% else %}<span class="muted">Only an administrator can change the catalog.</span>{% endif %}</p>
+</form>
+{% endif %}
+{% endblock %}

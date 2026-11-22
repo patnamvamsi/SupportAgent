@@ -40,7 +40,7 @@ from supportagent.domain.memory import Citation
 from supportagent.domain.model.action import ActionSpec
 from supportagent.domain.model.alert import AlertEvent
 from supportagent.domain.model.case import Case
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.proposal import Proposal, Skipped
 from supportagent.domain.model.triage import (
@@ -244,7 +244,7 @@ class TriageService:
         case_repo: TriageCaseRepo,
         classifier: TriageClassifier,
         gate: _Gate,
-        catalog: Catalog,
+        catalog: CatalogView,
         tenant_constants: Sequence[str] = (),
         planner: _Planner | None = None,
         grouping: TriageGrouping | None = None,

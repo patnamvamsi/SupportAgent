@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Protocol
+
 from pydantic import Field, model_validator
 
 from supportagent.domain.model.base import DomainModel
@@ -85,3 +88,41 @@ class Catalog(DomainModel):
     def unpaged_services(self) -> list[str]:
         """Services with no ``paging_integration`` (ARCH §14: triage is refused for them)."""
         return [s.name for s in self.services if not s.paging_integration]
+
+
+class CatalogView(Protocol):
+    """What reads the catalog needs (ADR-0023 §2): a loaded ``Catalog``, or one that follows
+    the services a person accepts in the instance without a restart."""
+
+    @property
+    def version(self) -> str: ...
+
+    @property
+    def services(self) -> list[ServiceEntry]: ...
+
+    def resolve_service(
+        self, *, resource: str | None = None, cmdb_ci: str | None = None
+    ) -> str | None: ...
+
+    def service(self, name: str) -> ServiceEntry | None: ...
+
+    def unpaged_services(self) -> list[str]: ...
+
+
+def merge_catalog(base: Catalog, accepted: Sequence[ServiceEntry]) -> Catalog:
+    """``base`` plus the services accepted in the instance; ``base`` wins a name it has.
+
+    An accepted service whose ``depends_on`` names a service in neither keeps only
+    the dependencies that exist, so one accepted entry can't break the whole catalog.
+    """
+    names = {s.name for s in base.services}
+    extra = [s for s in accepted if s.name not in names]
+    if not extra:
+        return base
+    known = names | {s.name for s in extra}
+    cleaned = [
+        s.model_copy(update={"depends_on": [d for d in s.depends_on if d in known]}) for s in extra
+    ]
+    return Catalog(
+        version=f"{base.version}+accepted-{len(cleaned)}", services=[*base.services, *cleaned]
+    )
