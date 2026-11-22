@@ -10,7 +10,7 @@ focused node's edges are emphasised. Server-rendered, no script needed.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from urllib.parse import quote
 
 from markupsafe import Markup, escape
@@ -31,7 +31,24 @@ _COL_W, _ROW_H, _BOX_W, _BOX_H, _PAD = 172, 36, 148, 24, 14
 _LABEL_MAX = 26
 
 
-def render(facts: Sequence[FactView], *, focus: str | None = None) -> Markup:
+def review_link(node_id: str) -> str:
+    """The review page focused on the node (the default)."""
+    return f"/ui/onboarding/graph?focus={quote(node_id)}#cards"
+
+
+def system_link(node_id: str) -> str:
+    """WP-225: a component's page; anything else, the review page focused on it."""
+    if node_id.startswith(("service:", "job:", "ui:")):
+        return f"/ui/system/component?id={quote(node_id)}"
+    return review_link(node_id)
+
+
+def render(
+    facts: Sequence[FactView],
+    *,
+    focus: str | None = None,
+    link: Callable[[str], str] = review_link,
+) -> Markup:
     nodes = {f.src: f for f in facts if f.fact == "node" and f.status != "rejected"}
     edges = [f for f in facts if f.fact == "edge" and f.status != "rejected" and f.dst is not None]
     for edge in edges:  # an edge's ends are drawn even when only the edge was proposed
@@ -55,7 +72,7 @@ def render(facts: Sequence[FactView], *, focus: str | None = None) -> Markup:
         'markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" '
         'fill="currentColor"/></marker></defs>',
         *(_edge(e, pos, focus) for e in edges if e.src in pos and e.dst in pos),
-        *(_node(nodes[n], xy, focus) for n, xy in pos.items()),
+        *(_node(nodes[n], xy, focus, link) for n, xy in pos.items()),
         "</svg>",
     ]
     return Markup("".join(parts))  # noqa: S704  # nosec B704 — every value is escaped
@@ -82,12 +99,14 @@ def _edge(edge: FactView, pos: dict[str, tuple[int, int]], focus: str | None) ->
     )
 
 
-def _node(node: FactView, xy: tuple[int, int], focus: str | None) -> str:
+def _node(
+    node: FactView, xy: tuple[int, int], focus: str | None, link: Callable[[str], str]
+) -> str:
     x, y = xy
     label = node.src.split(":", 1)[1]
     short = label if len(label) <= _LABEL_MAX else label[: _LABEL_MAX - 2] + "…"
     classes = ["node", node.kind.lower(), node.status] + (["focus"] if node.src == focus else [])
-    href = f"/ui/onboarding/graph?focus={quote(node.src)}#cards"
+    href = link(node.src)
     title = f"{node.src} · {node.kind} · {node.status}"
     return (
         f'<a href="{escape(href)}"><g class="{escape(" ".join(classes))}">'
@@ -97,4 +116,4 @@ def _node(node: FactView, xy: tuple[int, int], focus: str | None) -> str:
     )
 
 
-__all__ = ["render"]
+__all__ = ["render", "review_link", "system_link"]

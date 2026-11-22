@@ -88,3 +88,25 @@ meter.readiness { width: 100%; max-width: 28rem; height: 1.2rem; }
 .card.not_ready { border-left: 4px solid var(--bad); }
 .card.untestable { border-left: 4px dashed var(--line); }
 .card .reasons { margin: .25rem 0; padding-left: 1.1rem; }
+/* ADR-0023 (WP-225): the system view. */
+.lede { font-size: 1.05rem; }
+.pill { display: inline-block; font-size: .85rem; padding: .05rem .55rem; margin: 0 .25rem .25rem 0; border-radius: 999px; background: rgba(127,127,127,.12); }
+.components { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .75rem; margin: 1rem 0; }
+.component-card { display: block; border: 1px solid var(--line); border-radius: 8px; padding: .7rem .85rem; text-decoration: none; color: var(--fg); }
+.component-card:hover { border-color: var(--accent); }
+.component-card.service { border-left: 4px solid var(--accent); }
+.component-card.job { border-left: 4px solid var(--warn); }
+.component-card .title { font-weight: 600; }
+.component-card .tech, p.tech { display: block; color: var(--muted); font-size: .85rem; margin: .2rem 0; }
+.component-card .facts span { display: inline-block; margin-right: .6rem; font-size: .85rem; }
+details.whole { margin-top: 1.5rem; }
+.relations { list-style: none; padding: 0; }
+.relations li { padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.relations .verb { color: var(--muted); display: inline-block; min-width: 6.5rem; }
+.relations .others { display: block; margin-left: 6.5rem; font-size: .85rem; color: var(--muted); }
+details.cite { margin-left: 6.5rem; font-size: .85rem; }
+details.cite ul { margin: .2rem 0; padding-left: 1rem; }
+.badge.bad { border-color: var(--bad); color: var(--bad); }
+.badge.running { border-color: var(--accent); color: var(--accent); }
+textarea.code { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+section.control { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin-bottom: 1rem; }

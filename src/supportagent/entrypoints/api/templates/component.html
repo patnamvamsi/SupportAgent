@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}{{ c.name }}{% endblock %}
+{% block content %}
+<p class="muted"><a href="/ui/system">System</a> › {{ c.kind }}</p>
+<h1>{{ c.name }} {% if c.status == "proposed" %}<span class="badge status-proposed">proposed</span>{% endif %}</h1>
+{% if c.tech %}<p class="tech">{{ c.tech | join(" · ") }}</p>{% endif %}
+<div class="review-grid">
+  <div>
+  {% for g in groups %}{% set rels = c.groups.get(g, []) %}{% if rels %}
+    <h2>{{ g | capitalize }} <span class="muted">({{ rels | length }})</span></h2>
+    <ul class="relations">{% for r in rels %}
+      <li class="{{ r.status }}"><span class="verb">{{ r.verb }}</span> <strong>{% if r.target.startswith(("service:", "job:", "ui:")) %}<a href="/ui/system/component?id={{ r.target | urlencode }}">{{ r.target_name }}</a>{% else %}{{ r.target_name }}{% endif %}</strong>
+        {% if r.status == "proposed" %}<span class="badge status-proposed">proposed</span>{% endif %}
+        {% if r.others %}<span class="others">also: {% for o, verb in r.others %}<a href="/ui/system/component?id={{ o | urlencode }}">{{ o.partition(":")[2] }}</a> {{ verb }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+        {% if r.citations %}<details class="cite"><summary>{{ r.citations | length }} source{{ "s" if r.citations | length != 1 }}</summary><ul>{% for s in r.citations[:12] %}<li><code>{{ s.ref }}</code>{% if s.quote %}: <q>{{ s.quote }}</q>{% endif %}</li>{% endfor %}{% if r.citations | length > 12 %}<li class="muted">and {{ r.citations | length - 12 }} more</li>{% endif %}</ul></details>{% endif %}
+      </li>{% endfor %}</ul>
+  {% endif %}{% endfor %}
+  {% if not c.groups %}<p class="muted">Nothing is known about what it does yet.</p>{% endif %}
+  <h2>Cases <span class="muted">({{ cases | length }})</span></h2>
+  {% if cases %}<div class="table-wrap"><table><thead><tr><th>Last alert</th><th>From</th><th>Became</th><th>Status</th></tr></thead><tbody>
+    {% for k in cases %}<tr><td><a href="/ui/cases/{{ k.id }}">{{ k.last_alert_ts | age(now_ts) }} ago</a></td><td>{{ k.source or k.origin }}</td><td>{{ k.classification or "—" }}{% if k.outcome %} <span class="muted">({{ k.outcome | replace("_", " ") }})</span>{% endif %}</td><td>{{ k.status }}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="muted">No cases yet.</p>{% endif %}
+  </div>
+  <div class="graph-pane">{{ svg }}</div>
+</div>
+{% endblock %}

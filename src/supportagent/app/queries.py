@@ -121,6 +121,13 @@ _PROPOSAL_SELECT = (
 )
 
 
+_CASE_SELECT = (
+    "SELECT id, origin, source, ticket_number, external_id, service, classification,"
+    " severity, status, decision_json, duplicate_count, opened_ts, last_alert_ts,"
+    " resolved_ts FROM cases "
+)
+
+
 class AdminQueries:
     """Tenant-scoped reads for the admin surface."""
 
@@ -255,6 +262,54 @@ class AdminQueries:
             rca=json.loads(str(rca_raw)) if rca_raw else None,
             comms=[{k: v for k, v in c.items() if k != "body_json"} for c in comms],
         )
+
+    def cases(
+        self, *, service: str | None = None, status: str | None = None, limit: int = 200
+    ) -> list[dict[str, object]]:
+        """Recent cases, newest first (WP-225): what each alert or ticket became."""
+        where = ["tenant_id = :tenant"]
+        params: dict[str, object] = {"tenant": self._tenant, "limit": max(1, min(limit, 1000))}
+        if service:
+            where.append("service = :service")
+            params["service"] = service
+        if status:
+            where.append("status = :status")
+            params["status"] = status
+        sql = (
+            _CASE_SELECT
+            + "WHERE "
+            + " AND ".join(where)  # fixed clauses; every value is a bound parameter
+            + " ORDER BY last_alert_ts DESC, id DESC LIMIT :limit"
+        )
+        with self._uow:
+            rows = self._uow.connection.execute(sa.text(sql), params).mappings().all()
+        out = []
+        for r in rows:
+            decision = json.loads(str(r["decision_json"])) if r["decision_json"] else {}
+            out.append(
+                {
+                    **{k: r[k] for k in r if k != "decision_json"},
+                    "outcome": decision.get("outcome") if isinstance(decision, dict) else None,
+                    "reason": decision.get("reason") if isinstance(decision, dict) else None,
+                }
+            )
+        return out
+
+    def case_counts(self) -> dict[str, dict[str, int]]:
+        """Per service: open and total cases (WP-225, the system view)."""
+        sql = (
+            "SELECT service, status, COUNT(*) AS n FROM cases WHERE tenant_id = :tenant"
+            " AND service IS NOT NULL GROUP BY service, status"
+        )
+        with self._uow:
+            rows = self._uow.connection.execute(sa.text(sql), {"tenant": self._tenant}).all()
+        counts: dict[str, dict[str, int]] = {}
+        for service, status, n in rows:
+            entry = counts.setdefault(str(service), {"open": 0, "total": 0})
+            entry["total"] += int(n)
+            if str(status) not in ("resolved", "closed"):
+                entry["open"] += int(n)
+        return counts
 
     def doctor_report(self) -> dict[str, object] | None:
         """BL-031: the last saved ``doctor`` report for ``/ui/setup``, or ``None``."""
