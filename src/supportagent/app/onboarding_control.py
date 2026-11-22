@@ -70,15 +70,18 @@ class OnboardingControl:
             raise DomainValidationError("describe the system first (its manifest)")  # noqa: TRY003
         self._save(requested_ts=self._now(), requested_by=actor)
 
-    def claim(self, *, interval_s: float) -> Claim | None:
-        """A run to start now, or ``None``: none requested or due, or one in flight."""
+    def claim(self, *, interval_s: float, stale_s: float = STALE_RUN_S) -> Claim | None:
+        """A run to start now, or ``None``: none requested or due, or one in flight.
+
+        A run started more than ``stale_s`` ago and never finished is presumed dead.
+        """
         state = self.state()
         if not state.get("manifest"):
             return None
         now = self._now()
         started = int(state.get("started_ts") or 0)
         finished = int(state.get("finished_ts") or 0)
-        if started > finished and now - started < STALE_RUN_S:
+        if started > finished and now - started < stale_s:
             return None
         requested = int(state.get("requested_ts") or 0)
         if requested and requested >= finished:

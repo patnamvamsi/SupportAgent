@@ -306,15 +306,20 @@ def onboard_verify(
 #: ADR-0023 §2: ``onboard.autopilot`` looks for a requested or due run every minute.
 ONBOARD_AUTOPILOT_LEASE = "onboard.autopilot"
 ONBOARD_AUTOPILOT_INTERVAL_S = 60
+#: The run's lease, renewed every tick while the run is alive: a worker that dies
+#: mid-run (a restart, an upgrade) frees it within this long, not hours later.
+ONBOARD_AUTOPILOT_LEASE_TTL_S = 600
 
 
 class AutopilotJob:
     """Onboarding in the instance (ADR-0023 §2): claim a run, run it on its own thread.
 
     A run reads every source and may call the model for an hour or more, so it
-    runs beside the loop, not in it. The lease is held for the whole run (up to
-    ``ttl_s``), so another replica never starts a second one; this process
-    never starts a second while its thread is alive.
+    runs beside the loop, not in it. The lease is held for the whole run and
+    renewed every tick while the run's thread is alive, so another replica never
+    starts a second one; this process never starts a second while its thread is
+    alive. A worker that dies mid-run stops renewing, and its lease lapses
+    after ``ttl_s``.
     """
 
     def __init__(
@@ -337,6 +342,7 @@ class AutopilotJob:
         """One look: ``rows`` is 1 when a run started."""
         name = ONBOARD_AUTOPILOT_LEASE
         if self._thread is not None and self._thread.is_alive():
+            self._lease.acquire(name=name, owner=self._owner, ttl_s=self._ttl_s)  # renew
             return JobResult(name=name, ran=False)
         if not self._lease.acquire(name=name, owner=self._owner, ttl_s=self._ttl_s):
             return JobResult(name=name, ran=False)
@@ -377,6 +383,7 @@ __all__ = [
     "LLM_DEPRECATION_LEASE",
     "ONBOARD_AUTOPILOT_INTERVAL_S",
     "ONBOARD_AUTOPILOT_LEASE",
+    "ONBOARD_AUTOPILOT_LEASE_TTL_S",
     "ONBOARD_VERIFY_LEASE",
     "OUTBOX_EXECUTE_INTERVAL_S",
     "OUTBOX_EXECUTE_LEASE",

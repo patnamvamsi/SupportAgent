@@ -694,6 +694,9 @@ sources:
     - repo: file:/mnt/system
       paths: ["**/*.py", "**/*compose*.y*ml", "**/Dockerfile*", "**/requirements*.txt",
               "**/pyproject.toml", "**/*.sql", "**/*.yaml", "**/*.yml", "**/*.md"]
+      # Never read: archived copies, vendored trees (dependencies and secret files
+      # are never read anyway).
+      exclude: ["backups/**", "**/archive*/**"]
 """
 
 

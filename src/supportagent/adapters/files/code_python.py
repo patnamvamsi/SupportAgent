@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -146,7 +147,9 @@ def python_findings(files: Mapping[str, str], rules: Sequence[tuple[str, CodeRul
         if not key.endswith(".py"):
             continue
         try:
-            tree = ast.parse(text, filename=key)
+            with warnings.catch_warnings():  # the system's own code: its warnings aren't ours
+                warnings.simplefilter("ignore")
+                tree = ast.parse(text, filename=key)
         except (SyntaxError, ValueError):
             report.unparsed.append(key)
             continue

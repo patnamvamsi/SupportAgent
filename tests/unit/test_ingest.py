@@ -31,6 +31,7 @@ from supportagent.bootstrap import (
     ingest_system,
     load_plugins,
 )
+from supportagent.config.system_manifest import GitSource
 from supportagent.domain.errors import ConfigError
 from supportagent.domain.onboarding import IngestedFiles
 from tests.unit.test_triage_service import _shadow_config
@@ -415,3 +416,29 @@ def test_an_unreadable_directory_is_skipped_not_fatal(tmp_path: Path) -> None:
         private.chmod(0o700)
     assert sorted(into.files) == ["shop/app/main.py"]
     assert into.skipped["shop/.private/"].startswith("unreadable")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+def test_excluded_paths_are_neither_read_nor_walked(tmp_path: Path) -> None:
+    """ADR-0023: an archived copy of the code would be a second, retired system."""
+    root = tmp_path / "shop"
+    for rel in ("app/main.py", "app/test_main.py", "backups/old/app/main.py"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x = 1\n")
+    (root / "backups" / "old").chmod(0)  # walked, it would be reported unreadable
+    try:
+        into = IngestedFiles()
+        read_local(
+            str(root),
+            ["**/*.py"],
+            max_files=100,
+            max_file_bytes=10_000,
+            into=into,
+            exclude=["backups/**", "**/test_*.py"],
+        )
+    finally:
+        (root / "backups" / "old").chmod(0o700)
+    assert sorted(into.files) == ["shop/app/main.py"]
+    assert not into.skipped, "an excluded directory isn't walked"
+    source = GitSource(repo="file:/srv/shop", paths=["**/*.py"], exclude=["backups/**"])
+    assert source.exclude == ["backups/**"]
