@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from supportagent.app.approvals import ApprovalService
+from supportagent.app.catalog_review import CatalogReview
 from supportagent.app.comms import CommsPlans
 from supportagent.app.component_summaries import ComponentSummaryStore
 from supportagent.app.detector_review import DetectorReview
@@ -64,6 +65,8 @@ class ApiContext:
     component_summaries: Callable[[], ComponentSummaryStore] | None = None
     #: ADR-0023 §2 (WP-223): measured detectors, and which ones a person enabled.
     detector_review: Callable[[], DetectorReview] | None = None
+    #: ADR-0023 §2 (WP-223): the drafted catalog, and the services a person accepted.
+    catalog_review: Callable[[], CatalogReview] | None = None
     #: ADR-0023 §4 (WP-224): each evaluated detector's state, by id.
     detector_watches: Callable[[], Mapping[str, Mapping[str, object]]] | None = None
     #: ADR-0017 (WP-A6): the tenant's onboarding events, newest first.

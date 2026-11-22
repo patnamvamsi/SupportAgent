@@ -46,7 +46,7 @@ from supportagent.domain.kinds import (
     ActionKind,
 )
 from supportagent.domain.model.action import ActionSpec
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.domain.model.event import Event
 from supportagent.domain.model.outbox import OutboxRow
 from supportagent.domain.model.proposal import Proposal, Skipped
@@ -112,7 +112,7 @@ class GateService:
         clock: Clock,
         ids: IdGenerator,
         events: EventSink,
-        catalog: Catalog,
+        catalog: CatalogView,
         ttl: timedelta,
         outbox: _Enqueuer | None = None,
     ) -> None:

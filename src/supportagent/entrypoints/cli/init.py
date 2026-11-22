@@ -40,6 +40,7 @@ from supportagent.config.local_install import (
     PagerDutyAnswers,
     ServiceAnswer,
     ServiceNowAnswers,
+    SignalsAnswers,
     generated_secrets,
     parse_env,
     render_catalog,
@@ -110,12 +111,15 @@ class _Wizard:
         # A failed check offers "try again": the section is asked again, with what
         # was just typed as the defaults.
         llm = _retrying(self.llm)
+        # ADR-0023 §5: the system and its signals first; a ticket system is optional.
+        system = self.system(team)
+        signals = self.signals()
         servicenow, services = _retrying(self.servicenow)
+        onboard = self.ticket_history(team, system, servicenow)
         confluence = _retrying(self.confluence)
         pagerduty = _retrying(self.pagerduty)
         if pagerduty is not None:
             services = self.pagerduty_services(services)
-        onboard = self.onboard(team, servicenow)
         user, email, password = self.sign_in()
         return Answers(
             team_name=team,
@@ -130,6 +134,7 @@ class _Wizard:
             confluence=confluence,
             pagerduty=pagerduty,
             onboard=onboard,
+            signals=signals,
             previous=self.env,
         )
 
@@ -138,7 +143,7 @@ class _Wizard:
     def llm(self) -> LlmAnswers:
         prev = self.prev.get("llm", {})
         _section(
-            "1/6  Language model",
+            "1/7  Language model",
             "SupportAgent sends redacted ticket text to this model to classify incidents\n"
             "and check root-cause claims.",
         )
@@ -238,18 +243,23 @@ class _Wizard:
     def servicenow(self) -> tuple[ServiceNowAnswers, tuple[ServiceAnswer, ...]]:
         prev = self.prev.get("servicenow", {})
         _section(
-            "2/6  ServiceNow",
+            "4/7  Tickets",
             "SupportAgent starts in shadow mode: it reads incidents and records what it\n"
-            "would do, and never writes to ServiceNow until you promote it.",
+            "would do, and never writes to ServiceNow until you promote it. Without a\n"
+            "ticket system, alerts are its intake.",
         )
         kind = _choose(
-            "Which ServiceNow?",
+            "Which ticket system?",
             [
-                ("instance", "My instance (URL and an integration user)"),
-                ("demo", "The demo instance: no ServiceNow needed, sample incidents arrive"),
+                ("instance", "My ServiceNow instance (URL and an integration user)"),
+                ("demo", "The demo ServiceNow: no instance needed, sample incidents arrive"),
+                ("none", "None: alerts only (from Alertmanager, Grafana or its own detectors)"),
             ],
-            "demo" if prev.get("kind") == "demo" else "instance",
+            prev.get("kind") if prev.get("kind") in ("demo", "none") else "instance",
         )
+        if kind == "none":
+            self.prev["servicenow"] = {"kind": "none"}
+            return ServiceNowAnswers(kind="none"), ()
         if kind == "demo":
             self.prev["servicenow"] = {"kind": "demo"}
             return ServiceNowAnswers(kind="demo"), DEMO_SERVICES
@@ -341,7 +351,7 @@ class _Wizard:
 
     def confluence(self) -> ConfluenceAnswers | None:
         prev = self.prev.get("confluence") or {}
-        _section("3/6  Confluence (optional)", "Team docs RCA can cite as guidance, read-only.")
+        _section("5/7  Confluence (optional)", "Team docs RCA can cite as guidance, read-only.")
         if not typer.confirm("  Connect a Confluence space?", default=bool(prev)):
             self.prev["confluence"] = None
             return None
@@ -369,7 +379,7 @@ class _Wizard:
     def pagerduty(self) -> PagerDutyAnswers | None:
         prev = self.prev.get("pagerduty") or {}
         _section(
-            "4/6  PagerDuty (optional)",
+            "6/7  PagerDuty (optional)",
             "Lets SupportAgent attach its findings to an open page. It never creates one.",
         )
         if not typer.confirm("  Connect PagerDuty?", default=bool(prev)):
@@ -393,29 +403,21 @@ class _Wizard:
 
     # -- onboarding (ADR-0017) --------------------------------------------------
 
-    def onboard(self, team: str, servicenow: ServiceNowAnswers) -> OnboardAnswers | None:
+    def system(self, team: str) -> OnboardAnswers | None:
+        """ADR-0023 §1: the system to learn, by where its code is."""
         prev = self.prev.get("onboard") or {}
         _section(
-            "5/6  Onboard this system (optional)",
-            "SupportAgent reads the system's past incidents, docs and repositories (read-only),\n"
-            "works out what it needs, and lists anything you have to provide.",
+            "2/7  The system",
+            "Which system SupportAgent learns. After setup it reads the system's code itself\n"
+            "(read-only), builds its picture of the system and lists anything it needs from you.",
         )
-        if servicenow.kind == "demo":
-            typer.echo("  Skipped: the demo ServiceNow has no history to onboard.")
-            return None
-        if not typer.confirm("  Onboard a system now?", default=bool(prev)):
-            self.prev["onboard"] = None
-            return None
         name = _ask("System name", prev.get("system_name", team))
-        groups = _ask(
-            "ServiceNow assignment groups that handle its incidents (comma-separated)",
-            ",".join(prev.get("assignment_groups", [])) or None,
-        )
-        business = _ask(
-            "ServiceNow business service (Enter for none)", prev.get("business_service") or ""
+        local = _ask(
+            "A checkout on this machine, mounted read-only (absolute path; Enter for none)",
+            prev.get("local_dir") or "",
         )
         repos = _ask(
-            "Repositories, like github:acme/* (comma-separated; Enter for none)",
+            "GitHub repositories, like github:acme/* (comma-separated; Enter for none)",
             ",".join(prev.get("repos", [])),
         )
         repo_list = tuple(r.strip() for r in repos.split(",") if r.strip())
@@ -440,8 +442,7 @@ class _Wizard:
         answers = OnboardAnswers(
             system_id=service_name(name),
             system_name=name,
-            assignment_groups=tuple(g.strip() for g in groups.split(",") if g.strip()),
-            business_service=business or None,
+            local_dir=local.strip() or None,
             repos=repo_list,
             github_token=token,
             catalog=catalog or None,
@@ -449,12 +450,67 @@ class _Wizard:
             catalog_path=path or "",
         )
         self.prev["onboard"] = _public_onboard(answers)
+        return answers if (answers.local_dir or answers.repos) else None
+
+    def signals(self) -> SignalsAnswers | None:
+        """ADR-0023 §4-5: what the system measures, and whether alerts are sent here."""
+        prev = self.prev.get("signals") or {}
+        _section(
+            "3/7  Signals (optional)",
+            "Prometheus and Loki, read-only: SupportAgent measures the system's normal from\n"
+            "their history, proposes detectors and evaluates the ones you enable.",
+        )
+        prom = _ask("Prometheus URL (Enter for none)", prev.get("prometheus_url") or "")
+        loki = _ask("Loki URL (Enter for none)", prev.get("loki_url") or "")
+        alerts = typer.confirm(
+            "  Will an Alertmanager or Grafana send its alerts here?",
+            default=bool(prev.get("alertmanager")),
+        )
+        answers = SignalsAnswers(
+            prometheus_url=_for_container(prom) if prom.strip() else None,
+            loki_url=_for_container(loki) if loki.strip() else None,
+            alertmanager=alerts,
+        )
+        self.prev["signals"] = asdict(answers)
+        if not (answers.prometheus_url or answers.loki_url or answers.alertmanager):
+            return None
+        return answers
+
+    def ticket_history(
+        self, team: str, system: OnboardAnswers | None, servicenow: ServiceNowAnswers
+    ) -> OnboardAnswers | None:
+        """With a real ticket system, onboarding can also read the system's past incidents."""
+        if servicenow.kind not in ("basic", "oauth"):
+            return system
+        prev = self.prev.get("onboard") or {}
+        if not typer.confirm(
+            "  Read the system's past incidents for onboarding?",
+            default=bool(prev.get("assignment_groups")),
+        ):
+            return system
+        groups = _ask(
+            "ServiceNow assignment groups that handle its incidents (comma-separated)",
+            ",".join(prev.get("assignment_groups", [])) or None,
+        )
+        business = _ask(
+            "ServiceNow business service (Enter for none)", prev.get("business_service") or ""
+        )
+        base = system or OnboardAnswers(
+            system_id=service_name(prev.get("system_name", team)),
+            system_name=prev.get("system_name", team),
+        )
+        answers = replace(
+            base,
+            assignment_groups=tuple(g.strip() for g in groups.split(",") if g.strip()),
+            business_service=business or None,
+        )
+        self.prev["onboard"] = _public_onboard(answers)
         return answers
 
     def sign_in(self) -> tuple[str, str, str]:
         prev = self.prev.get("admin", {})
         _section(
-            "6/6  Your sign-in",
+            "7/7  Your sign-in",
             "A bundled Keycloak handles sign-in. The first person to sign in is the admin.",
         )
         user = _ask("User name", prev.get("user", "admin"))
@@ -524,6 +580,7 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
     raw = json.loads(path.read_text(encoding="utf-8"))
     try:
         sn = raw.get("servicenow") or {"kind": "demo"}
+        signals = raw.get("signals")
         services = (
             DEMO_SERVICES
             if sn.get("kind", "demo") == "demo"
@@ -534,7 +591,7 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
                     tuple(s.get("cmdb_ci", ())),
                     s.get("pagerduty_service"),
                 )
-                for s in raw["services"]
+                for s in (raw.get("services", []) if sn.get("kind") == "none" else raw["services"])
             )
         )
         llm = raw["llm"]
@@ -558,6 +615,19 @@ def _from_file(path: Path, env: dict[str, str], app_port: int, keycloak_port: in
             confluence=ConfluenceAnswers(**raw["confluence"]) if raw.get("confluence") else None,
             pagerduty=PagerDutyAnswers(**raw["pagerduty"]) if raw.get("pagerduty") else None,
             onboard=_onboard_from(raw.get("onboard")),
+            signals=(
+                SignalsAnswers(
+                    prometheus_url=_for_container(signals["prometheus_url"])
+                    if signals.get("prometheus_url")
+                    else None,
+                    loki_url=_for_container(signals["loki_url"])
+                    if signals.get("loki_url")
+                    else None,
+                    alertmanager=bool(signals.get("alertmanager")),
+                )
+                if signals
+                else None
+            ),
             previous=env,
         )
     except (KeyError, TypeError) as exc:
@@ -622,6 +692,7 @@ def _public(answers: Answers) -> dict[str, Any]:
         ),
         "pagerduty": {"from_email": answers.pagerduty.from_email} if answers.pagerduty else None,
         "onboard": _public_onboard(answers.onboard) if answers.onboard else None,
+        "signals": asdict(answers.signals) if answers.signals else None,
         "admin": {"user": answers.admin_user, "email": answers.admin_email},
     }
 
@@ -640,7 +711,8 @@ def _onboard_from(raw: dict[str, Any] | None) -> OnboardAnswers | None:
     return OnboardAnswers(
         system_id=raw.get("system_id") or service_name(name),
         system_name=name,
-        assignment_groups=tuple(raw["assignment_groups"]),
+        assignment_groups=tuple(raw.get("assignment_groups", ())),
+        local_dir=raw.get("local_dir"),
         business_service=raw.get("business_service"),
         repos=tuple(raw.get("repos", ())),
         github_token=raw.get("github_token"),

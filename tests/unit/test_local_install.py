@@ -223,6 +223,13 @@ def test_the_interactive_wizard_demo_path(tmp_path: Path) -> None:
             "1",  # anthropic
             "sk-test",  # API key
             "claude-sonnet-4-5-20250929",  # model id (no probe: typed)
+            "",  # system name: the team's
+            "",  # no checkout on this machine
+            "",  # no GitHub repositories
+            "",  # no plugin catalogue
+            "",  # no Prometheus
+            "",  # no Loki
+            "",  # no Alertmanager
             "2",  # demo ServiceNow
             "n",  # Confluence
             "n",  # PagerDuty
@@ -401,7 +408,14 @@ def test_the_wizard_offers_a_frontier_model_after_a_local_one(tmp_path: Path) ->
             "1",  # Anthropic
             "sk-onboarding",
             "claude-sonnet-4-5-20250929",
-            "2",  # demo ServiceNow
+            "",  # system name: the team's
+            "/srv/shop",  # its checkout on this machine
+            "",  # no GitHub repositories
+            "",  # no plugin catalogue
+            "http://localhost:9090",  # Prometheus
+            "",  # no Loki
+            "y",  # an Alertmanager sends alerts here
+            "3",  # no ticket system: alerts only
             "n",
             "n",
             "ada",
@@ -419,6 +433,10 @@ def test_the_wizard_offers_a_frontier_model_after_a_local_one(tmp_path: Path) ->
     assert config["llm"]["base_url"] == "http://host.docker.internal:1234/v1"
     public = (out / "answers.json").read_text()
     assert "sk-onboarding" not in public and "claude-sonnet-4-5-20250929" in public
+    assert "servicenow" not in config and config["webhooks"][0]["source"] == "alertmanager"
+    assert config["tools"]["prometheus"]["base_url"] == "http://host.docker.internal:9090"
+    assert env["SA_SYSTEM_DIR"] == "/srv/shop"
+    assert "file:/mnt/system" in (out / "system.yaml").read_text()
 
 
 # --- ADR-0017: onboarding a system from the installer -----------------------------------
@@ -537,3 +555,45 @@ def test_no_onboarding_writes_no_system_and_keeps_an_earlier_one(tmp_path: Path)
     result = CliRunner().invoke(app, ["init", "--dir", str(out), "--answers", str(answers)])
     assert result.exit_code == 0, result.output
     assert (out / "system.yaml").read_text() == "# kept\n"
+
+
+def test_installer_alerts_only_answers(tmp_path: Path) -> None:
+    """ADR-0023 §5: no ticket system; the code on this machine and the signals instead."""
+    from supportagent.config.loader import load_system_manifest  # noqa: PLC0415
+
+    answers = tmp_path / "answers.json"
+    answers.write_text(
+        json.dumps(
+            {
+                "team_name": "Acme",
+                "llm": {"kind": "anthropic", "model_id": "claude-sonnet-4-5-20250929"},
+                "servicenow": {"kind": "none"},
+                "onboard": {"system_name": "Trading", "local_dir": "/home/ada/trading"},
+                "signals": {
+                    "prometheus_url": "http://localhost:9090",
+                    "loki_url": "http://loki:3100",
+                },
+                "admin_password": "pw-1",
+            }
+        )
+    )
+    out = tmp_path / "local"
+    result = CliRunner().invoke(app, ["init", "--dir", str(out), "--answers", str(answers)])
+    assert result.exit_code == 0, result.output
+    env = parse_env((out / ".env").read_text())
+    assert env["SA_SYSTEM_DIR"] == "/home/ada/trading" and env["SUPPORTAGENT_ALERTMANAGER_TOKEN"]
+    assert "SN_PASSWORD" not in env and env["COMPOSE_PROFILES"] == ""
+
+    config = load_config(out / "supportagent.yaml", env)
+    assert config.servicenow is None and config.mode == "shadow"
+    assert [w.source for w in config.webhooks] == ["alertmanager"], "alerts are the intake"
+    assert config.tools.prometheus is not None and config.tools.loki is not None
+    assert config.tools.prometheus.base_url == "http://host.docker.internal:9090"
+    assert config.onboarding.workspace == "local/onboarding", "writable by the host user"
+
+    system = load_system_manifest(out / "system.yaml", env)
+    assert system.sources.servicenow is None
+    [repo] = system.sources.git
+    assert repo.repo == "file:/mnt/system" and "backups/**" in repo.exclude
+    catalog = yaml.safe_load((out / "catalog.yaml").read_text())
+    assert [s["name"] for s in catalog["services"]] == ["trading"]

@@ -37,6 +37,8 @@ x-app: &app
     - ../../evals:/app/evals:ro
     - ../../templates:/app/templates:ro
     - ../../local:/app/local
+    # ADR-0023: the system's checkout (SA_SYSTEM_DIR, from the wizard), read-only.
+    - ${SA_SYSTEM_DIR:-../../local/.no-system}:/mnt/system:ro
 
 services:
   postgres:

@@ -28,7 +28,7 @@ from supportagent.domain.grouping import (
     should_close,
 )
 from supportagent.domain.ids import IdPrefix
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 from supportagent.ports.idgen import IdGenerator
 
 
@@ -58,7 +58,9 @@ class GroupOutcome:
 
 
 class GroupingService:
-    def __init__(self, *, uow: _UoW, ids: IdGenerator, catalog: Catalog, tenant_id: str) -> None:
+    def __init__(
+        self, *, uow: _UoW, ids: IdGenerator, catalog: CatalogView, tenant_id: str
+    ) -> None:
         self._uow = uow
         self._ids = ids
         self._catalog = catalog

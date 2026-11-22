@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from supportagent.domain.model.catalog import Catalog
+from supportagent.domain.model.catalog import CatalogView
 
 WINDOW_S = 600  # (prov.) 10 minutes
 SOURCE_THRESHOLD = 5  # (prov.)
@@ -68,7 +68,7 @@ class GroupDecision:
         return self.action == "join" and self.storm
 
 
-def related(a: str | None, b: str | None, catalog: Catalog) -> bool:
+def related(a: str | None, b: str | None, catalog: CatalogView) -> bool:
     """A ``depends_on`` edge between two services, either direction."""
     if a is None or b is None or a == b:
         return False
@@ -83,7 +83,7 @@ def assign_group(  # noqa: PLR0913 — the 01 §7.8 inputs
     now_ts: int,
     open_groups: Sequence[OpenGroup],
     recent_new_cases: int,
-    catalog: Catalog,
+    catalog: CatalogView,
 ) -> GroupDecision:
     """01 §7.8 steps 1-3. ``recent_new_cases`` excludes this case."""
     storm = recent_new_cases > STORM_CASES
@@ -101,7 +101,7 @@ def assign_group(  # noqa: PLR0913 — the 01 §7.8 inputs
 
 
 def _join_rule(
-    group: OpenGroup, service: str | None, source: str, catalog: Catalog
+    group: OpenGroup, service: str | None, source: str, catalog: CatalogView
 ) -> GroupRule | None:
     if service is not None and any(m.service == service for m in group.members):
         return "same_service"

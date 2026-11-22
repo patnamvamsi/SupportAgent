@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
 from supportagent.app import system_view
+from supportagent.app.catalog_review import CatalogReview
 from supportagent.app.detector_review import DetectorReview
 from supportagent.app.graph_review import LAYER_LABELS, GraphReview
 from supportagent.app.onboarding_control import OnboardingControl
@@ -787,6 +788,61 @@ def _component_detectors(ctx: ApiContext, service: str) -> list[Mapping[str, Any
         return []
     state = _detectors(ctx).state()
     return [d for d in state.get("detectors", []) if d.get("subject") == service]
+
+
+def _catalog_review(ctx: ApiContext) -> CatalogReview:
+    if ctx.catalog_review is None:
+        raise NotFound("catalog review is not configured")  # noqa: TRY003
+    return ctx.catalog_review()
+
+
+@router.get("/ui/onboarding/catalog")
+def onboarding_catalog(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """ADR-0023 §2: the services onboarding drafted, to accept into the catalog."""
+
+    def build(user: SessionUser) -> Response:
+        return _render(
+            request,
+            ctx,
+            "onboarding_catalog.html",
+            user,
+            state=_catalog_review(ctx).state(),
+            saved=request.query_params.get("saved"),
+        )
+
+    return _page(request, ctx, Permission.VIEW, build)
+
+
+@router.post("/ui/onboarding/catalog")
+async def onboarding_catalog_save(
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        review = _catalog_review(ctx)
+        accept = {
+            k.removeprefix("accept:"): form.get("paging:" + k.removeprefix("accept:"), "")
+            for k in form
+            if k.startswith("accept:")
+        }
+        withdraw = [k.removeprefix("withdraw:") for k in form if k.startswith("withdraw:")]
+        try:
+            changed = review.accept(accept, actor=user.id) if accept else 0
+            changed += review.withdraw(withdraw, actor=user.id) if withdraw else 0
+        except DomainValidationError as exc:
+            return _render(
+                request,
+                ctx,
+                "onboarding_catalog.html",
+                user,
+                status=422,
+                error=str(exc),
+                state=review.state(),
+                saved=None,
+            )
+        return RedirectResponse(f"/ui/onboarding/catalog?saved={changed}", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)
 
 
 _CLASS_LABELS = {
