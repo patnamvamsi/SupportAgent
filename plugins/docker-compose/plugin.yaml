@@ -3,7 +3,7 @@
 # from metrics.query (cAdvisor, node-exporter) and logs.search (container logs),
 # both labelled with the Compose service as `service` (docker/observability).
 id: docker-compose
-version: 0.1.0
+version: 0.2.0
 description: Services run as containers under Docker Compose (down, crash loops, stalls, host restarts).
 core_api: ">=1.0,<2"
 status: evaluated   # its pack passes its lab (packs/docker-compose/evals)
@@ -23,6 +23,15 @@ provides:
     - match: "**/*compose*.y*ml"
       format: yaml
       rules:
+        # ADR-0023 §3: a service built from a directory owns the code in it.
+        - key: "^services\\.(?P<svc>[^.]+)\\.build(\\.context)?$"
+          value: "^(?P<name>[^\\s]+)$"
+          component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}
+          code_root: context
+        - key: "^services\\.(?P<svc>[^.]+)\\.build\\.dockerfile$"
+          value: "^(?P<name>[^\\s]+)$"
+          component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}
+          code_root: dockerfile
         - key: "^services\\.(?P<svc>[^.]+)\\.depends_on$"
           value: "^(?P<dep>[a-z0-9_.-]+)$"
           component: {id: "service:{svc}", kind: Service, tech: [docker-compose]}

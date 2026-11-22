@@ -24,7 +24,9 @@ runtime with that name; a CMDB CI named like a known runtime is that runtime.
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import posixpath
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -32,6 +34,7 @@ from typing import Any
 
 import yaml
 
+from supportagent.adapters.files.code_python import CodeFinding, python_findings
 from supportagent.domain.graph import AliasFact, EdgeFact, Fact, NodeFact, NodeKind
 from supportagent.domain.model.plugin import (
     PLACEHOLDER,
@@ -69,6 +72,12 @@ class _Collect:
     components: dict[str, str] = field(default_factory=dict)
     #: node id -> the kind it was first asserted with
     kinds: dict[str, NodeKind] = field(default_factory=dict)
+    #: ADR-0023 §3: (repo, file declaring it, component) -> its build context and dockerfile
+    builds: dict[tuple[str, str, str], dict[str, str]] = field(default_factory=dict)
+    #: (repo, path prefix) -> the components whose image copies that code
+    code_roots: dict[tuple[str, str], set[str]] = field(default_factory=dict)
+    #: code files whose facts no component owns
+    unowned: set[str] = field(default_factory=set)
 
     def node(
         self,
@@ -120,6 +129,7 @@ def structured_facts(
                 if matches(path):
                     extractor(out, repo, path, text)
     _declared(out, by_repo, declared, own=False)
+    _code(out, files, declared, set(by_repo))
     _cmdb(out, cmdb, {e.match.removeprefix("cmdb:"): e.node for _, e in declared if e.node})
     _live(out, live, discovery)
     _reconcile(out)
@@ -152,6 +162,8 @@ def _declared(
                     for leaf, text_value in leaves:
                         if (k := key.search(leaf)) and (m := value.search(text_value)):
                             groups = {**k.groupdict(), **m.groupdict()}
+                            if rule.code_root and rule.component is not None:
+                                _code_root(out, repo, path, rule, groups, by_repo)
                             _apply(out, repo, source, rule, groups, by=f"plugin:{plugin_id}")
 
 
@@ -169,6 +181,8 @@ def _apply(
     if rule.component is not None:
         owner = rule.component.id.format(**groups)
         out.node(owner, rule.component.kind, source, tech=rule.component.tech, by=by)
+    if rule.code_root:
+        return
     if rule.own and rule.node is not None:
         if owner is None:
             node_id = rule.node.id.format(**groups)
@@ -186,6 +200,189 @@ def _apply(
             out.edge(owner, rule.edge, node_id, source, by=by)
     elif rule.to is not None and rule.edge is not None:
         out.edge(owner, rule.edge, rule.to.format(**groups), source, by=by)
+
+
+def _code_root(  # noqa: PLR0917 — one rule match, and where it sits
+    out: _Collect,
+    repo: str,
+    path: str,
+    rule: ExtractRule,
+    captured: Mapping[str, str | None],
+    by_repo: Mapping[str, Mapping[str, str]],
+) -> None:
+    """Record where a component is built from; :func:`_resolve_code_roots` reads it."""
+    del by_repo
+    raw = captured.get("name")
+    if not raw or rule.component is None or rule.code_root is None:
+        return
+    component = rule.component.id.format(**{k: _slug(v) for k, v in captured.items() if v})
+    out.builds.setdefault((repo, path, component), {})[rule.code_root] = raw.strip()
+
+
+_COPY = re.compile(r"^\s*(?:COPY|ADD)\s+(.+)$", re.I | re.M)
+
+
+def _resolve_code_roots(out: _Collect, by_repo: Mapping[str, Mapping[str, str]]) -> None:
+    """A component owns the code its image copies (ADR-0023 §3).
+
+    The build context is relative to the declaring file; one outside its
+    repository names another repository by its last segment (a Compose file
+    beside the checkouts). The Dockerfile (``Dockerfile`` in the context
+    unless named) lists what is copied in: each ``COPY``/``ADD`` source, except
+    from another stage, is the component's code. Without a readable Dockerfile
+    the Dockerfile's directory, or else the context, is.
+    """
+    for (repo, path, component), build in sorted(out.builds.items()):
+        context = build.get("context", ".")
+        joined = posixpath.normpath(posixpath.join(posixpath.dirname(path), context))
+        if joined.startswith("..") or posixpath.isabs(context):
+            ctx_repo = posixpath.basename(posixpath.normpath(context))
+            if ctx_repo not in by_repo:
+                continue
+            ctx_dir = ""
+        else:
+            ctx_repo, ctx_dir = repo, ("" if joined == "." else joined)
+        dockerfile = _join(ctx_dir, build.get("dockerfile", "Dockerfile"))
+        text = by_repo[ctx_repo].get(dockerfile)
+        roots = _copied(text, ctx_dir) if text is not None else []
+        if not roots:
+            fallback = posixpath.dirname(dockerfile) if "dockerfile" in build else ctx_dir
+            roots = [fallback]
+        for root in roots:
+            out.code_roots.setdefault((ctx_repo, root), set()).add(component)
+
+
+def _copied(dockerfile: str, ctx_dir: str) -> list[str]:
+    text = re.sub(r"\\\n", " ", dockerfile)
+    roots: list[str] = []
+    for match in _COPY.finditer(text):
+        args = match.group(1).strip()
+        if args.startswith("["):
+            try:
+                parts = [str(a) for a in json.loads(args)]
+            except ValueError:
+                continue
+        else:
+            parts = args.split()
+        if any(p.startswith("--from") for p in parts):
+            continue
+        sources = [p for p in parts if not p.startswith("--")][:-1]
+        for source in sources:
+            cleaned = source.split("*", 1)[0].rstrip("/")
+            roots.append(_join(ctx_dir, cleaned) if cleaned not in ("", ".") else ctx_dir)
+    return roots
+
+
+def _join(base: str, rel: str) -> str:
+    joined = posixpath.normpath(posixpath.join(base, rel)) if base else posixpath.normpath(rel)
+    return "" if joined == "." else joined
+
+
+def _code(
+    out: _Collect,
+    files: Mapping[str, str],
+    declared: Sequence[tuple[str, Extractor]],
+    repos: set[str],
+) -> None:
+    """The code layer (ADR-0023 §3): plugin code rules, each fact citing its line."""
+    rules = [
+        (plugin_id, rule)
+        for plugin_id, extractor in declared
+        if extractor.format == "python"
+        for rule in extractor.code
+    ]
+    if not rules:
+        return
+    by_repo: dict[str, dict[str, str]] = {}
+    for key, text in files.items():
+        repo, _, path = key.partition("/")
+        by_repo.setdefault(repo, {})[path] = text
+    _resolve_code_roots(out, by_repo)
+    report = python_findings({k: v for k, v in files.items() if k.endswith(".py")}, rules)
+    for finding in report.findings:
+        owners = _code_owners(out, finding.path, repos)
+        if not owners:
+            out.unowned.add(finding.path)
+            continue
+        for owner in sorted(owners):
+            _code_fact(out, owner, finding)
+    _same_entities(out)
+
+
+#: A pattern covers others only with this much literal text (``*_*`` covers nothing).
+_MIN_LITERAL = 4
+
+
+def _same_entities(out: _Collect) -> None:
+    """Two names for one entity, by general rules (ADR-0023 §3):
+
+    - a pattern covered by a broader one is that one (``table:*_*_kline_1m``
+      read here is the ``table:*_*_kline_*`` written there);
+    - a component named with ``_`` where another uses ``-`` is that one
+      (``celery_worker`` in one Compose file, ``celery-worker`` in another).
+    """
+    nodes = sorted({f.id for f in out.facts if isinstance(f, NodeFact)})
+    patterns = [n for n in nodes if "*" in n]
+    for node in patterns:
+        prefix, _, name = node.partition(":")
+        broader = [
+            p
+            for p in patterns
+            if p != node
+            and p.startswith(prefix + ":")
+            and fnmatch.fnmatchcase(name, p.partition(":")[2])
+            and len(p.partition(":")[2].replace("*", "")) >= _MIN_LITERAL
+        ]
+        if broader:
+            widest = min(broader, key=lambda p: len(p.replace("*", "")))
+            out.alias(node, widest, "reconcile", by="reconcile")
+    known = set(nodes)
+    renamed: dict[str, str] = {}
+    for node in nodes:
+        prefix, _, name = node.partition(":")
+        hyphen = f"{prefix}:{name.replace('_', '-')}"
+        if prefix in ("service", "job", "ui") and "_" in name and hyphen in known:
+            out.alias(node, hyphen, "reconcile", by="reconcile")
+            renamed[name] = hyphen.partition(":")[2]
+    for node in nodes:  # a component's jobs follow it (``job:<owner>.<name>``)
+        prefix, _, name = node.partition(":")
+        owner, dot, rest = name.partition(".")
+        if prefix == "job" and dot and owner in renamed:
+            out.alias(node, f"job:{renamed[owner]}.{rest}", "reconcile", by="reconcile")
+
+
+def _code_owners(out: _Collect, key: str, repos: set[str]) -> set[str]:
+    repo, _, path = key.partition("/")
+    best: tuple[int, set[str]] = (-1, set())
+    for (root_repo, root_dir), components in out.code_roots.items():
+        inside = root_dir in ("", path) or path.startswith(root_dir + "/")
+        if root_repo != repo or not inside:
+            continue
+        if len(root_dir) > best[0]:
+            best = (len(root_dir), components)
+    if best[0] >= 0:
+        return best[1]
+    own = out.components.get(repo) if repo in repos else None
+    return {own} if own else set()
+
+
+def _code_fact(out: _Collect, owner: str, finding: CodeFinding) -> None:
+    rule = finding.rule
+    groups = {k: _code_slug(v) for k, v in finding.groups.items()}
+    groups["owner"] = owner.split(":", 1)[1]
+    node_id = rule.node.id.format(**groups)
+    source = f"git:{finding.path}:{finding.line}"
+    by = f"plugin:{finding.plugin}/{rule.id}"
+    out.node(node_id, rule.node.kind, source, tech=rule.node.tech, by=by)
+    if rule.reverse:
+        out.edge(node_id, rule.edge, owner, source, by=by)
+    else:
+        out.edge(owner, rule.edge, node_id, source, by=by)
+
+
+def _code_slug(value: str) -> str:
+    """Like :func:`_slug`, but a ``*`` (an unresolved part) stays a ``*``."""
+    return re.sub(r"[^a-z0-9._/*-]+", "-", value.strip().lower()).strip("-")
 
 
 def _slug(value: str) -> str:

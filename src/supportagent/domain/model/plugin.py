@@ -130,6 +130,10 @@ class ExtractRule(DomainModel):
     to: str | None = None
     tech: list[str] = Field(default_factory=list)
     component: NodeTemplate | None = None
+    #: ADR-0023 §3: the matched value says where ``component``'s code comes from:
+    #: its build ``context`` (relative to the file) or the ``dockerfile`` inside
+    #: it. The Dockerfile's ``COPY``/``ADD`` sources are the code it runs.
+    code_root: Literal["context", "dockerfile"] | None = None
 
     @model_validator(mode="after")
     def _well_formed(self) -> ExtractRule:
@@ -152,8 +156,75 @@ class ExtractRule(DomainModel):
             raise ValueError("an own rule names the component's node and nothing else")  # noqa: TRY003
         if self.to is not None and (self.edge is None or self.node is not None):
             raise ValueError("a to rule needs an edge and no node")  # noqa: TRY003
-        if not (self.own or self.node or self.to or self.tech):
-            raise ValueError("a rule yields a node, a relationship or tech")  # noqa: TRY003
+        if self.code_root and (self.component is None or "name" not in groups):
+            raise ValueError("a code_root rule names its component and a 'name' group")  # noqa: TRY003
+        if not (self.own or self.node or self.to or self.tech or self.code_root):
+            raise ValueError("a rule yields a node, a relationship, tech or a code root")  # noqa: TRY003
+        return self
+
+
+#: What a code rule matches in a Python module (ADR-0023 §3, WP-221).
+CodeMatch = Literal["call", "decorator", "assign", "string", "import"]
+#: The relationships a code rule may assert; ``part_of`` points the node at its component.
+CODE_EDGES = RULE_EDGES | {"part_of", "scheduled_by"}
+
+
+class CodeRule(DomainModel):
+    """ADR-0023 §3: one library fact read off source code, with no code executed.
+
+    ``match`` picks the construct and ``name`` (a regex, matched in full) which one:
+
+    - ``call``: a call to a function or method named ``name``; the value is
+      argument ``arg`` (an index) or keyword ``kwarg``, resolved through
+      constants, ``os.getenv`` defaults and imports (an f-string becomes a
+      ``*`` pattern; a list yields each item);
+    - ``decorator``: a function decorated by ``name`` (``task``, ``get``); the
+      value is the function's name, or the decorator's ``arg``/``kwarg``;
+    - ``assign``: an assignment to ``name`` (``__tablename__``, ``db_table``);
+      the value is what is assigned;
+    - ``string``: a string literal matching ``value`` (SQL ``INSERT INTO t``);
+    - ``import``: an imported top-level package named ``name`` (a vendor's SDK).
+
+    ``value`` (named groups allowed) filters and captures the value; ``node``
+    (``{value}``, the groups and ``{owner}``, the component's name, fill it) is
+    what the rule finds, and ``edge``
+    relates the code's component to it (``publishes topic:{value}``), or the
+    node to the component when ``reverse`` (a job ``part_of`` its service).
+    ``imports`` limits the rule to modules importing one of those packages, and
+    ``receiver`` (a regex, searched) a ``call`` to methods on a matching object
+    (``self.kafka_producer.send``: ``producer``). With ``callable``, the argument
+    is a function reference and its name is the value (``add_job(sync_bars)``).
+    """
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,60}$")
+    match: CodeMatch
+    name: str = ".*"
+    value: str = "(?P<value>.+)"
+    arg: int | None = Field(default=None, ge=0)
+    kwarg: str | None = None
+    imports: list[str] = Field(default_factory=list)
+    receiver: str | None = None
+    callable: bool = False
+    node: NodeTemplate
+    edge: str
+    reverse: bool = False
+
+    @model_validator(mode="after")
+    def _well_formed(self) -> CodeRule:
+        for pattern in (self.name, self.value, self.receiver or ""):
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"bad regex {pattern!r}: {exc}") from exc  # noqa: TRY003
+        if self.receiver is not None and self.match != "call":
+            raise ValueError("receiver applies to call rules only")  # noqa: TRY003
+        groups = set(re.compile(self.value).groupindex) | {"value", "owner"}
+        if not set(_TEMPLATE.findall(self.node.id)) <= groups:
+            raise ValueError(f"{self.node.id!r} names a group {self.value!r} lacks")  # noqa: TRY003
+        if self.edge not in CODE_EDGES:
+            raise ValueError(f"edge {self.edge!r} is not one of {sorted(CODE_EDGES)}")  # noqa: TRY003
+        if self.match == "call" and self.arg is None and self.kwarg is None:
+            raise ValueError("a call rule names the argument it reads (arg or kwarg)")  # noqa: TRY003
         return self
 
 
@@ -171,13 +242,19 @@ class Extractor(DomainModel):
     match: str = Field(min_length=1)
     extract: str | None = None
     #: ``lines``: one ``key value`` per line, split at the first space (``go.mod``, ``Gemfile``).
-    format: Literal["json", "yaml", "env", "properties", "lines"] | None = None
+    format: Literal["json", "yaml", "env", "properties", "lines", "python"] | None = None
     rules: list[ExtractRule] = Field(default_factory=list)
     node: NodeTemplate | None = None
+    #: ADR-0023 §3: with ``format: python``, the library facts read off the code.
+    code: list[CodeRule] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _one_kind(self) -> Extractor:
-        declared = bool(self.rules) or self.node is not None
+        if (self.format == "python") != bool(self.code):
+            raise ValueError("code rules go with format: python, and only there")  # noqa: TRY003
+        if self.code and (self.rules or self.extract or self.node):
+            raise ValueError("a python extractor declares code rules and nothing else")  # noqa: TRY003
+        declared = bool(self.rules) or self.node is not None or bool(self.code)
         if (self.extract is None) == (not declared):
             raise ValueError("an extractor names a built-in (extract) or declares rules or a node")  # noqa: TRY003
         if self.rules and (self.format is None or self.match.startswith("cmdb:")):
@@ -493,12 +570,15 @@ def _glob(pattern: str, name: str) -> bool:
 
 
 __all__ = [
+    "CODE_EDGES",
     "CORE_API",
     "RULE_EDGES",
     "AccessContract",
     "Backend",
     "CapabilitySpec",
     "CauseSpec",
+    "CodeMatch",
+    "CodeRule",
     "Detectors",
     "ExtractRule",
     "Extractor",

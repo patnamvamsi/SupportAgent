@@ -1,0 +1,112 @@
+# ADR-0015 §2 plugin manifest. Pinned in plugins/index.yaml.
+# ADR-0023 §3: what Python code does at runtime: the topics it produces and consumes,
+# what it runs on a schedule, and the outside APIs it calls.
+id: python-runtime
+version: 0.1.0
+description: What Python code does at runtime - tables it reads and writes (ORM models, SQL), Kafka topics produced and consumed, scheduled jobs and tasks (APScheduler, Celery, schedule), and the external APIs it calls (HTTP clients, vendor SDKs).
+core_api: ">=1.0,<2"
+provides:
+  extractors:
+    - match: "**/*.py"
+      format: python
+      code:
+        - id: kafka-produce
+          match: call
+          name: "send|send_and_wait|produce"
+          receiver: "(?i)producer|kafka"
+          arg: 0
+          kwarg: topic
+          node: {id: "topic:{value}", kind: Topic, tech: [kafka]}
+          edge: publishes
+        - id: kafka-consumer
+          match: call
+          name: "KafkaConsumer|AIOKafkaConsumer"
+          arg: 0
+          imports: [kafka, aiokafka]
+          node: {id: "topic:{value}", kind: Topic, tech: [kafka]}
+          edge: consumes
+        - id: kafka-subscribe
+          match: call
+          name: "subscribe"
+          receiver: "(?i)consumer|kafka"
+          arg: 0
+          kwarg: topics
+          node: {id: "topic:{value}", kind: Topic, tech: [kafka]}
+          edge: consumes
+        - id: orm-table
+          match: assign
+          name: "__tablename__|db_table"
+          value: "(?P<value>[A-Za-z_][A-Za-z0-9_.]*)"
+          node: {id: "table:{value}", kind: Datastore}
+          edge: uses
+        - id: sql-write
+          match: string
+          value: "(?is)^\\s*(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|COPY)\\s+(?!(?:information_schema|pg_catalog|timescaledb_information|timescaledb_experimental)\\.|pg_)(?P<value>[A-Za-z_*][A-Za-z0-9_*]*(?:\\.[A-Za-z_*][A-Za-z0-9_*]*)?)"
+          node: {id: "table:{value}", kind: Datastore}
+          edge: writes
+        - id: sql-read
+          match: string
+          value: "(?is)^\\s*(?:SELECT|WITH)\\b.*?\\bFROM\\s+(?!(?:information_schema|pg_catalog|timescaledb_information|timescaledb_experimental)\\.|pg_)(?P<value>[A-Za-z_*][A-Za-z0-9_*]*(?:\\.[A-Za-z_*][A-Za-z0-9_*]*)?)"
+          node: {id: "table:{value}", kind: Datastore}
+          edge: reads
+        - id: dataframe-write
+          match: call
+          name: "to_sql|copy_records_to_table"
+          arg: 0
+          value: "(?P<value>[A-Za-z_][A-Za-z0-9_.]*)"
+          node: {id: "table:{value}", kind: Datastore}
+          edge: writes
+        - id: apscheduler-job
+          match: call
+          name: "add_job|scheduled_job"
+          arg: 0
+          callable: true
+          imports: [apscheduler]
+          value: "(?P<value>[A-Za-z_][A-Za-z0-9_]*)"
+          node: {id: "job:{owner}.{value}", kind: Job, tech: [apscheduler]}
+          edge: part_of
+          reverse: true
+        - id: apscheduler-decorated
+          match: decorator
+          name: "scheduled_job"
+          imports: [apscheduler]
+          node: {id: "job:{owner}.{value}", kind: Job, tech: [apscheduler]}
+          edge: part_of
+          reverse: true
+        - id: celery-task
+          match: decorator
+          name: "task|shared_task"
+          node: {id: "job:{owner}.{value}", kind: Job, tech: [celery]}
+          edge: part_of
+          reverse: true
+        - id: schedule-every
+          match: call
+          name: "do"
+          receiver: "(?i)schedule\\.every"
+          arg: 0
+          callable: true
+          imports: [schedule]
+          node: {id: "job:{owner}.{value}", kind: Job, tech: [schedule]}
+          edge: part_of
+          reverse: true
+        - id: http-external
+          match: call
+          name: "get|post|put|patch|delete|request|urlopen|stream"
+          receiver: "(?i)requests|httpx|session|client|aiohttp|urllib"
+          arg: 0
+          kwarg: url
+          value: "(?i)https?://(?:[a-z0-9-]+\\.)*(?P<org>[a-z0-9-]+)\\.(?:com|io|org|net|in|co|ai|dev|app|gov)(?:\\.[a-z]{2})?(?:[:/?].*)?"
+          node: {id: "external:{org}", kind: External}
+          edge: calls
+        # A vendor SDK is an external dependency even with no URL in the code.
+        - id: sdk-external
+          match: import
+          name: "binance|kiteconnect|ccxt|alpaca_trade_api|yfinance|openai|anthropic|praw|tweepy|stripe|twilio|slack_sdk|telegram|boto3|sendgrid|newsapi|finnhub|polygon"
+          node: {id: "external:{value}", kind: External}
+          edge: calls
+detectors:
+  min_score: 1.0
+  signals:
+    - {files: "**/*.py", contains: "apscheduler|from celery|import celery|shared_task|import schedule", weight: 1.0}
+    - {files: "**/*.py", contains: "KafkaProducer|KafkaConsumer|AIOKafka|confluent_kafka", weight: 1.0}
+    - {files: "**/*.py", contains: "import requests|import httpx|import aiohttp", weight: 0.5}
