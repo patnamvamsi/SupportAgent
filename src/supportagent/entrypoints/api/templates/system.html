@@ -13,6 +13,7 @@
   {% set n = counts.get(c.service, {}) %}
   <a class="component-card {{ c.kind | lower }}" href="/ui/system/component?id={{ c.id | urlencode }}">
     <span class="title">{{ c.name }}</span> <span class="muted">{{ c.kind }}</span>
+    {% if c.running is false %}<span class="badge">defined, not running</span>{% elif c.running %}<span class="badge ok">running</span>{% endif %}
     {% if n.get("open") %}<span class="badge bad">{{ n.open }} open case{{ "s" if n.open != 1 }}</span>{% elif n.get("total") %}<span class="badge">{{ n.total }} case{{ "s" if n.total != 1 }}</span>{% endif %}
     {% if c.tech %}<span class="tech">{{ c.tech | join(" · ") }}</span>{% endif %}
     {% set s = summaries.get(c.id) %}{% if s and s.sentences %}<span class="gist">{{ s.sentences[0].text }}</span>{% endif %}

@@ -307,7 +307,7 @@ def system_page(request: Request, ctx: ApiContext = Depends(context)) -> Respons
             ctx,
             "system.html",
             user,
-            o=system_view.overview(facts),
+            o=system_view.overview(facts, _observed(ctx)),
             groups=list(system_view.GROUPS),
             counts=ctx.queries().case_counts(),
             summaries=_summaries(ctx),
@@ -325,7 +325,7 @@ def component_page(
 ) -> Response:
     def build(user: SessionUser) -> Response:
         facts = _review(ctx).facts()
-        found = system_view.components(facts).get(id)
+        found = system_view.components(facts, _observed(ctx)).get(id)
         if found is None:
             raise NotFound(f"no component {id!r} in the system graph")  # noqa: TRY003
         around = system_view.neighbourhood(facts, id)
@@ -771,6 +771,14 @@ def _detectors(ctx: ApiContext) -> DetectorReview:
     if ctx.detector_review is None:
         raise NotFound("detector review is not configured")  # noqa: TRY003
     return ctx.detector_review()
+
+
+def _observed(ctx: ApiContext) -> list[str] | None:
+    """The components the deployment sees running, from the last measurement (WP-221)."""
+    if ctx.detector_review is None:
+        return None
+    found = _detectors(ctx).state().get("observed")
+    return [str(o) for o in found] if isinstance(found, list) else None
 
 
 def _component_detectors(ctx: ApiContext, service: str) -> list[Mapping[str, Any]]:

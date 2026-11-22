@@ -89,6 +89,7 @@ def test_detectors_are_a_step(tmp_path: Path, db: Any, clock: Any) -> None:
     step = run["steps"]["detectors"]
     assert step.state == "done" and "detector(s) measured over 7 days" in step.detail
     assert history.asked == [["api", "db"]], "the components the graph found"
+    assert detector_review_for(_config(tmp_path), db, clock).state()["observed"] == ["api", "db"]
     review = detector_review_for(_config(tmp_path), db, clock)
     ids = {d["id"] for d in review.state()["detectors"]}
     assert {"container-down/api", "crash-loop/api", "log-silence/api", "host-restart/host"} <= ids
