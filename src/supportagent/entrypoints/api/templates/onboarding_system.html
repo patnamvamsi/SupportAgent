@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block title %}The system{% endblock %}
+{% block content %}
+<h1>The system SupportAgent onboards</h1>
+<p class="muted">Name the system and where it is described: its repositories (GitHub, or a checkout mounted read-only into the instance), and optionally its tickets and documents. Onboarding reads only. Credentials stay in the instance's environment: name the variable (<code>token_env: GITHUB_TOKEN</code>), never paste a secret here.</p>
+{% if saved %}<p class="ok" role="status">Saved: system <strong>{{ saved }}</strong>. {% if can_run %}Run onboarding to read it.{% endif %}</p>{% endif %}
+<form method="post" action="/ui/onboarding/system">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="manifest">Manifest (<code>system.yaml</code>)</label>
+  <textarea id="manifest" name="manifest" rows="24" spellcheck="false" class="code">{{ manifest }}</textarea>
+  <p class="actions">{% if is_admin %}<button type="submit" class="primary">Save</button>{% else %}<span class="muted">Only an administrator can change the manifest.</span>{% endif %}</p>
+</form>
+{% if state.get("manifest_by") %}<p class="muted">Last changed by {{ state.manifest_by }}, {{ state.manifest_ts | age(now_ts) }} ago.</p>{% endif %}
+{% endblock %}

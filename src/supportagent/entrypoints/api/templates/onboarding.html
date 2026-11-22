@@ -2,13 +2,33 @@
 {% block title %}Onboarding{% endblock %}
 {% block content %}
 <h1>What SupportAgent understands about this system</h1>
+{% if control is not none %}
+<section class="control">
+  {% if control.get("manifest") %}
+  <p><strong>{{ control.get("system") or "The system" }}</strong> ·
+    {% if control.get("started_ts", 0) > control.get("finished_ts", 0) %}<span class="badge running">onboarding is running</span> (started {{ control.started_ts | age(now_ts) }} ago, {{ control.get("started_reason") }})
+    {% elif control.get("requested_ts") %}<span class="badge">run requested</span>: the worker starts it within a minute
+    {% elif control.get("finished_ts") %}last run {{ control.finished_ts | age(now_ts) }} ago: <span class="{{ 'ok' if control.get('last_ok') else 'bad' }}">{{ control.get("last_detail") }}</span>
+    {% else %}not run yet{% endif %}</p>
+  <p class="actions">
+    <form class="inline" method="post" action="/ui/onboarding/run">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="primary">Run onboarding now</button>
+    </form>
+    <a class="button" href="/ui/onboarding/system">The system's sources</a></p>
+  {% else %}
+  <p class="verdict bad"><strong>Start here:</strong> tell SupportAgent which system to learn and where it is described. It reads the sources itself and builds everything below.</p>
+  <p class="actions"><a class="button primary" href="/ui/onboarding/system">Describe the system →</a></p>
+  {% endif %}
+</section>
+{% endif %}
 {% if run %}
 <section class="run">
   <p class="verdict {{ 'ok' if run.ready else 'bad' }}"><strong>{{ "Ready to support" if run.ready else "Not ready to support yet" }}</strong>{% if run.ready_share is not none %}: proven classes hold {{ (run.ready_share * 100) | round | int }}% of the incident weight (bar {{ (run.bar * 100) | round | int }}%){% endif %}.</p>
   <ol class="steps">{% for s in run.steps %}<li class="step {{ s.state }}"><strong>{{ s.step }}</strong> <span class="badge">{{ s.state }}{% if s.on %} on {{ s.on }}{% endif %}</span> {{ s.detail }}</li>{% endfor %}</ol>
   <h2>Needed from you{% if run.needs %} ({{ run.needs | length }}){% endif %}</h2>
   {% if run.needs %}
-  <p class="muted">Most valuable first: each item's share is the incident weight it holds back. Act on it, then re-run <code>supportagent onboard run</code>; it continues where it stopped.</p>
+  <p class="muted">Most valuable first: each item's share is the incident weight it holds back. Act on it, then run onboarding again; it continues where it stopped.</p>
   <ul class="needs">{% for n in run.needs %}
     <li class="need {{ n.kind }}">{% if n.weight %}<meter class="share" min="0" max="1" value="{{ n.weight }}">{{ (n.weight * 100) | round | int }}%</meter> {% endif %}<strong>{{ need_labels[n.kind] }}:</strong> {{ n.what }}
       {% if n.how.startswith("/ui/") %}<a href="{{ n.how }}">Open</a>{% elif n.how.startswith("supportagent ") %}<code>{{ n.how }}</code>{% else %}<span class="muted">({{ n.how }})</span>{% endif %}</li>
@@ -18,7 +38,7 @@
 </section>
 {% endif %}
 {% if not p.total %}
-<p class="muted">No graph yet. Build one from a workspace: <code>supportagent onboard graph --workspace &lt;dir&gt;</code>.</p>
+<p class="muted">No graph yet: run onboarding, and the graph it builds appears here for review.</p>
 <p class="actions">{% if asks and (asks.open or asks.approved or asks.declined) %}<a class="button" href="/ui/onboarding/requests">{{ asks.open }} access request{{ "s" if asks.open != 1 }} to decide</a>{% endif %}
   {% if ready %}<a class="button" href="/ui/onboarding/readiness">{{ "Ready" if ready.ready else "Not ready" }}: {{ (ready.ready_share * 100) | round | int }}% of incident weight proven</a>{% endif %}</p>
 {% else %}

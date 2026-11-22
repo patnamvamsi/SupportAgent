@@ -502,6 +502,15 @@ onboarding_status = sa.Table(
     sa.Column("updated_ts", sa.BigInteger, nullable=False),
 )
 
+# 0023 (WP-223): the manifest edited in the UI, and the autopilot's run requests.
+onboarding_control = sa.Table(
+    "onboarding_control",
+    metadata,
+    sa.Column("tenant_id", sa.Text, primary_key=True),
+    sa.Column("control_json", sa.Text, nullable=False),
+    sa.Column("updated_ts", sa.BigInteger, nullable=False),
+)
+
 # 0010 (WP-109): the three feedback moments (ARCH §8.3).
 feedback = sa.Table(
     "feedback",

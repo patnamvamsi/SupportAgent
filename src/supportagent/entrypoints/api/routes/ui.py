@@ -19,6 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
 from supportagent.app.graph_review import LAYER_LABELS, GraphReview
+from supportagent.app.onboarding_control import OnboardingControl
 from supportagent.app.queries import auto_timeline
 from supportagent.app.request_review import RequestReview
 from supportagent.app.setup import SessionUser
@@ -582,6 +583,7 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
         ready = ctx.readiness().load() if ctx.readiness is not None else None
         run = ctx.onboarding_status().load() if ctx.onboarding_status is not None else None
         activity = ctx.onboarding_history() if ctx.onboarding_history is not None else []
+        control = ctx.onboarding_control().state() if ctx.onboarding_control else None
         return _render(
             request,
             ctx,
@@ -593,9 +595,93 @@ def onboarding_page(request: Request, ctx: ApiContext = Depends(context)) -> Res
             run=run,
             need_labels=NEED_LABELS,
             activity=activity,
+            control=control,
         )
 
     return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+#: ADR-0023 §2: what /ui/onboarding/system offers before a manifest exists.
+_STARTER_MANIFEST = """\
+system:
+  id: my-system            # lower case, digits and hyphens
+  name: My system
+sources:
+  git:
+    # A checkout mounted read-only into the instance (file:<dir>), or GitHub:
+    # - repo: github:<owner>/<repository glob>
+    #   token_env: GITHUB_TOKEN   # a read-only token, from the environment
+    - repo: file:/mnt/system
+      paths: ["**/*.py", "**/*compose*.y*ml", "**/Dockerfile*", "**/requirements*.txt",
+              "**/pyproject.toml", "**/*.sql", "**/*.yaml", "**/*.yml", "**/*.md"]
+"""
+
+
+def _control(ctx: ApiContext) -> OnboardingControl:
+    if ctx.onboarding_control is None:
+        raise NotFound("onboarding from the instance is not configured")  # noqa: TRY003
+    return ctx.onboarding_control()
+
+
+@router.get("/ui/onboarding/system")
+def onboarding_system(
+    request: Request,
+    saved: str = "",
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    """ADR-0023 §2: the manifest, edited here and stored by the instance."""
+
+    def build(user: SessionUser) -> Response:
+        control = _control(ctx)
+        return _render(
+            request,
+            ctx,
+            "onboarding_system.html",
+            user,
+            manifest=control.manifest() or _STARTER_MANIFEST,
+            state=control.state(),
+            saved=saved,
+            can_run=True,
+        )
+
+    return _page(request, ctx, Permission.REVIEW_KNOWLEDGE, build)
+
+
+@router.post("/ui/onboarding/system")
+async def onboarding_system_save(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        control = _control(ctx)
+        text = form.get("manifest", "").replace("\r\n", "\n")
+        try:
+            system = control.save_manifest(text, actor=user.id)
+        except DomainValidationError as exc:
+            return _render(
+                request,
+                ctx,
+                "onboarding_system.html",
+                user,
+                status=422,
+                error=str(exc),
+                manifest=text,
+                state=control.state(),
+                saved="",
+                can_run=True,
+            )
+        return RedirectResponse(f"/ui/onboarding/system?saved={system}", status_code=303)
+
+    return await _post(request, ctx, Permission.ADMINISTER, act)
+
+
+@router.post("/ui/onboarding/run")
+async def onboarding_run_now(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """ADR-0023 §2: ask the worker to run onboarding now (it continues where it stopped)."""
+
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        del form
+        _control(ctx).request_run(actor=user.id)
+        return RedirectResponse("/ui/onboarding", status_code=303)
+
+    return await _post(request, ctx, Permission.REVIEW_KNOWLEDGE, act)
 
 
 @router.get("/ui/onboarding/readiness")
