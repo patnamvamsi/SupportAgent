@@ -98,6 +98,16 @@ def test_a_rare_long_quiet_run_is_a_suspected_outage_not_the_threshold() -> None
     assert silence.measured["suspected_outages"] == ["2023-11-15T23:13Z for 180 min"]
 
 
+def test_a_recurring_quiet_run_is_normal_not_an_outage() -> None:
+    hourly = [(i * 12, 11) for i in range(75)]  # quiet 55 min every hour: a schedule
+    signals = Signals(log_volume={"cache": _busy(4 * _DAY, quiet_runs=[*hourly, (1000, 36)])})
+    (silence,), _ = draft_detectors(["cache"], signals)
+    assert silence.measured["threshold_min"] == 110, "twice the scheduled quiet"
+    assert silence.measured["suspected_outages"] == ["step 1000 for 180 min"], (
+        "only the run the detector would have caught"
+    )
+
+
 def test_unknown_steps_are_neither_quiet_nor_history() -> None:
     gap: list[float | None] = [None] * (5 * _DAY)
     progress: list[float | None] = [*gap, *_busy(_DAY)]  # an exporter installed a day ago
