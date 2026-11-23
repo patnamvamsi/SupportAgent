@@ -28,7 +28,7 @@ services:
       - ${DETECTOR_RULES_DIR:-./exporters/rules}/loki:/etc/loki/rules/fake:ro
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.54.1
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
     profiles: [containers]
     # Read-only views of the host's container runtime: cAdvisor needs them
     # to see every container. Only enable on a host where that is acceptable.
@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
-    image: prom/node-exporter:v1.12.1
+    image: prom/node-exporter:v1.13.1
     profiles: [host]
     command: ["--path.rootfs=/host"]
     pid: host
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.20.1
+    image: prometheuscommunity/postgres-exporter:v0.21.1
     profiles: [postgres]
     # A monitoring role (pg_monitor, read-only), never the application's.
     environment:
@@ -77,7 +77,7 @@ services:
     restart: unless-stopped
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.96.0
+    image: oliver006/redis_exporter:v1.97.0
     profiles: [redis]
     environment:
       REDIS_ADDR: ${REDIS_EXPORTER_ADDR:-redis://redis:6379}
@@ -95,7 +95,7 @@ services:
     restart: unless-stopped
 
   alertmanager:
-    image: prom/alertmanager:v0.34.2
+    image: prom/alertmanager:v0.35.0
     profiles: [alerts]
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
     volumes:
