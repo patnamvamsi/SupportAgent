@@ -165,7 +165,7 @@ def python_findings(files: Mapping[str, str], rules: Sequence[tuple[str, CodeRul
                 if not rule.imports or imported & set(rule.imports)
             ]
             if active:
-                matcher = _Matcher(key, table, active, _docstrings(tree))
+                matcher = _Matcher(key, table, active, _docstrings(tree), _constructed(tree))
                 matcher.visit(tree, None)
                 report.findings.extend(matcher.found)
     return report
@@ -395,9 +395,11 @@ class _Matcher:
         table: _Table,
         rules: Sequence[tuple[str, CodeRule]],
         skip: set[int],
+        constructed: Mapping[str, str],
     ) -> None:
         self._key = key
         self._table = table
+        self._constructed = constructed
         self._rules = [(p, r, re.compile(r.name)) for p, r in rules]
         self._skip = skip
         self.found: list[CodeFinding] = []
@@ -425,7 +427,11 @@ class _Matcher:
     ) -> Iterator[tuple[int, list[str]]]:
         if rule.match == "call" and isinstance(node, ast.Call):
             callee = _callee(node)
-            if callee is None or not name.fullmatch(callee) or not _receiver_ok(node, rule):
+            if (
+                callee is None
+                or not name.fullmatch(callee)
+                or not _receiver_ok(node, rule, self._constructed)
+            ):
                 return
             arg = _argument(node, rule)
             if arg is None:
@@ -473,13 +479,31 @@ class _Matcher:
                 yield node.lineno, tops
 
 
-def _receiver_ok(call: ast.Call, rule: CodeRule) -> bool:
-    """With ``receiver``, a method call on an object whose expression matches it."""
+def _constructed(tree: ast.Module) -> dict[str, str]:
+    """What each name in a module was built by: ``dead_letters = KafkaProducer(...)``."""
+    built: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            callee = _callee(node.value)
+            for target in node.targets:
+                if callee and isinstance(target, (ast.Name, ast.Attribute)):
+                    built[ast.unparse(target)] = callee
+    return built
+
+
+def _receiver_ok(call: ast.Call, rule: CodeRule, constructed: Mapping[str, str]) -> bool:
+    """With ``receiver``, a method call on an object whose expression matches it, or
+    that was built by a constructor whose name does (``dead_letters = KafkaProducer()``)."""
     if rule.receiver is None:
         return True
     if not isinstance(call.func, ast.Attribute):
         return False
-    return re.search(rule.receiver, ast.unparse(call.func.value)) is not None
+    receiver = ast.unparse(call.func.value)
+    return any(
+        re.search(rule.receiver, text) is not None
+        for text in (receiver, constructed.get(receiver, ""))
+        if text
+    )
 
 
 def _argument(call: ast.Call, rule: CodeRule) -> ast.expr | None:

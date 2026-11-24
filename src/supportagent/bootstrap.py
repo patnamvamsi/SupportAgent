@@ -1512,6 +1512,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     transport: httpx.BaseTransport | None = None,
     llm_provider: LLMProvider | None = None,
     engine: Engine | None = None,
+    signals: SignalQuery | None = None,
 ) -> Worker:
     """The worker (02 §7): one ``sync.poll.<table>`` per table, plus the mode's jobs.
 
@@ -1521,7 +1522,7 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
     is built: nothing can reach ServiceNow except the read-only poll. In
     **assisted** mode (ADR-0008) the runner is the real triage, and
     ``outbox.execute`` and ``comms.cadence`` are scheduled.
-    ``transport`` / ``llm_provider`` / ``engine`` are test seams.
+    ``transport`` / ``llm_provider`` / ``engine`` / ``signals`` are test seams.
     """
     engine = engine if engine is not None else make_engine(config.database.url.get_secret_value())
     require_automation_decided(config, SqlAutomationActors(engine))
@@ -1606,7 +1607,12 @@ def build_worker(  # noqa: PLR0913 — config plus the test seams
         )
     if evaluates:
         evaluator = detector_evaluator_for(
-            config, engine, clock, ids=ids, master_key=key, query=_signal_history(config)
+            config,
+            engine,
+            clock,
+            ids=ids,
+            master_key=key,
+            query=signals if signals is not None else _signal_history(config),
         )
         jobs.append(
             ScheduledJob(
@@ -5854,8 +5860,9 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 
 #: A step whose work changed in this build: an upgrade re-runs it on unchanged sources
 #: (WP-222: the graph step writes component summaries; WP-221: detectors record what
-#: runs; a job joins its owner's catalog entry).
-_STEP_VERSIONS: dict[str, str] = {"graph": "2", "catalog": "2", "detectors": "2"}
+#: runs; a job joins its owner's catalog entry; a producer built under another name is
+#: read; a topic's detector names its producer).
+_STEP_VERSIONS: dict[str, str] = {"graph": "3", "catalog": "2", "detectors": "3"}
 
 
 def _graph_detail(report: OnboardGraphReport) -> str:
@@ -6506,6 +6513,24 @@ def _reviewed_components(engine: Engine, config: AppConfig, clock: Clock) -> lis
     )
 
 
+def _topic_producers(engine: Engine, config: AppConfig, clock: Clock) -> dict[str, set[str]]:
+    """Each topic's publishing components, from the graph under review."""
+    producers: dict[str, set[str]] = {}
+    for f in GraphReview(
+        uow=SqlUnitOfWork(engine), clock=clock, tenant_id=config.tenant.id
+    ).facts():
+        if (
+            f.fact == "edge"
+            and f.kind == "publishes"
+            and f.dst
+            and f.dst.startswith("topic:")
+            and f.status != "rejected"
+            and f.present
+        ):
+            producers.setdefault(f.dst.removeprefix("topic:"), set()).add(target_name(f.src))
+    return producers
+
+
 def _reviewed_graph(engine: Engine, config: AppConfig, clock: Clock) -> SystemGraph:
     """The graph under review, as a graph: what a person rejected is left out."""
     facts: list[Fact] = []
@@ -6564,7 +6589,9 @@ def onboard_detector_step(
     components = _reviewed_components(engine, config, clock)
     reader = history if history is not None else _signal_history(config)
     signals = reader.measure(components, now=clock.now(), days=DETECTOR_HISTORY_DAYS)
-    drafts, skipped = draft_detectors(components, signals)
+    drafts, skipped = draft_detectors(
+        components, signals, producers=_topic_producers(engine, config, clock)
+    )
     review = detector_review_for(config, engine, clock)
     measures_containers = history is not None or config.tools.prometheus is not None
     review.save_measurement(

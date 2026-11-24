@@ -6,7 +6,7 @@ target-version = "py312"
 # formats markdown code fences). Lint/format targets are src/ + tests/ + docker/.
 # The onboarding lab's reference systems carry their own code (PySpark jobs,
 # Airflow DAGs, a Streamlit app) as fixture data for discovery, not project code.
-extend-exclude = ["docs", ".uv-cache", ".uv-python", "migrations", "evals/onboarding/*/sources"]
+extend-exclude = ["docs", ".uv-cache", ".uv-python", "migrations", "evals/onboarding/*/sources", "evals/live/*/sources"]
 
 [lint]
 select = [

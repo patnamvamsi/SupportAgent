@@ -9,6 +9,8 @@ semantics assume a single-writer database).
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import TracebackType
 
 from sqlalchemy.engine import Connection, Engine
@@ -96,6 +98,17 @@ class SqlUnitOfWork:
     def connection(self) -> Connection:
         """The active DBAPI-level connection for this unit of work."""
         return self._require_connection()
+
+    @contextmanager
+    def reading(self) -> Iterator[Connection]:
+        """A read that takes no write lock: inside an active block, its transaction;
+        otherwise a connection of its own, so a read made while another unit of work
+        writes (a live catalog reloading during triage) doesn't wait on SQLite's lock."""
+        if self._connection is not None:
+            yield self._connection
+            return
+        with self._engine.connect() as connection:
+            yield connection
 
     @property
     def engine(self) -> Engine:

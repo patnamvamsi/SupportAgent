@@ -37,6 +37,7 @@ from supportagent.domain.signal_detectors import (
     MIN_HISTORY_STEPS,
     STEP_S,
     Signals,
+    alert_rule,
     draft_detectors,
     longest_quiet_s,
     with_enabled,
@@ -299,3 +300,34 @@ def test_onboard_detectors_reviews_the_graph_components(tmp_path: Path) -> None:
     }
     assert path.name == REVIEW_FILE and skipped == []
     assert json.loads((workspace / "detectors.json").read_text())[0]["enabled"] is False
+
+
+def test_a_topic_detector_names_its_running_producer() -> None:
+    """A stalled topic is its producer's incident: the alert names it, so the case
+    lands on that service. A producer run only by hand doesn't count."""
+    signals = Signals(
+        containers=frozenset({"feed", "writer"}),
+        topic_progress={
+            "ORDERS": _busy(4 * _DAY),
+            "AUDIT": _busy(4 * _DAY),
+            "ticks.EU": _busy(4 * _DAY),
+        },
+    )
+    producers = {
+        "ORDERS": {"feed", "backfill"},
+        "AUDIT": {"feed", "writer"},
+        "ticks.*": {"writer"},  # an f-string topic in the code
+    }
+    drafts, _ = draft_detectors(["feed", "writer"], signals, producers=producers)
+    by_id = {d.id: d for d in drafts}
+    orders, audit = by_id["progress-stopped/orders"], by_id["progress-stopped/audit"]
+    assert orders.service == "feed" and "published by feed" in orders.summary
+    assert alert_rule(orders)["labels"] == {
+        "severity": "critical",
+        "detector": "progress-stopped/orders",
+        "topic": "ORDERS",
+        "service": "feed",
+    }
+    assert audit.service == "", "two running producers: the alert can't say which"
+    assert by_id["progress-stopped/ticks.eu"].service == "writer", "matched by pattern"
+    assert "service" not in alert_rule(audit)["labels"]  # type: ignore[operator]

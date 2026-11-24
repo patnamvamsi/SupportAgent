@@ -40,6 +40,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from fnmatch import fnmatchcase
 from typing import Literal
 
 SignalClass = Literal[
@@ -76,6 +77,8 @@ class SignalDetector:
     summary: str
     measured: Mapping[str, object] = field(default_factory=dict)
     enabled: bool = False
+    #: The component an alert is about when the subject isn't one (a topic's producer).
+    service: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,12 +245,13 @@ def _silence(
 
 
 def _progress(
-    topic: str, progress: Sequence[float | None], step_s: int, start_ts: int
+    topic: str, progress: Sequence[float | None], step_s: int, start_ts: int, producer: str
 ) -> SignalDetector | NotProposed:
     found = _threshold(progress, step_s, MIN_IDLE_S)
     if isinstance(found, str):
         return NotProposed("progress_stopped", topic, found)
     window = _minutes(found.threshold_s)
+    by = f" (published by {producer})" if producer else ""
     return SignalDetector(
         id=detector_id("progress_stopped", topic),
         cls="progress_stopped",
@@ -258,17 +262,38 @@ def _progress(
         ),
         for_s=0,
         severity="critical",
-        summary=f"topic {topic}: nothing published for {window}",
+        summary=f"topic {topic}: nothing published for {window}{by}",
         measured=_measured(found, start_ts, step_s, "longest_normal_idle_min"),
+        service=producer,
     )
 
 
 def draft_detectors(
-    components: Iterable[str], signals: Signals, *, step_s: int = STEP_S
+    components: Iterable[str],
+    signals: Signals,
+    *,
+    producers: Mapping[str, Iterable[str]] | None = None,
+    step_s: int = STEP_S,
 ) -> tuple[list[SignalDetector], list[NotProposed]]:
-    """One detector per class and component (or topic) the signals support."""
+    """One detector per class and component (or topic) the signals support.
+
+    ``producers``: each topic's publishing components, from the graph. A topic's
+    detector names its producer, so its alert lands on that service; with several,
+    the ones seen running decide, and if that still leaves more than one, none.
+    """
     drafts: list[SignalDetector] = []
     skipped: list[NotProposed] = []
+
+    def _producer(topic: str) -> str:
+        # The code may name a topic by pattern (an f-string reads as ``ticks.*``).
+        known = producers or {}
+        found = known.get(topic) or {
+            p for pattern, names in known.items() if fnmatchcase(topic, pattern) for p in names
+        }
+        candidates = sorted(set(found))
+        running = [c for c in candidates if c in signals.containers]
+        chosen = running if signals.containers else candidates
+        return chosen[0] if len(chosen) == 1 and _safe(chosen[0]) else ""
 
     def add(found: SignalDetector | NotProposed) -> None:
         if isinstance(found, SignalDetector):
@@ -286,7 +311,7 @@ def draft_detectors(
             add(_silence(name, volume, step_s, signals.start_ts))
     for topic, progress in sorted(signals.topic_progress.items()):
         if _safe(topic):
-            add(_progress(topic, progress, step_s, signals.start_ts))
+            add(_progress(topic, progress, step_s, signals.start_ts, _producer(topic)))
     if signals.host:
         drafts.append(
             SignalDetector(
@@ -310,7 +335,12 @@ def alert_rule(det: SignalDetector) -> dict[str, object]:
     rule: dict[str, object] = {
         "alert": "".join(part.title() for part in det.cls.split("_")),
         "expr": det.expr,
-        "labels": {"severity": det.severity, "detector": det.id, subject_label: det.subject},
+        "labels": {
+            "severity": det.severity,
+            "detector": det.id,
+            subject_label: det.subject,
+            **({"service": det.service} if det.service else {}),
+        },
         "annotations": {
             "summary": det.summary,
             "description": f"SupportAgent detector {det.id} ({det.cls}); measured: "
@@ -346,6 +376,7 @@ def review_document(
                 "severity": d.severity,
                 "summary": d.summary,
                 "measured": dict(d.measured),
+                **({"service": d.service} if d.service else {}),
             }
             for d in detectors
         ],

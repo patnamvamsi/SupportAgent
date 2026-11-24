@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Any, Protocol, Self
 
@@ -24,6 +25,8 @@ class _UoW(Protocol):
     def connection(self) -> sa.Connection: ...
 
     def commit(self) -> None: ...
+
+    def reading(self) -> AbstractContextManager[sa.Connection]: ...
 
     def __enter__(self) -> Self: ...
 
@@ -73,8 +76,8 @@ class TenantDocument:
 
     def load(self) -> dict[str, Any] | None:
         t = self._table()
-        with self._uow:
-            row = self._uow.connection.execute(
+        with self._uow.reading() as conn:
+            row = conn.execute(
                 sa.select(t.c[self.column]).where(t.c.tenant_id == self._tenant)
             ).first()
         if row is None:

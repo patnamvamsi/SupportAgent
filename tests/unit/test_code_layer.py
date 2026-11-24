@@ -208,3 +208,21 @@ def test_code_rules_are_validated() -> None:
             match="**/*.py",
             code=[CodeRule(id="ok", match="assign", node=topic, edge="uses")],
         )
+
+
+def test_a_producer_built_under_another_name_is_read() -> None:
+    """``dead_letters = KafkaProducer(...)``: the name says nothing, the constructor does."""
+    files = {
+        "shop/docker-compose.yml": "services:\n  writer:\n    build: {context: ./writer}\n",
+        "shop/writer/writer.py": (
+            "from kafka import KafkaProducer\n\n"
+            "dead_letters = KafkaProducer(bootstrap_servers='b:9092')\n"
+            "outbox = []\n\n"
+            "def fail(raw):\n"
+            "    dead_letters.send('orders.dlq', raw)\n"
+            "    outbox.send('not.a.topic', raw)\n"
+        ),
+    }
+    edges = _edges(_graph(files))
+    assert ("service:writer", "publishes", "topic:orders.dlq") in edges
+    assert not any(dst == "topic:not.a.topic" for _, _, dst in edges), "a list isn't a producer"
