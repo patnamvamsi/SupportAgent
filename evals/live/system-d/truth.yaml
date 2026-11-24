@@ -1,0 +1,85 @@
+# Ground truth for System D (ADR-0022 §5, WP-211, WP-226): what self-onboarding an
+# alerts-only Compose streaming stack must find, propose and catch. Every graph fact
+# cites the file it is read from (sources/git/...). Nothing here comes from a model:
+# the run in CI has none, so this is what structure alone must give.
+system: {id: readings, name: Meter readings}
+plugins: [docker-compose, python-postgres, python-runtime]
+graph:
+  nodes:
+    - {id: service:broker, kind: Service, tech: [container, docker-compose, kafka], sources: [docker-compose.yml]}
+    - {id: service:store, kind: Service, tech: [container, docker-compose, postgres], sources: [docker-compose.yml]}
+    - {id: service:feed, kind: Service, sources: [docker-compose.yml]}
+    - {id: service:writer, kind: Service, sources: [docker-compose.yml]}
+    - {id: service:api, kind: Service, sources: [docker-compose.yml]}
+    - {id: service:backfill, kind: Service, sources: [docker-compose.yml]}
+    - {id: topic:readings.raw, kind: Topic, sources: [feed/feed.py, writer/writer.py, backfill/backfill.py]}
+    - {id: topic:readings.dlq, kind: Topic, sources: [writer/writer.py]}
+    - {id: table:readings, kind: Datastore, sources: [writer/writer.py, api/app.py]}
+    - {id: table:readings_hourly, kind: Datastore, sources: [writer/writer.py, api/app.py]}
+    - {id: table:ingest_cursor, kind: Datastore, sources: [writer/writer.py, backfill/backfill.py]}
+    - {id: job:writer.rollup_hourly, kind: Job, sources: [writer/writer.py]}
+    - {id: external:meterfeed, kind: External, sources: [feed/feed.py, backfill/backfill.py]}
+  edges:
+    - {src: service:feed, kind: depends_on, dst: service:broker, sources: [docker-compose.yml]}
+    - {src: service:feed, kind: calls, dst: external:meterfeed, sources: [feed/feed.py]}
+    - {src: service:feed, kind: publishes, dst: topic:readings.raw, sources: [feed/feed.py]}
+    - {src: service:writer, kind: depends_on, dst: service:broker, sources: [docker-compose.yml]}
+    - {src: service:writer, kind: depends_on, dst: service:store, sources: [docker-compose.yml]}
+    - {src: service:writer, kind: consumes, dst: topic:readings.raw, sources: [writer/writer.py]}
+    - {src: service:writer, kind: publishes, dst: topic:readings.dlq, sources: [writer/writer.py]}
+    - {src: service:writer, kind: writes, dst: table:readings, sources: [writer/writer.py]}
+    - {src: service:writer, kind: writes, dst: table:readings_hourly, sources: [writer/writer.py]}
+    - {src: service:writer, kind: writes, dst: table:ingest_cursor, sources: [writer/writer.py]}
+    - {src: job:writer.rollup_hourly, kind: part_of, dst: service:writer, sources: [writer/writer.py]}
+    - {src: service:api, kind: depends_on, dst: service:store, sources: [docker-compose.yml]}
+    - {src: service:api, kind: reads, dst: table:readings, sources: [api/app.py]}
+    - {src: service:api, kind: reads, dst: table:readings_hourly, sources: [api/app.py]}
+    - {src: service:backfill, kind: depends_on, dst: service:broker, sources: [docker-compose.yml]}
+    - {src: service:backfill, kind: depends_on, dst: service:store, sources: [docker-compose.yml]}
+    - {src: service:backfill, kind: calls, dst: external:meterfeed, sources: [backfill/backfill.py]}
+    - {src: service:backfill, kind: publishes, dst: topic:readings.raw, sources: [backfill/backfill.py]}
+    - {src: service:backfill, kind: reads, dst: table:ingest_cursor, sources: [backfill/backfill.py]}
+# One entry per service; the scheduled job is the writer's work, not a service.
+catalog:
+  - {name: api, resources: [api]}
+  - {name: backfill, resources: [backfill]}
+  - {name: broker, resources: [broker]}
+  - {name: feed, resources: [feed]}
+  - {name: store, resources: [store]}
+  - {name: writer, resources: [writer, writer.rollup_hourly]}
+running: [api, broker, feed, store, writer]
+defined_not_running: [backfill]
+detectors:
+  # id: the threshold in minutes it is measured at (null: no rate, it happened or not)
+  proposed:
+    container-down/api: null
+    container-down/broker: null
+    container-down/feed: null
+    container-down/store: null
+    container-down/writer: null
+    crash-loop/api: null
+    crash-loop/broker: null
+    crash-loop/feed: null
+    crash-loop/store: null
+    crash-loop/writer: null
+    host-restart/host: null
+    log-silence/api: 600            # 5 quiet hours each night, doubled
+    log-silence/broker: 110         # quiet 55 minutes between lines
+    log-silence/feed: 15            # never quiet: the floor
+    log-silence/store: 50           # quiet 25 minutes between checkpoints
+    log-silence/writer: 15          # its one 90-minute hang is set aside as an outage
+    progress-stopped/readings.raw: 40   # the 20-minute maintenance pause, doubled
+  suspected_outages: {log-silence/writer: 1}
+  # A topic's alert names its running producer (the backfill publishes too, by hand).
+  service: {progress-stopped/readings.raw: feed}
+  not_proposed: [readings.dlq]
+incidents:
+  producer-stall:
+    fires: [progress-stopped/readings.raw]
+    within_min: 40
+    # The feed still runs and still logs: a log or container detector can't see this.
+    case_service: feed
+  writer-down:
+    fires: [container-down/writer, log-silence/writer]
+    within_min: 20
+    case_service: writer

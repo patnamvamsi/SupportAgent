@@ -139,6 +139,7 @@ def _detector(entry: Mapping[str, Any]) -> SignalDetector:
         summary=str(entry.get("summary", "")),
         measured=dict(entry.get("measured", {})),
         enabled=True,
+        service=str(entry.get("service", "")),
     )
 
 

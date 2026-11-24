@@ -1,0 +1,31 @@
+# What System D's Prometheus (cAdvisor, node-exporter, kafka-exporter) and Loki show.
+# tests/unit/system_d.py serves this as their HTTP APIs, so onboarding and the detector
+# evaluator read it through the same adapter as a real deployment.
+#
+# Time is UTC; a step is 5 minutes. `every: N` logs (or publishes) on one step in N;
+# `quiet` is a daily window with nothing. `history` is what happened in the 7 days
+# before onboarding, in hours relative to it.
+step_s: 300
+host: true
+services:
+  broker: {logs: {every: 12}}                      # one line an hour
+  store: {logs: {every: 6}}                        # a checkpoint every 30 minutes
+  feed: {logs: {every: 1}}
+  writer: {logs: {every: 1}}
+  api: {logs: {every: 1, quiet: ["01:00", "06:00"]}}   # nobody reads at night
+  backfill: {defined_only: true}                   # Compose profile `manual`: run by hand
+topics:
+  readings.raw: {every: 1, quiet: ["03:00", "03:20"]}  # the upstream's nightly maintenance
+  readings.dlq: {never: true}                      # nothing dead-lettered this week
+  __consumer_offsets: {every: 1}                   # Kafka's own: never a detector
+history:
+  - {what: "the writer's database connection hung for 90 minutes", logs: {writer: 0}, from_h: -100, minutes: 90}
+scenarios:
+  producer-stall:
+    what: >-
+      The upstream API fails every request. The feed keeps running and logs each retry,
+      but publishes nothing, so the store stops receiving readings.
+    topics: {readings.raw: 0}
+  writer-down:
+    what: The writer's container exits and nothing restarts it.
+    down: [writer]
