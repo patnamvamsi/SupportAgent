@@ -285,10 +285,12 @@ def draft_detectors(
     skipped: list[NotProposed] = []
 
     def _producer(topic: str) -> str:
-        # The code may name a topic by pattern (an f-string reads as ``ticks.*``).
-        known = producers or {}
-        found = known.get(topic) or {
-            p for pattern, names in known.items() if fnmatchcase(topic, pattern) for p in names
+        # The graph's ids are lower case (``topic:market_data`` for MARKET_DATA), and the
+        # code may name a topic by pattern (an f-string reads as ``ticks.*``).
+        known = {k.lower(): v for k, v in (producers or {}).items()}
+        name = topic.lower()
+        found = known.get(name) or {
+            p for pattern, names in known.items() if fnmatchcase(name, pattern) for p in names
         }
         candidates = sorted(set(found))
         running = [c for c in candidates if c in signals.containers]

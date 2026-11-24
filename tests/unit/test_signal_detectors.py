@@ -313,9 +313,9 @@ def test_a_topic_detector_names_its_running_producer() -> None:
             "ticks.EU": _busy(4 * _DAY),
         },
     )
-    producers = {
-        "ORDERS": {"feed", "backfill"},
-        "AUDIT": {"feed", "writer"},
+    producers = {  # as the graph has them: lower case
+        "orders": {"feed", "backfill"},
+        "audit": {"feed", "writer"},
         "ticks.*": {"writer"},  # an f-string topic in the code
     }
     drafts, _ = draft_detectors(["feed", "writer"], signals, producers=producers)
