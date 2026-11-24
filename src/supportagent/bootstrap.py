@@ -5862,7 +5862,7 @@ def onboard_run(  # noqa: PLR0913 — the inputs and the seams
 #: (WP-222: the graph step writes component summaries; WP-221: detectors record what
 #: runs; a job joins its owner's catalog entry; a producer built under another name is
 #: read; a topic's detector names its producer).
-_STEP_VERSIONS: dict[str, str] = {"graph": "3", "catalog": "2", "detectors": "3"}
+_STEP_VERSIONS: dict[str, str] = {"graph": "3", "catalog": "2", "detectors": "4"}
 
 
 def _graph_detail(report: OnboardGraphReport) -> str:
