@@ -59,6 +59,7 @@ svg.graph .node.service rect, svg.graph .node.job rect { fill: rgba(31,95,191,.0
 svg.graph .node.datastore rect, svg.graph .node.database rect, svg.graph .node.topic rect { fill: rgba(30,107,53,.06); }
 svg.graph .node.runtime rect, svg.graph .node.external rect { fill: rgba(154,91,0,.06); }
 .cards .bulk { display: flex; gap: .5rem; align-items: center; position: sticky; top: 0; background: var(--bg); padding: .4rem 0; z-index: 1; }
+.bulk-all { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 1rem; padding: .6rem .8rem; border: 1px solid var(--line, #ccc); border-radius: 6px; }
 .card { border: 1px solid var(--line); border-radius: 6px; padding: .6rem .8rem; margin: .5rem 0; }
 .card.active { outline: 2px solid var(--accent); }
 .card.confirmed { border-left: 4px solid var(--ok); }

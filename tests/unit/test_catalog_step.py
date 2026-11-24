@@ -79,3 +79,41 @@ def test_accepted_services_join_the_catalog_without_a_restart(
     review.withdraw(["api"], actor="ada")
     clock.advance(31)
     assert live.resolve_service(resource="api") is None, "withdrawn"
+
+
+def test_every_drafted_service_is_accepted_at_once(
+    tmp_path: Path, db: Any, clock: Any, ids: Any, master_key: bytes
+) -> None:
+    _run(tmp_path, db, clock, _History())
+    review = catalog_review_for(_config(tmp_path), db, clock)
+    waiting = review.unreviewed()
+    assert {"api", "db"} <= set(waiting)
+    oidc = FakeOIDC()
+    http = make_client(db, clock, ids, master_key, oidc)
+    login(http, oidc, ADA)
+    page = http.get("/ui/onboarding/catalog").text
+    assert f"Accept all {len(waiting)}" in page and 'name="paging_all"' in page
+    token = http.cookies["sa_csrf"]
+
+    # One by one: a row given a pager is accepted without ticking it.
+    one = http.post(
+        "/ui/onboarding/catalog",
+        data={"csrf_token": token, "paging:api": "pagerduty:P1"},
+        follow_redirects=False,
+    )
+    assert one.headers["location"].endswith("saved=1")
+    assert "api" not in review.unreviewed()
+
+    refused = http.post("/ui/onboarding/catalog", data={"csrf_token": token, "all": "1"})
+    assert refused.status_code == 422 and "paging integration" in refused.text
+    every = http.post(
+        "/ui/onboarding/catalog",
+        data={"csrf_token": token, "all": "1", "paging_all": "none:owner"},
+        follow_redirects=False,
+    )
+    assert every.headers["location"].endswith(f"saved={len(waiting) - 1}")
+    assert review.unreviewed() == []
+    pagers = {e.name: e.paging_integration for e in review.accepted()}
+    assert pagers["api"] == "pagerduty:P1", "an accepted service keeps its own pager"
+    assert pagers["db"] == "none:owner"
+    assert "Accept all" not in http.get("/ui/onboarding/catalog").text

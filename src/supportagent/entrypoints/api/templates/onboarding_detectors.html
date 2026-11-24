@@ -8,6 +8,15 @@
 {% else %}
 <p class="lede">Measured over the last {{ state.get("days", 7) }} days{% if state.get("measured_ts") %}, {{ state.measured_ts | age(now_ts) }} ago{% endif %}. Each threshold comes from this system's history, never from a default: a silence threshold is twice the longest normal quiet run. Nothing fires until you enable it.</p>
 {% if saved is not none %}<p class="ok" role="status">Saved{% if saved != "0" %}: {{ saved }} change{{ "s" if saved != "1" }}{% endif %}. The instance evaluates the enabled detectors itself every minute; a firing one becomes a case.</p>{% endif %}
+{% if is_admin and state.get("detectors") %}
+<form class="bulk-all" method="post" action="/ui/onboarding/detectors">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span>{{ enabled | length }} of {{ state.detectors | length }} enabled:</span>
+  <button type="submit" name="all" value="on" class="primary">Enable all {{ state.detectors | length }}</button>
+  {% if enabled %}<button type="submit" name="all" value="off">Turn all off</button>{% endif %}
+  <span class="muted">If Alertmanager already alerts on the same things, enabling them here too alerts twice.</span>
+</form>
+{% endif %}
 <form method="post" action="/ui/onboarding/detectors">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="table-wrap"><table class="detectors">

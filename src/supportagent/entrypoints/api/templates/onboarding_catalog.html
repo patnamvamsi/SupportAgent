@@ -10,8 +10,18 @@
 <p class="lede">Drafted from the system graph{% if state.get("drafted_ts") %} {{ state.drafted_ts | age(now_ts) }} ago{% endif %}. An alert or ticket is matched to a service by its resources, and the service's stack selects the packs that triage and RCA use. Accepted services take effect at once, with no restart.</p>
 <p class="muted">Each service needs a paging integration, because triage refuses a service without one: <code>pagerduty:&lt;service id&gt;</code>, <code>opsgenie:&lt;team&gt;</code>, or <code>none:&lt;who&gt;</code> when there's no pager. Onboarding can't know your pager, so you give it.</p>
 {% if saved is not none %}<p class="ok" role="status">Saved{% if saved != "0" %}: {{ saved }} change{{ "s" if saved != "1" }}{% endif %}.</p>{% endif %}
+{% set waiting = state.drafts | rejectattr("status", "equalto", "kept") | rejectattr("entry.name", "in", accepted) | list %}
+{% if is_admin and waiting %}
+<form class="bulk-all" method="post" action="/ui/onboarding/catalog">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="all" value="1">
+  <label>Paging for all {{ waiting | length }} <input type="text" name="paging_all" placeholder="none:owner" required aria-label="Paging integration for every service"></label>
+  <button type="submit" class="primary">Accept all {{ waiting | length }}</button>
+</form>
+{% endif %}
 <form method="post" action="/ui/onboarding/catalog">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p class="muted">Or one by one: giving a row a pager accepts it when you save.</p>
   <div class="table-wrap"><table class="catalog">
     <thead><tr><th>Service</th><th>Matched by</th><th>Stack</th><th>Paging</th><th></th></tr></thead>
     <tbody>{% for d in state.drafts | sort(attribute="entry.name") %}{% set e = d.entry %}
