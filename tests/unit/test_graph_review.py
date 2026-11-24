@@ -217,6 +217,35 @@ def test_the_review_pages_and_their_decisions(
     assert client.post("/ui/onboarding/facts", data={"one": f"{edge}|rejected"}).status_code == 403
 
 
+def test_every_fact_to_review_under_a_filter_is_decided_at_once(
+    client: TestClient, oidc: FakeOIDC, db: Any, clock: Any
+) -> None:
+    review = _review(db, clock)
+    review.save(_system_a([_PROSE]), {"confluence:10001": _URL})
+    login(client, oidc, ADA)
+    focus = "service:orders-service"
+    page = client.get(f"/ui/onboarding/graph?focus={focus}").text
+    shown = review.facts(status="proposed", focus=focus)
+    assert f"Confirm all {len(shown)}" in page and 'name="every"' in page
+    others = {f.id for f in review.facts(status="proposed")} - {f.id for f in shown}
+    assert others, "facts outside the filter"
+    done = client.post(
+        "/ui/onboarding/facts",
+        data={"csrf_token": _field(page, "csrf_token"), "every": "confirmed", "focus": focus},
+        follow_redirects=False,
+    )
+    assert done.status_code == 303
+    assert not review.facts(status="proposed", focus=focus)
+    assert {f.id for f in review.facts(status="proposed")} == others, "only what was shown"
+    page = client.get("/ui/onboarding/graph").text
+    client.post(
+        "/ui/onboarding/facts",
+        data={"csrf_token": _field(page, "csrf_token"), "every": "confirmed"},
+    )
+    assert not review.facts(status="proposed")
+    assert "Confirm all" not in client.get("/ui/onboarding/graph").text, "nothing left"
+
+
 def test_a_viewer_cannot_review(client: TestClient, oidc: FakeOIDC, db: Any) -> None:
     login(client, oidc, ADA)
     logout(client)

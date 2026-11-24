@@ -820,11 +820,20 @@ async def onboarding_catalog_save(
 ) -> Response:
     def act(user: SessionUser, form: Mapping[str, str]) -> Response:
         review = _catalog_review(ctx)
-        accept = {
-            k.removeprefix("accept:"): form.get("paging:" + k.removeprefix("accept:"), "")
-            for k in form
-            if k.startswith("accept:")
-        }
+        default = form.get("paging_all", "")
+        if form.get("all"):
+            names = review.unreviewed()
+        else:
+            # A ticked row, or a row someone gave a pager: either says "accept this one".
+            names = sorted(
+                {k.removeprefix("accept:") for k in form if k.startswith("accept:")}
+                | {
+                    k.removeprefix("paging:")
+                    for k, v in form.items()
+                    if k.startswith("paging:") and v.strip()
+                }
+            )
+        accept = {n: form.get("paging:" + n, "").strip() or default for n in names}
         withdraw = [k.removeprefix("withdraw:") for k in form if k.startswith("withdraw:")]
         try:
             changed = review.accept(accept, actor=user.id) if accept else 0
@@ -881,8 +890,13 @@ async def onboarding_detectors_save(
     ctx: ApiContext = Depends(context),  # noqa: B008
 ) -> Response:
     def act(user: SessionUser, form: Mapping[str, str]) -> Response:
-        ids = [k.removeprefix("on:") for k in form if k.startswith("on:")]
-        changed = _detectors(ctx).decide(ids, actor=user.id)
+        review = _detectors(ctx)
+        if form.get("all") in ("on", "off"):
+            every = [d["id"] for d in review.state().get("detectors", [])]
+            ids = every if form["all"] == "on" else []
+        else:
+            ids = [k.removeprefix("on:") for k in form if k.startswith("on:")]
+        changed = review.decide(ids, actor=user.id)
         return RedirectResponse(f"/ui/onboarding/detectors?saved={changed}", status_code=303)
 
     return await _post(request, ctx, Permission.ADMINISTER, act)
@@ -945,12 +959,24 @@ def onboarding_questions(request: Request, ctx: ApiContext = Depends(context)) -
 
 @router.post("/ui/onboarding/facts")
 async def onboarding_decide(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
-    """One card's button (``one=<id>|<decision>``) or the checked cards and a bulk decision."""
+    """One card's button (``one=<id>|<decision>``), the checked cards and a bulk decision,
+    or ``every=<decision>`` for every fact still to review under the page's filters."""
 
     def act(user: SessionUser, form: Mapping[str, str]) -> Response:
         if form.get("one"):
             fid, _, decision = form["one"].partition("|")
             ids = [fid]
+        elif form.get("every"):
+            decision = form["every"]
+            layer = form.get("layer", "")
+            ids = [
+                f.id
+                for f in _review(ctx).facts(
+                    status="proposed",
+                    layer=int(layer) if layer.isdigit() else None,
+                    focus=form.get("focus") or None,
+                )
+            ]
         else:
             decision = form.get("decision", "")
             ids = [k.removeprefix("id_") for k in form if k.startswith("id_")]

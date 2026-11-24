@@ -16,6 +16,18 @@ Keys: <kbd>j</kbd>/<kbd>k</kbd> next and previous, <kbd>c</kbd> confirm, <kbd>r<
   {% if focus %}<input type="hidden" name="focus" value="{{ focus }}"><span>Focused on <code>{{ focus }}</code> · <a href="/ui/onboarding/graph?status={{ status_filter }}">show everything</a></span>{% endif %}
   <button type="submit">Filter</button>
 </form>
+{% set open = facts | selectattr("status", "equalto", "proposed") | list %}
+{% if open %}
+<form class="bulk-all" method="post" action="/ui/onboarding/facts">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  {% if layer is not none %}<input type="hidden" name="layer" value="{{ layer }}">{% endif %}
+  {% if focus %}<input type="hidden" name="focus" value="{{ focus }}">{% endif %}
+  <span>{{ open | length }} to review{% if layer is not none or focus %} under this filter{% endif %}:</span>
+  <button type="submit" name="every" value="confirmed" class="primary">Confirm all {{ open | length }}</button>
+  <button type="submit" name="every" value="rejected">Reject all {{ open | length }}</button>
+</form>
+{% endif %}
 <div class="review-grid">
   <div class="graph-pane">{{ svg }}</div>
   <form id="cards" class="cards" method="post" action="/ui/onboarding/facts">

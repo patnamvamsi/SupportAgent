@@ -147,3 +147,27 @@ def test_enabled_detectors_survive_a_new_measurement(
     )
     assert refused.status_code == 403, "only an administrator enables detectors"
     assert {d.id for d in review.enabled()} == kept
+
+
+def test_every_detector_is_enabled_or_turned_off_at_once(
+    tmp_path: Path, db: Any, clock: Any, ids: Any, master_key: bytes
+) -> None:
+    _run(tmp_path, db, clock, _History())
+    review = detector_review_for(_config(tmp_path), db, clock)
+    every = {d["id"] for d in review.state()["detectors"]}
+    oidc = FakeOIDC()
+    http = make_client(db, clock, ids, master_key, oidc)
+    login(http, oidc, ADA)
+    page = http.get("/ui/onboarding/detectors").text
+    assert f"Enable all {len(every)}" in page and "Turn all off" not in page
+    token = http.cookies["sa_csrf"]
+    on = http.post(
+        "/ui/onboarding/detectors",
+        data={"csrf_token": token, "all": "on"},
+        follow_redirects=False,
+    )
+    assert on.headers["location"].endswith(f"saved={len(every)}")
+    assert {d.id for d in review.enabled()} == every
+    assert "Turn all off" in http.get("/ui/onboarding/detectors").text
+    http.post("/ui/onboarding/detectors", data={"csrf_token": token, "all": "off"})
+    assert review.enabled() == []
