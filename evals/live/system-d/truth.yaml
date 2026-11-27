@@ -82,4 +82,6 @@ incidents:
   writer-down:
     fires: [container-down/writer, log-silence/writer]
     within_min: 20
+    # Still down an hour and a half in: every detector keeps firing, none resolves early.
+    holds_min: 90
     case_service: writer

@@ -179,13 +179,16 @@ class SystemD:
         if query == "changes(node_boot_time_seconds[30m]) > 0":
             return []
         if m := re.fullmatch(
-            r'time\(\) - max_over_time\(container_last_seen\{service="([^"]+)"\}\[1h\]\) > 120',
+            r'time\(\) - max_over_time\(container_last_seen\{service="([^"]+)"\}\[(\d+)([hd])\]\)'
+            r" > 120",
             query,
         ):
-            # Down for more than 120 s, and seen within the hour (else there is no series).
-            service = m.group(1)
-            seen = [t for t in range(now - 3600, now + 1, 60) if self.running(service, t)]
-            return [_series({"service": service})] if seen and now - seen[-1] > 120 else []
+            # Down for more than 120 s, and seen within the lookback (else there is no series).
+            service, span = m.group(1), int(m.group(2)) * (3600 if m.group(3) == "h" else 86400)
+            seen = next(
+                (t for t in range(now, now - span - 1, -60) if self.running(service, t)), None
+            )
+            return [_series({"service": service})] if seen is not None and now - seen > 120 else []
         if re.fullmatch(
             r'changes\(container_start_time_seconds\{service="[^"]+"\}\[30m\]\) >= 3', query
         ):

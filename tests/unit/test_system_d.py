@@ -244,6 +244,10 @@ def test_system_d_self_onboards_end_to_end(  # noqa: PLR0915 — one story, star
         assert set(fired_at) == set(expected_incident["fires"]), (name, fired_at)
         services = _case_services(db)
         assert expected_incident["case_service"] in services, (name, services)
+        for _ in range(expected_incident["within_min"], expected_incident.get("holds_min", 0)):
+            clock.advance(60)
+            tick()
+        assert firing() == set(expected_incident["fires"]), f"{name}: still down, still firing"
         system.stop()
         for _ in range(30):
             clock.advance(60)
