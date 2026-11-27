@@ -7,7 +7,7 @@ drafts one detector per generic failure class:
 
 | Class | Signal | Fires when |
 |---|---|---|
-| ``container_down`` | cAdvisor ``container_last_seen`` | not seen for 2 minutes |
+| ``container_down`` | cAdvisor ``container_last_seen`` | not seen for 2 minutes (in the last day) |
 | ``crash_loop`` | cAdvisor ``container_start_time_seconds`` | 3 starts in 30 minutes |
 | ``log_silence`` | Loki line volume | silent longer than its measured normal gap |
 | ``progress_stopped`` | Kafka topic offsets | not advancing longer than its measured normal idle |
@@ -204,7 +204,7 @@ def _container(name: str) -> list[SignalDetector]:
             cls="container_down",
             subject=name,
             engine="prometheus",
-            expr=f'time() - max_over_time(container_last_seen{{service="{name}"}}[1h]) > 120',
+            expr=f'time() - max_over_time(container_last_seen{{service="{name}"}}[1d]) > 120',
             for_s=60,
             severity="critical",
             summary=f"{name}: its container is not running",
