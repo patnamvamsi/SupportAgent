@@ -27,6 +27,7 @@ The spec in [../spec/ARCHITECTURE.md](../spec/ARCHITECTURE.md) is frozen for the
 | [0021](0021-transaction-tracing.md) | Transaction tracing: where is this business object, and is that where it should be? | accepted |
 | [0022](0022-v0-2-sre-on-live-signals.md) | v0.2 re-scoped: SRE on live signals, proven on a real system that the product discovers | accepted (§6 acting on approval: go-ahead 2026-11-21) |
 | [0023](0023-self-onboarding-instance.md) | Self-onboarding: install, connect, and the instance does the rest | accepted |
+| [0024](0024-alerts-only-learning.md) | An alerts-only system learns from outcomes a person records on the case | proposed |
 
 ## Naming
 
