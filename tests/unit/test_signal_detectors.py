@@ -17,6 +17,7 @@ import httpx
 import pytest
 import yaml
 
+from supportagent.adapters.files.preclass_loader import load_preclass_rules
 from supportagent.adapters.files.signal_rules import (
     LOKI_RULES,
     PROMETHEUS_RULES,
@@ -33,6 +34,7 @@ from supportagent.bootstrap import (
     apply_detectors,
     onboard_detectors,
 )
+from supportagent.domain.alertmanager import map_alertmanager
 from supportagent.domain.signal_detectors import (
     MIN_HISTORY_STEPS,
     STEP_S,
@@ -331,3 +333,33 @@ def test_a_topic_detector_names_its_running_producer() -> None:
     assert audit.service == "", "two running producers: the alert can't say which"
     assert by_id["progress-stopped/ticks.eu"].service == "writer", "matched by pattern"
     assert "service" not in alert_rule(audit)["labels"]  # type: ignore[operator]
+
+
+def test_a_detector_alert_is_pre_classified_by_its_summary() -> None:
+    """A detector's summary arrives as the alert's subject: the docker-compose pack's
+    rules label it, so the model's label is cross-checked (ARCH §4)."""
+    signals = Signals(
+        containers=frozenset({"feed"}),
+        log_volume={"feed": _busy(4 * _DAY)},
+        topic_progress={"ORDERS": _busy(4 * _DAY)},
+    )
+    drafts, _ = draft_detectors(["feed"], signals, producers={"orders": {"feed"}})
+    rules = load_preclass_rules(Path("packs/docker-compose/preclass_rules.yaml"))
+    labels = {}
+    for det in drafts:
+        rule = alert_rule(det)
+        labels_ = {"alertname": rule["alert"], **rule["labels"]}  # type: ignore[dict-item]
+        alert = {"status": "firing", "labels": labels_, "annotations": rule["annotations"]}
+        (evt,) = map_alertmanager(
+            {"alerts": [alert]},
+            tenant_id="t",
+            source="alertmanager",
+            received_at=datetime(2026, 11, 27, tzinfo=UTC),
+        )
+        labels[det.cls] = rules.classify(evt)
+    assert labels == {
+        "container_down": "runtime/down",
+        "crash_loop": "runtime/down",
+        "log_silence": "runtime/stalled",
+        "progress_stopped": "runtime/stalled",
+    }
