@@ -19,13 +19,19 @@ them in one unit of work, each as a compare-and-swap on ``cases.status``:
 ``gate`` event naming the user. A lost CAS (the status changed underneath)
 is a ``ConcurrencyConflict``. The sync poll then retries the batch, because
 nothing was marked seen.
+
+``record_outcome(case_id, actor_id, ...)`` (ADR-0024) resolves a case that has no
+ticket: a person records its outcome (label, severity, their verdict on the RCA's
+cause, a drill or not) and the case moves to ``resolved``, with a ``gate`` event and
+the ``outcome`` feedback in one unit of work. A ticket's case resolves only through
+its ticket.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Literal, Protocol, Self
 
 import sqlalchemy as sa
 
@@ -44,10 +50,26 @@ from supportagent.domain.model.ticket import ChangeRecord
 from supportagent.domain.proposal_state import ProposalEvent, ProposalStatus
 from supportagent.domain.proposal_state import next_status as next_proposal_status
 from supportagent.domain.rbac import Permission, RoleGrant, can, service_role_scope
+from supportagent.domain.severity import Severity
 from supportagent.domain.takeover import LifecycleSignal, lifecycle_signals
 from supportagent.ports.clock import Clock
 from supportagent.ports.events import EventSink
 from supportagent.ports.idgen import IdGenerator
+
+
+class _Feedback(Protocol):
+    """``FeedbackService.record_case_outcome`` (ADR-0024)."""
+
+    def record_case_outcome(  # noqa: PLR0913 — the outcome's fields
+        self,
+        case_id: str,
+        *,
+        resolved_by: str,
+        classification: str,
+        severity: Severity,
+        cause: Literal["right", "wrong"] | None,
+        drill: bool,
+    ) -> None: ...
 
 
 class _UoW(Protocol):
@@ -81,8 +103,10 @@ class LifecycleService:
         semantics: TicketSemantics,
         integration_user: str = "",
         integration_ids: Callable[[], Collection[str]] | None = None,
+        feedback: _Feedback | None = None,
     ) -> None:
         self._uow = uow
+        self._feedback = feedback
         self._clock = clock
         self._ids = ids
         self._events = events
@@ -178,13 +202,78 @@ class LifecycleService:
             )
             self._uow.commit()
 
+    # --- a ticketless outcome (UI, ADR-0024) -------------------------------------
+
+    def record_outcome(  # noqa: PLR0913 — the person, their grants and the outcome
+        self,
+        case_id: str,
+        actor_id: str,
+        *,
+        grants: Collection[RoleGrant],
+        labels: Collection[str],
+        classification: str,
+        severity: Severity,
+        cause: Literal["right", "wrong"] | None,
+        drill: bool,
+    ) -> None:
+        """A person resolves a case with no ticket and records its outcome.
+
+        ``labels`` are the service's taxonomy labels: the outcome is one of them. The
+        person needs ``record_outcome`` over the case's service.
+        """
+        if self._feedback is None:
+            raise DomainValidationError("outcomes aren't recorded here")  # noqa: TRY003
+        with self._uow:
+            case = self._case(case_id)
+            service = case.get("service")
+            scope = service_role_scope(str(service) if service is not None else None)
+            if not can(grants, Permission.RECORD_OUTCOME, scope):
+                raise AuthorizationDenied(  # noqa: TRY003
+                    f"your role doesn't allow resolving cases of {service or 'unresolved'!r}",
+                    code="rbac",
+                )
+            if case.get("ticket_number"):
+                raise DomainValidationError(  # noqa: TRY003
+                    "this case has a ticket: it resolves when the ticket does"
+                )
+            if classification not in labels:
+                raise DomainValidationError(  # noqa: TRY003
+                    f"{classification!r} isn't a label of this case's service"
+                )
+            current = CaseStatus(str(case["status"]))
+            after = next_status(current, CaseEvent.RESOLVED)
+            self._cas(case_id, current, after, int(self._clock.now().timestamp()))
+            self._emit(
+                case,
+                EventKind.GATE,
+                actor_id,
+                {
+                    "v": 1,
+                    "transition": "resolved",
+                    "from": current.value,
+                    "to": after.value,
+                    "outcome": classification,
+                    "drill": drill,
+                },
+            )
+            self._feedback.record_case_outcome(
+                case_id,
+                resolved_by=actor_id,
+                classification=classification,
+                severity=severity,
+                cause=cause,
+                drill=drill,
+            )
+            self._uow.commit()
+
     # --- helpers ----------------------------------------------------------------
 
     def _case(self, case_id: str) -> dict[str, object]:
         row = (
             self._uow.connection.execute(
                 sa.text(
-                    "SELECT id, status, fingerprint, trace_id, resolved_ts, service FROM cases "
+                    "SELECT id, status, fingerprint, trace_id, resolved_ts, service, ticket_number "
+                    "FROM cases "
                     "WHERE id = :id AND tenant_id = :tenant"
                 ),
                 {"id": case_id, "tenant": self._tenant},

@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | ``VIEW`` cases, proposals, stats | ✓ | ✓ | ✓ | ✓ |
 | ``HAND_BACK`` a case | | ✓ | ✓ | ✓ |
+| ``RECORD_OUTCOME`` resolve a ticketless case with its outcome (ADR-0024) | | ✓ | ✓ | ✓ |
 | ``DECIDE_PROPOSAL`` approve / reject (scope-limited) | | | ✓ | ✓ |
 | ``REVIEW_KNOWLEDGE`` confirm or reject the system graph (ADR-0015) | | ✓ | ✓ | ✓ |
 | ``ADMINISTER`` grants, automation actors, roles | | | | ✓ |
@@ -33,6 +34,8 @@ _SERVICE_SCOPE = re.compile(r"^service:[a-z0-9][a-z0-9-]{1,62}$")
 class Permission(StrEnum):
     VIEW = "view"
     HAND_BACK = "hand_back"
+    #: ADR-0024: resolve a case that has no ticket, recording its outcome.
+    RECORD_OUTCOME = "record_outcome"
     DECIDE_PROPOSAL = "decide_proposal"
     ADMINISTER = "administer"
     REVIEW_KNOWLEDGE = "review_knowledge"
@@ -43,6 +46,7 @@ class Permission(StrEnum):
 MATRIX: Mapping[Permission, frozenset[Role]] = {
     Permission.VIEW: frozenset(Role),
     Permission.HAND_BACK: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
+    Permission.RECORD_OUTCOME: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),
     Permission.DECIDE_PROPOSAL: frozenset({Role.APPROVER, Role.ADMIN}),
     Permission.ADMINISTER: frozenset({Role.ADMIN}),
     Permission.REVIEW_KNOWLEDGE: frozenset({Role.ANALYST, Role.APPROVER, Role.ADMIN}),

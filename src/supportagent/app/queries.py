@@ -177,8 +177,9 @@ class AdminQueries:
                 conn.execute(
                     sa.text(
                         "SELECT id, fingerprint, origin, status, service, severity, "
-                        "classification, external_table, external_id, duplicate_count, "
-                        "opened_ts, last_alert_ts, trace_id, decision_json FROM cases "
+                        "classification, external_table, external_id, ticket_number, "
+                        "duplicate_count, opened_ts, last_alert_ts, trace_id, decision_json "
+                        "FROM cases "
                         "WHERE id = :id AND tenant_id = :tenant"
                     ),
                     {"id": case_id, "tenant": self._tenant},

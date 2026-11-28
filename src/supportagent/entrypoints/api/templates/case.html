@@ -24,6 +24,30 @@
 {% endif %}
 {% endif %}
 
+{% if outcome %}
+<h2>Outcome</h2>
+<p class="muted">This case has no ticket, so a person resolves it. What you record here is what it really was: each outcome calibrates the label triage gave and proves (or not) the RCA's cause.</p>
+<form method="post" action="/ui/cases/{{ c.case.id }}/outcome" class="outcome">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>What it was
+    <select name="classification">{% for l in outcome.labels %}
+      <option value="{{ l }}"{% if l == (c.case.classification or (c.decision.classification if c.decision else "")) %} selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select></label>
+  <label>Severity
+    <select name="severity">{% for s in outcome.severities %}
+      <option value="{{ s }}"{% if s == c.case.severity %} selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select></label>
+  {% if outcome.rca_cause %}
+  <fieldset><legend>The RCA's cause, <code>{{ outcome.rca_cause }}</code>, was</legend>
+    <label><input type="radio" name="cause" value="right"> the real cause</label>
+    <label><input type="radio" name="cause" value="wrong"> not the cause</label>
+  </fieldset>
+  {% endif %}
+  <label><input type="checkbox" name="drill"> a drill (a failure caused on purpose)</label>
+  <button type="submit">Resolve with this outcome</button>
+</form>
+{% endif %}
+
 <h2>Decision</h2>
 {% if c.decision %}
 <p>{{ c.decision.outcome }} · reason <strong>{{ c.decision.reason }}</strong>

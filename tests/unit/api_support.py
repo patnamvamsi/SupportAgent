@@ -7,6 +7,7 @@ master key. ``login``/``csrf`` drive the OIDC flow and the double-submit token.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -53,6 +54,7 @@ def make_client(  # noqa: PLR0913, PLR0917 — the test ports
     master_key: bytes,
     oidc: FakeOIDC,
     cat: Catalog | None = None,
+    outcome_labels: Callable[[str | None], list[str]] | None = None,
 ) -> TestClient:
     ctx = api_context_for(
         db,
@@ -65,6 +67,7 @@ def make_client(  # noqa: PLR0913, PLR0917 — the test ports
         session_secret=SECRET,
         secure_cookies=False,
         config_marker=MARKER,
+        outcome_labels=outcome_labels,
     )
     return TestClient(create_app(ctx))
 

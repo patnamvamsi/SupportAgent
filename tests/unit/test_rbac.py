@@ -43,6 +43,7 @@ _V, _AN, _AP, _AD = Role.VIEWER, Role.ANALYST, Role.APPROVER, Role.ADMIN
 _EXPECTED = {
     Permission.VIEW: {_V, _AN, _AP, _AD},
     Permission.HAND_BACK: {_AN, _AP, _AD},
+    Permission.RECORD_OUTCOME: {_AN, _AP, _AD},
     Permission.DECIDE_PROPOSAL: {_AP, _AD},
     Permission.ADMINISTER: {_AD},
     Permission.REVIEW_KNOWLEDGE: {_AN, _AP, _AD},

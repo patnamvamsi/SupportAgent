@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -42,6 +42,7 @@ from supportagent.domain.errors import (
 )
 from supportagent.domain.rbac import Permission, service_role_scope
 from supportagent.domain.roles import Role
+from supportagent.domain.severity import Severity
 from supportagent.entrypoints.api import csrf, graph_svg, session
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.api.deps import context
@@ -264,6 +265,7 @@ def case_page(
         except NotFound:  # a case whose trace has no events yet
             events = ()
         auto = auto_timeline(view, events)
+        labels = _outcome_labels(ctx, view.case)
         return _render(
             request,
             ctx,
@@ -273,9 +275,77 @@ def case_page(
             can_hand_back=can_hand_back,
             auto=auto,
             can_retract=user.can(Permission.DECIDE_PROPOSAL, scope),
+            outcome=None
+            if not labels or not user.can(Permission.RECORD_OUTCOME, scope)
+            else {
+                "labels": labels,
+                "severities": [s.value for s in Severity],
+                "rca_cause": _supported_cause(view.rca),
+            },
         )
 
     return _page(request, ctx, Permission.VIEW, build)
+
+
+def _outcome_labels(ctx: ApiContext, case: Mapping[str, object]) -> list[str]:
+    """ADR-0024: the labels a ticketless, unresolved case's outcome picks from (else none)."""
+    if ctx.outcome_labels is None or case.get("ticket_number") or case.get("status") == "resolved":
+        return []
+    service = case.get("service")
+    return ctx.outcome_labels(str(service) if service else None)
+
+
+def _supported_cause(rca: Mapping[str, object] | None) -> str | None:
+    """The hypothesis the case's RCA supported, if it supported one."""
+    if not rca or rca.get("outcome") != "SUPPORTED":
+        return None
+    evidence = rca.get("evidence")
+    steps = evidence if isinstance(evidence, list) else []
+    return next(
+        (
+            str(e.get("hypothesis"))
+            for e in steps
+            if isinstance(e, dict) and e.get("step") == rca.get("supported_by")
+        ),
+        None,
+    )
+
+
+@router.post("/ui/cases/{case_id}/outcome")
+async def outcome_form(
+    case_id: str,
+    request: Request,
+    ctx: ApiContext = Depends(context),  # noqa: B008
+) -> Response:
+    """ADR-0024: a person resolves a ticketless case with its outcome."""
+
+    def act(user: SessionUser, form: Mapping[str, str]) -> Response:
+        view = ctx.queries().case(case_id)
+        try:
+            severity = Severity(form.get("severity", ""))
+        except ValueError:
+            raise DomainValidationError("pick the severity it really was") from None  # noqa: TRY003
+        verdict = form.get("cause", "")
+        cause: Literal["right", "wrong"] | None = (
+            "right" if verdict == "right" else "wrong" if verdict == "wrong" else None
+        )
+        if cause is None and _supported_cause(view.rca) is not None:
+            raise DomainValidationError(  # noqa: TRY003
+                "say whether the RCA's cause was the real one"
+            )
+        ctx.lifecycle().record_outcome(
+            case_id,
+            user.id,
+            grants=user.grants,
+            labels=_outcome_labels(ctx, view.case),
+            classification=form.get("classification", ""),
+            severity=severity,
+            cause=cause,
+            drill=form.get("drill") == "on",
+        )
+        return RedirectResponse(f"/ui/cases/{case_id}", status_code=303)
+
+    return await _post(request, ctx, Permission.RECORD_OUTCOME, act)
 
 
 @router.get("/ui/cases")
