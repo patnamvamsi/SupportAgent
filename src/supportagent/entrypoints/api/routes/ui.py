@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 
@@ -43,15 +43,30 @@ from supportagent.domain.errors import (
 from supportagent.domain.rbac import Permission, service_role_scope
 from supportagent.domain.roles import Role
 from supportagent.domain.severity import Severity
-from supportagent.entrypoints.api import csrf, graph_svg, session
+from supportagent.entrypoints.api import case_story, csrf, graph_svg, session
 from supportagent.entrypoints.api.context import ApiContext
 from supportagent.entrypoints.api.deps import context
 
 router = APIRouter()
 
 _HERE = Path(__file__).resolve().parent.parent
-_CSS = (_HERE / "static" / "app.css").read_text(encoding="utf-8")
-_REVIEW_JS = (_HERE / "static" / "review.js").read_text(encoding="utf-8")
+#: The files under ``static/`` the UI may load (CSP: same origin only), read once.
+#: Vendored libraries keep their licence beside them (``LICENSE``, ``OFL.txt``).
+_STATIC_TYPES = {
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+    "": "text/plain; charset=utf-8",
+}
+_STATIC = {
+    path.relative_to(_HERE / "static").as_posix(): (
+        path.read_bytes(),
+        _STATIC_TYPES[path.suffix],
+    )
+    for path in sorted((_HERE / "static").rglob("*"))
+    if path.is_file() and path.suffix in _STATIC_TYPES and not path.name.startswith(".")
+}
 
 
 def _age(ts: int | None, now_ts: int) -> str:
@@ -107,6 +122,8 @@ def _render(  # noqa: PLR0913 — the shared template context
         is_admin=user is not None and user.can(Permission.ADMINISTER, anywhere=True),
         can_review=user is not None and user.can(Permission.REVIEW_KNOWLEDGE, anywhere=True),
         csrf_token=request.cookies.get(csrf.COOKIE, ""),
+        path=request.url.path,
+        waiting=ctx.queries().waiting() if user is not None else None,
         now_ts=int(ctx.clock.now().timestamp()),
         idp_label=ctx.idp_label,
         error=error,
@@ -179,14 +196,14 @@ async def _post(
 # --- pages ------------------------------------------------------------------
 
 
-@router.get("/static/app.css")
-def stylesheet() -> Response:
-    return Response(_CSS, media_type="text/css")
-
-
-@router.get("/static/review.js")
-def review_script() -> Response:
-    return Response(_REVIEW_JS, media_type="text/javascript")
+@router.get("/static/{name:path}")
+def static_file(name: str) -> Response:
+    """A packaged UI file by its exact path; anything else is a 404 (no directory walk)."""
+    found = _STATIC.get(name)
+    if found is None:
+        return Response(status_code=404)
+    body, media_type = found
+    return Response(body, media_type=media_type, headers={"Cache-Control": "max-age=300"})
 
 
 @router.get("/")
@@ -272,6 +289,8 @@ def case_page(
             "case.html",
             user,
             c=view,
+            gates=case_story.gates(view.decision, service=str(service or "")),
+            steps=case_story.timeline(events),
             can_hand_back=can_hand_back,
             auto=auto,
             can_retract=user.can(Permission.DECIDE_PROPOSAL, scope),
@@ -381,11 +400,96 @@ def system_page(request: Request, ctx: ApiContext = Depends(context)) -> Respons
             o=system_view.overview(facts, _observed(ctx)),
             groups=list(system_view.GROUPS),
             counts=ctx.queries().case_counts(),
+            pressing=_lead_case(ctx),
             summaries=_summaries(ctx),
             svg=graph_svg.render(facts, link=graph_svg.system_link) if facts else "",
         )
 
     return _page(request, ctx, Permission.VIEW, build)
+
+
+_SEVERITY_RANK = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
+
+
+def _open_cases(ctx: ApiContext, limit: int = 10) -> list[dict[str, object]]:
+    """The open cases on a known service, most severe first, then newest."""
+    found = [
+        c
+        for c in ctx.queries().cases(limit=100)
+        if c.get("service") and c.get("status") not in ("resolved", "closed")
+    ]
+    found.sort(
+        key=lambda c: (
+            _SEVERITY_RANK.get(str(c.get("severity")), 9),
+            -int(str(c.get("last_alert_ts") or 0)),
+        )
+    )
+    return found[:limit]
+
+
+def _lead_case(ctx: ApiContext) -> dict[str, object]:
+    """The System page's right panel opens on the most pressing case, if there is one."""
+    open_cases = _open_cases(ctx)
+    if not open_cases:
+        return {"open_cases": [], "lead": None, "lead_gates": []}
+    lead = ctx.queries().case(str(open_cases[0]["id"]))
+    service = str(lead.case.get("service") or "")
+    return {
+        "open_cases": open_cases,
+        "lead": lead,
+        "lead_gates": case_story.gates(lead.decision, service=service),
+    }
+
+
+@router.get("/ui/system/graph.json")
+def system_graph(request: Request, ctx: ApiContext = Depends(context)) -> Response:  # noqa: B008
+    """The graph explorer's data: every live node and edge, with each component's cases."""
+    user = _ui_user(request, ctx)
+    if user is None:
+        return JSONResponse({"detail": "sign in required"}, status_code=401)
+    if not user.can(Permission.VIEW, anywhere=True):
+        return JSONResponse({"detail": "requires the view permission"}, status_code=403)
+    try:
+        facts = _review(ctx).facts()
+    except NotFound:
+        facts = []
+    data = system_view.graph_data(facts, _observed(ctx))
+    counts = ctx.queries().case_counts()
+    summaries = _summaries(ctx)
+    for node in data["nodes"]:
+        node_id = str(node["id"])
+        service = node_id.partition(":")[2]
+        cases = counts.get(service, {}) if node["component"] else {}
+        node["open"] = int(cases.get("open", 0))
+        node["cases"] = int(cases.get("total", 0))
+        summary = summaries.get(node_id)
+        sentences = summary.get("sentences") if isinstance(summary, dict) else None
+        node["gist"] = str(sentences[0].get("text", "")) if sentences else ""
+    ids = {str(n["id"]) for n in data["nodes"]}
+    paths: list[dict[str, object]] = []
+    for case in _open_cases(ctx):
+        service = str(case["service"])
+        candidates = (f"{prefix}{service}" for prefix in system_view.COMPONENT_PREFIXES)
+        target = next((c for c in candidates if c in ids), None)
+        if target is None:
+            continue
+        rca = ctx.queries().case(str(case["id"])).rca or {}
+        evidence = rca.get("evidence") if isinstance(rca, dict) else None
+        steps = evidence if isinstance(evidence, list) else []
+        paths.append(
+            {
+                "id": case["id"],
+                "node": target,
+                "alert": str(
+                    case.get("source") or case.get("ticket_number") or case.get("origin") or ""
+                ),
+                "label": case.get("classification") or "not classified",
+                "severity": case.get("severity"),
+                "exhibits": len(steps),
+                "held": sum(1 for e in steps if isinstance(e, dict) and e.get("ok")),
+            }
+        )
+    return JSONResponse({**data, "cases": paths})
 
 
 @router.get("/ui/system/component")

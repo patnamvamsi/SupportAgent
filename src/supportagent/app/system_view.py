@@ -223,6 +223,55 @@ def neighbourhood(facts: Sequence[FactView], component: str) -> list[FactView]:
     return nodes + own + around
 
 
+def graph_data(
+    facts: Sequence[FactView], observed: Collection[str] | None = None
+) -> dict[str, list[dict[str, object]]]:
+    """The whole live graph for the explorer: every node (components marked) and edge.
+
+    An edge whose end has no node fact still draws: that end gets a node of the
+    kind its id names (``topic:x`` → ``topic``), marked ``proposed`` like the edge.
+    """
+    kept = _live(facts)
+    found = components(facts, observed)
+    nodes: dict[str, dict[str, object]] = {}
+    for f in kept:
+        if f.fact != "node":
+            continue
+        c = found.get(f.src)
+        nodes[f.src] = {
+            "id": f.src,
+            "name": display(f.src),
+            "kind": f.kind,
+            "tech": list(f.tech),
+            "status": f.status,
+            "component": c is not None,
+            "running": c.running if c is not None else None,
+            "groups": {g: c.count(g) for g in GROUPS if c.count(g)} if c is not None else {},
+            "sources": [str(s.get("ref")) for s in f.sources if s.get("ref")][:5],
+        }
+    edges: list[dict[str, object]] = []
+    for f in kept:
+        if f.fact != "edge" or f.dst is None:
+            continue
+        for end in (f.src, f.dst):
+            nodes.setdefault(
+                end,
+                {
+                    "id": end,
+                    "name": display(end),
+                    "kind": end.partition(":")[0] if ":" in end else "unknown",
+                    "tech": [],
+                    "status": "proposed",
+                    "component": False,
+                    "running": None,
+                    "groups": {},
+                    "sources": [],
+                },
+            )
+        edges.append({"src": f.src, "dst": f.dst, "kind": f.kind, "status": f.status})
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
 __all__ = [
     "COMPONENT_PREFIXES",
     "GROUPS",
@@ -232,6 +281,7 @@ __all__ = [
     "SystemOverview",
     "components",
     "display",
+    "graph_data",
     "neighbourhood",
     "overview",
 ]
