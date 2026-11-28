@@ -74,6 +74,8 @@ class ApiContext:
     #: ADR-0017 (WP-A6): which calibration triage scores with (``fitted`` or
     #: ``artifact``), and why.
     calibration_in_use: Callable[[], tuple[str, str]] | None = None
+    #: ADR-0024: a service's taxonomy labels, which a ticketless case's outcome picks from.
+    outcome_labels: Callable[[str | None], list[str]] | None = None
     #: ADR-0021: the reviewed flows, and one trace (flow, object id, who asks).
     flows: Callable[[], Mapping[str, Flow]] | None = None
     trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None

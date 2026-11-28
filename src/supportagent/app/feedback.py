@@ -27,7 +27,7 @@ import json
 from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Literal, Protocol, Self
 
 import sqlalchemy as sa
 
@@ -214,6 +214,41 @@ class FeedbackService:
                 },
             )
             self._fill_shadow(case_id, classification, severity, first_at)
+            self._uow.commit()
+
+    def record_case_outcome(  # noqa: PLR0913 — the outcome's fields, each set by the person
+        self,
+        case_id: str,
+        *,
+        resolved_by: str,
+        classification: str,
+        severity: Severity,
+        cause: Literal["right", "wrong"] | None,
+        drill: bool,
+    ) -> None:
+        """ADR-0024: a case with no ticket, resolved by a person who records its outcome.
+
+        The same moment as a ticket's resolution, with the person's labels instead of
+        the ticket's diffs. ``cause`` is their verdict on the RCA's supported cause
+        (``None``: it supported none). Joins the caller's unit of work.
+        """
+        with self._uow:
+            now = self._clock.now()
+            self._write(
+                case_id,
+                "outcome",
+                resolved_by,
+                {
+                    "resolution": "resolved",
+                    "source": "case",
+                    "classification": classification,
+                    "severity": severity.value,
+                    "cause": cause,
+                    "drill": drill,
+                    "first_human_action_at": now.isoformat(),
+                },
+            )
+            self._fill_shadow(case_id, classification, severity, now)
             self._uow.commit()
 
     def _fill_shadow(

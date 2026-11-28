@@ -27,7 +27,10 @@ from supportagent.adapters.db.uow import SqlUnitOfWork
 from supportagent.adapters.fakes.oidc import FakeOIDC
 from supportagent.adapters.tools.signal_history import HttpSignalHistory
 from supportagent.app.graph_review import GraphReview
+from supportagent.app.readiness_store import ReadinessStore
 from supportagent.bootstrap import (
+    _catalog_view,
+    _outcome_labels,
     _UnrecordedProvider,
     build_worker,
     catalog_review_for,
@@ -192,7 +195,8 @@ def test_system_d_self_onboards_end_to_end(  # noqa: PLR0915 — one story, star
 
     # A person reviews: one click per list.
     oidc = FakeOIDC()
-    http = make_client(db, clock, ids, master_key, oidc)
+    labels = _outcome_labels(config, _catalog_view(config, db, clock))
+    http = make_client(db, clock, ids, master_key, oidc, outcome_labels=labels)
     login(http, oidc, ADA)
     page = http.get("/ui/system").text
     assert "backfill" in page
@@ -254,6 +258,29 @@ def test_system_d_self_onboards_end_to_end(  # noqa: PLR0915 — one story, star
             tick()
         assert firing() == set(), f"{name}: recovered, every detector resolved"
 
+    # No tickets: a person resolves each case with what it was (ADR-0024), and the
+    # next onboarding run learns from it, under the same floors as a ticket system.
+    outcome = {i["case_service"]: i["outcome"] for i in truth["incidents"].values()}
+    resolved: dict[str, int] = {}
+    for case_id, service in _alert_cases(db).items():
+        assert "Resolve with this outcome" in http.get(f"/ui/cases/{case_id}").text, service
+        form = {"classification": outcome[service], "severity": "P2", "drill": "on"}
+        done = http.post(
+            f"/ui/cases/{case_id}/outcome",
+            data={"csrf_token": token, **form},
+            follow_redirects=False,
+        )
+        assert done.status_code == 303, (service, done.text[:300])
+        resolved[outcome[service]] = resolved.get(outcome[service], 0) + 1
+    clock.advance(3600)
+    _onboard(config, history, db, clock)
+    report = ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=TENANT).load() or {}
+    classes = {c["id"]: c for c in report.get("classes", [])}
+    assert {k: c["scenarios"] for k, c in classes.items()} == {
+        f"live:{label}": n for label, n in resolved.items()
+    }
+    assert all(c["status"] == "not_ready" for c in classes.values()), "one drill isn't proof"
+
 
 def _watch_state(db: Any) -> dict[str, Any]:
     with db.connect() as conn:
@@ -262,6 +289,18 @@ def _watch_state(db: Any) -> dict[str, Any]:
         ).scalar()
     found = json.loads(raw).get("watches", {}) if raw else {}
     return found if isinstance(found, dict) else {}
+
+
+def _alert_cases(db: Any) -> dict[str, str]:
+    with db.connect() as conn:
+        rows = conn.execute(
+            sa.text(
+                "SELECT id, service FROM cases WHERE tenant_id = :t AND origin = 'alert' "
+                "AND service IS NOT NULL"
+            ),
+            {"t": TENANT},
+        ).all()
+    return {str(case_id): str(service) for case_id, service in rows}
 
 
 def _case_services(db: Any) -> set[str]:

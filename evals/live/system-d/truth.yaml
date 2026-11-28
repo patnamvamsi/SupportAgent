@@ -79,9 +79,12 @@ incidents:
     within_min: 40
     # The feed still runs and still logs: a log or container detector can't see this.
     case_service: feed
+    # What a person records when they resolve its case (ADR-0024).
+    outcome: runtime/stalled
   writer-down:
     fires: [container-down/writer, log-silence/writer]
     within_min: 20
     # Still down an hour and a half in: every detector keeps firing, none resolves early.
     holds_min: 90
     case_service: writer
+    outcome: runtime/down

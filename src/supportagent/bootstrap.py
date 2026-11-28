@@ -25,7 +25,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
@@ -315,6 +315,7 @@ from supportagent.domain.model.shadow import ShadowRecord
 from supportagent.domain.model.triage import TriageDecision
 from supportagent.domain.normalize import normalize
 from supportagent.domain.onboarding import IngestedFiles, IngestedPage, TicketHistory
+from supportagent.domain.outcomes import AlertOutcome
 from supportagent.domain.packs import Pack, PackScope, PackSet, labels_text
 from supportagent.domain.pii import PiiSpan
 from supportagent.domain.plugins import (
@@ -411,8 +412,10 @@ from supportagent.evals.readiness import (
     ReadinessReport,
     Replayed,
     ShadowCase,
+    alert_observations,
     apply_shadow,
     assess,
+    assess_alert_outcomes,
     fit_calibration,
     history_scenarios,
     service_entry,
@@ -3488,6 +3491,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
     promotion_gate: PromotionGate | None = None,
     semantics: TicketSemantics | None = None,
     calibration_in_use: Callable[[], tuple[str, str]] | None = None,
+    outcome_labels: Callable[[str | None], list[str]] | None = None,
     flows: Callable[[], Mapping[str, Flow]] | None = None,
     trace: Callable[[str, str, str], tuple[TraceRun, TraceAnswer | None]] | None = None,
     validate_manifest: Callable[[str], str] | None = None,
@@ -3555,7 +3559,8 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         )
 
     def lifecycle() -> LifecycleService:
-        # The API only hands back; ServiceNow-driven transitions run in the worker.
+        # The API hands back and resolves ticketless cases (ADR-0024); ServiceNow-driven
+        # transitions run in the worker.
         uow, events = _ports()
         return LifecycleService(
             uow=uow,
@@ -3564,6 +3569,9 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
             events=events,
             tenant_id=tenant_id,
             semantics=semantics or ServiceNowSemantics(),
+            feedback=FeedbackService(
+                uow=uow, clock=clock, ids=ids, events=events, tenant_id=tenant_id
+            ),
         )
 
     def _audited() -> tuple[SqlUnitOfWork, OnboardingAudit]:
@@ -3633,6 +3641,7 @@ def api_context_for(  # noqa: PLR0913 — every port the API needs, injectable f
         catalog_review=catalog_review,
         detector_watches=detector_watches,
         calibration_in_use=calibration_in_use,
+        outcome_labels=outcome_labels,
         flows=flows,
         trace=trace,
         schema=SqlSchemaProbe(engine, head=_head_revision()),
@@ -3666,10 +3675,11 @@ def build_api_context(
         backchannel_url=config.identity.backchannel_url,
     )
     engine = make_engine(config.database.url.get_secret_value())
+    catalog = _catalog_view(config, engine, clock)
     return api_context_for(
         engine,
         tenant_id=config.tenant.id,
-        catalog=_catalog_view(config, engine, clock),
+        catalog=catalog,
         master_key=key,
         clock=clock,
         ids=UlidIdGenerator(),
@@ -3683,12 +3693,25 @@ def build_api_context(
         semantics=ticket_semantics(config),
         promotion_gate=_promotion_gate(config),
         calibration_in_use=lambda: calibration_source(config, engine, clock),
+        outcome_labels=_outcome_labels(config, catalog),
         flows=lambda: {k: f for k, f in load_flows(config).items() if f.reviewed},
         validate_manifest=validate_manifest_text,
         trace=lambda flow, object_id, actor: trace_object(
             config, flow, object_id, actor=actor, engine=engine, master_key=key, clock=clock
         ),
     )
+
+
+def _outcome_labels(config: AppConfig, catalog: CatalogView) -> Callable[[str | None], list[str]]:
+    """ADR-0024: the labels a service's packs give it, for a ticketless case's outcome."""
+    packs = _pack_set(config)
+
+    def labels(service: str | None) -> list[str]:
+        entry = catalog.service(service) if service else None
+        active = packs.active(frozenset(entry.stack) if entry else frozenset())
+        return [label.id for label in packs.taxonomy(active).labels]
+
+    return labels
 
 
 def calibration_source(config: AppConfig, engine: Engine, clock: Clock) -> tuple[str, str]:
@@ -4593,6 +4616,7 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
     manifest: SystemManifest | None = None,
     shadow: ShadowReplay | None = None,
     live: Mapping[str, LiveRca] | None = None,
+    alert_outcomes: Sequence[AlertOutcome] = (),
 ) -> ReadinessReport:
     """WP-O6b: replay each testable class's history in the lab and assess it.
 
@@ -4642,6 +4666,8 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         for n in cls.incidents
         if (seen := seen_live.get(n)) is not None
     ]
+    # ADR-0024: and so is every ticketless case a person resolved with its outcome
+    observed += alert_observations(alert_outcomes)
     for item in scenarios:
         cause = causes.get(item.class_id)
         if cause is not None and why_not(cause) is not None:
@@ -4673,17 +4699,29 @@ def build_readiness(  # noqa: PLR0913 — the run, the lab and what they read
         system=system.system.id,
         observed=observed,
     )
-    if shadow is None:
-        return report
-    cases, gaps = shadow.run(report, run.incidents, past, run.graph.graph)
-    return apply_shadow(
-        report,
-        run.incidents,
-        cases,
-        gates=system.readiness,
-        min_score=config.calibration.min_score,
-        catalog_gaps=gaps,
-    )
+    if shadow is not None:
+        cases, gaps = shadow.run(report, run.incidents, past, run.graph.graph)
+        report = apply_shadow(
+            report,
+            run.incidents,
+            cases,
+            gates=system.readiness,
+            min_score=config.calibration.min_score,
+            catalog_gaps=gaps,
+        )
+    if not run.incidents.classes and alert_outcomes and report.calibration is not None:
+        # ADR-0024: an alerts-only system's classes are the outcomes people recorded
+        report = replace(
+            report,
+            classes=assess_alert_outcomes(
+                alert_outcomes,
+                system.readiness,
+                calibration=report.calibration,
+                min_score=config.calibration.min_score,
+            ),
+            not_measured=tuple(m for m in report.not_measured if m != "shadow replay"),
+        )
+    return report
 
 
 def _live_replayed(scenario: LabScenario, number: str, seen: LiveRca) -> Replayed:
@@ -5227,9 +5265,16 @@ def onboard_readiness(  # noqa: PLR0913 — the config, the workspace and the se
     clock = clock or SystemClock()
     try:
         # WP-O6c: the history through shadow too, and what shadow proved live
-        live = LiveProof(uow=SqlUnitOfWork(db), tenant_id=config.tenant.id).outcomes()
+        proof = LiveProof(uow=SqlUnitOfWork(db), tenant_id=config.tenant.id)
         report = build_readiness(
-            workspace, run, lab, config, plugins=plugins, shadow=lab.shadow(), live=live
+            workspace,
+            run,
+            lab,
+            config,
+            plugins=plugins,
+            shadow=lab.shadow(),
+            live=proof.outcomes(),
+            alert_outcomes=proof.alert_outcomes(),
         )
         ReadinessStore(uow=SqlUnitOfWork(db), clock=clock, tenant_id=config.tenant.id).save(
             report.as_dict()
@@ -5900,8 +5945,13 @@ def _evidence_detail(capture: EvidenceCapture | None) -> str:
 
 def _live_digest(engine: Engine, config: AppConfig) -> str:
     """WP-O6c: what readiness reads from the resolved live cases."""
-    seen = LiveProof(uow=SqlUnitOfWork(engine), tenant_id=config.tenant.id).outcomes()
-    return digest(*(f"{t}:{s.verdict}:{s.classification}" for t, s in sorted(seen.items())))
+    proof = LiveProof(uow=SqlUnitOfWork(engine), tenant_id=config.tenant.id)
+    seen = proof.outcomes()
+    return digest(
+        *(f"{t}:{s.verdict}:{s.classification}" for t, s in sorted(seen.items())),
+        # ADR-0024: a ticketless case resolved with its outcome
+        *(f"{o.case_id}:{o.label}:{o.cause}" for o in proof.alert_outcomes()),
+    )
 
 
 def _readiness_detail(report: ReadinessReport) -> str:

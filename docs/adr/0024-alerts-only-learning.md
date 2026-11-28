@@ -1,8 +1,8 @@
 # 0024. An alerts-only system learns from outcomes a person records on the case
 
-- **Status:** proposed
+- **Status:** accepted (2026-11-28; drills count, flagged; an outcome may be recorded while alerts fire)
 - **Date:** 2026-11-28
-- **Code PR:** this ADR's PR (part 4 only); parts 1–3 follow once accepted
+- **Code PR:** #204 (part 4), the ticketless-outcomes PR (parts 1–3)
 - **Spec sections changed:** ARCHITECTURE.md §8.3 (a ticketless `outcome` moment), next-steps 1.3 ("learning live")
 
 ## Context
@@ -24,21 +24,24 @@ As things stand, nothing an alerts-only system sees can ever lift these, however
 ## Decision
 
 1. **A ticketless outcome.**
-   - On a case with no ticket, a person records the outcome on the case page and resolves the case. The outcome has two parts:
+   - On a case with no ticket, a person records the outcome on the case page and resolves the case. The outcome has these parts:
      - the cause's label: one of the service's taxonomy labels, prefilled with triage's;
-     - the severity.
+     - the severity;
+     - when the RCA supported a cause, whether it was the real one (required);
+     - whether the case was a drill.
    - It writes the same `outcome` feedback row and event as a ticket's resolution. It also gives the shadow record its human labels and agreement, filling only what it lacks.
    - Only a person can record it:
      - the agent never records an outcome;
      - an alert resolving is not an outcome;
-     - an automation actor is refused, as for diffs.
+     - it takes a signed-in person with the `record_outcome` permission (analyst and up) over the case's service.
 2. **Calibration from those outcomes.**
    - `LiveProof` also returns resolved alert cases that have a recorded outcome. Each one is one `fit_calibration` observation: `(predicted, preclass, correct)`, where correct means `prefix_match(outcome label, predicted)`.
    - These go into the same `agree` and `abstain` rows as ticket outcomes. A conflict is still not evidence.
    - **The floor doesn't change:** a label needs a Wilson lower bound of at least `min_score` with `n ≥ 10`, which takes about 16 correct outcomes per row.
 3. **Readiness classes for alerts-only systems.** With no incident history, each recorded outcome label is a class, and its incidents are the resolved alert cases recorded with that label:
-   - their live RCA is scored the way a live-proven incident is (WP-O6c);
-   - the class's share is its share of those cases.
+   - the RCA found the cause when the person said its cause was the real one, and it named a false cause when they said it wasn't;
+   - the class's share is its share of those cases;
+   - shadow's gate re-decides each case in ARCH §4 order from the conflict check on: triage's label and the pre-classifier's are scored with this run's calibration, and the severity cap applies. The model isn't asked again.
    - The gates are the same as for history classes: the bar, 0 false causes, and shadow routing 75%.
 
    So a label routes only after people have confirmed it often enough and the RCA held on those cases.
@@ -48,9 +51,9 @@ As things stand, nothing an alerts-only system sees can ever lift these, however
 
    With that label, the model's label is cross-checked, and a P1 is no longer capped for having none.
 
-**Open questions for the maintainer:**
-- **Drills.** Does an induced failure count toward calibration once a person records its outcome? It is a real run of the real pipeline on the real system, but its cause is known in advance. The proposal: it counts, and is flagged `drill` so stats can show it apart.
-- **Timing.** Can an outcome be recorded while the case's alerts still fire? The proposal: yes, because a person can know the cause before recovery, and resolving the case is their decision.
+**Decided with the maintainer (2026-11-28):**
+- **Drills count.** An induced failure is a real run of the real pipeline on the real system. Once a person records its outcome, it counts toward calibration and is flagged `drill`.
+- **Timing.** An outcome can be recorded while the case's alerts still fire: a person can know the cause before recovery, and resolving the case is their decision.
 
 ## Alternatives considered
 
@@ -66,5 +69,6 @@ As things stand, nothing an alerts-only system sees can ever lift these, however
   - Shadow mode is unaffected: it keeps recording what it would have done.
 - **Tests:**
   - part 4: `test_a_detector_alert_is_pre_classified_by_its_summary`;
-  - parts 1–3 add an outcome-on-the-case-page test and an alerts-only readiness test on System D, where each incident gets a recorded outcome and the label routes once the floor is met.
+  - parts 1–3: `test_a_person_resolves_a_ticketless_case_with_its_outcome`, `test_only_a_ticketless_case_and_a_permitted_person`, `test_a_label_routes_once_enough_outcomes_confirm_it` (15 confirmed outcomes don't clear the floor; 16 do), `test_a_cause_the_person_rejected_is_a_false_cause`, `test_redecide_keeps_triage_order_and_the_severity_cap`;
+  - System D's end-to-end test resolves each incident's case on its page and checks that the next onboarding run builds one live class per recorded label.
 - **Watch:** how many outcomes each label still needs. Status already says this for ticket systems and will say it here too.

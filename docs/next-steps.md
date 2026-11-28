@@ -62,7 +62,7 @@ Three reference systems (Java/Oracle, data platform, Node/MongoDB/RabbitMQ) are 
 Readiness runs the lab harness: the real classifier and RCA, with tools from evidence. Shadow replay runs the same incidents through the real pipeline in shadow mode, so readiness also covers dedup, grouping, calibration, the severity cap and routing.
 - **The gate:** a class the lab proved stays ready only when shadow routes 75% of its incidents with its label, each on its own case. The lab's baseline guards the lab's own verdict.
 - **The finding:** all three reference systems measure 0% ready. Calibration needs about 16 correct classifications per label, and they hold 3 to 7 incidents per class. The floor stays (maintainer's decision).
-- **Learning live:** every resolved live case calibrates its label. Status says how many more each label needs.
+- **Learning live:** every resolved live case calibrates its label. Status says how many more each label needs. On an alerts-only system (no tickets), a person resolves a case on its page with what it was; with no history, each recorded label is a readiness class (ADR-0024).
 - **Proven live:** in shadow, RCA also runs on held-back cases with bound credentials. Its result stands in for evidence an incident never had, once the ticket resolves.
 - **Catalog gaps:** services the catalog wouldn't route are reported as a configuration need.
 

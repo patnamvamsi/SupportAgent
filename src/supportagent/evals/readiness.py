@@ -37,16 +37,23 @@ own case. Until it runs, the report says shadow replay wasn't measured.
 visible only live) counts once the agent's own RCA saw it live, in shadow. The
 caller passes that RCA's result as a :class:`Replayed` with ``live`` set.
 
+**Alerts-only systems** (ADR-0024, :func:`assess_alert_outcomes`): with no incident
+history, each label a person recorded as a ticketless case's outcome is a class.
+Its scenarios are those cases; the RCA found the cause when the person said its
+cause was the real one, and named a false cause when they said it wasn't. Shadow's
+gate re-decides each case with this run's calibration (:func:`redecide`).
+
 Pure: the caller runs the scenarios and passes the scores.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from supportagent.domain.classification import MIN_CALIBRATION_N, prefix_match
+from supportagent.domain.classification import MIN_CALIBRATION_N, calibrated_score, prefix_match
 from supportagent.domain.gap_plan import target_name
 from supportagent.domain.graph import SystemGraph
 from supportagent.domain.incident_map import IncidentClass, IncidentMap, PastIncident
@@ -57,6 +64,7 @@ from supportagent.domain.model.calibration import (
 )
 from supportagent.domain.model.plugin import cause_hypothesis
 from supportagent.domain.model.readiness import ReadinessGates
+from supportagent.domain.outcomes import AlertOutcome
 from supportagent.domain.stats import wilson_lower_bound
 from supportagent.evals.lab import LabScenario, LabScore, WorldEntry
 
@@ -678,6 +686,99 @@ def observations_needed(
     return None
 
 
+# --- ADR-0024: alerts-only systems ---------------------------------------------------------
+
+#: Decisions made before calibration is read: re-deciding can't change them.
+_DECIDED_BEFORE_SCORING = frozenset(
+    {"unresolved-service", "no-paging-integration", "llm-failure", "storm-member"}
+)
+_CAPPED = ("P1", "P2")
+
+
+def alert_observations(
+    outcomes: Iterable[AlertOutcome],
+) -> list[tuple[str | None, str | None, bool]]:
+    """Each recorded outcome as a calibration observation: ``(predicted, preclass, correct)``."""
+    return [
+        (o.predicted, o.preclass, o.predicted is not None and prefix_match(o.label, o.predicted))
+        for o in outcomes
+    ]
+
+
+def redecide(outcome: AlertOutcome, calibration: CalibrationTable, min_score: float) -> ShadowCase:
+    """What triage would decide on the case now (ARCH §4 order, from the conflict on).
+
+    The model isn't asked again: the label it gave and the pre-classifier's are
+    scored with this run's calibration, and the severity cap applies as in triage.
+    """
+    label, preclass = outcome.predicted, outcome.preclass
+    if label is None or outcome.reason in _DECIDED_BEFORE_SCORING:
+        return ShadowCase(outcome.case_id, "safe_default", outcome.reason, label, preclass=preclass)
+    if preclass is not None and not prefix_match(preclass, label):
+        reason = "classifier-conflict"
+    elif calibrated_score(calibration, label, preclass is not None) < min_score:
+        reason = "low-calibrated-score"
+    elif preclass is None and outcome.triage_severity in _CAPPED:
+        reason = "unconfirmed-high-severity"
+    else:
+        return ShadowCase(outcome.case_id, "routed", "routed", label, preclass=preclass)
+    return ShadowCase(outcome.case_id, "safe_default", reason, label, preclass=preclass)
+
+
+def assess_alert_outcomes(
+    outcomes: Sequence[AlertOutcome],
+    gates: ReadinessGates,
+    *,
+    calibration: CalibrationTable,
+    min_score: float,
+) -> list[ClassReadiness]:
+    """ADR-0024: one class per recorded outcome label, under the history classes' gates."""
+    by_label: dict[str, list[AlertOutcome]] = {}
+    for o in outcomes:
+        by_label.setdefault(o.label, []).append(o)
+    out: list[ClassReadiness] = []
+    for label, members in sorted(by_label.items()):
+        confirmed = Counter(o.supported for o in members if o.cause == "right" and o.supported)
+        hypothesis = confirmed.most_common(1)[0][0] if confirmed else None
+        false = tuple(
+            (o.case_id, o.supported) for o in members if o.cause == "wrong" and o.supported
+        )
+        correct = sum(o.cause == "right" for o in members)
+        reasons = []
+        if len(members) < gates.min_scenarios:
+            reasons.append(f"{len(members)} recorded outcome(s); needs {gates.min_scenarios}")
+        if len(false) > gates.max_false_causes:
+            named = ", ".join(f"{n}: {sup}" for n, sup in false)
+            reasons.append(f"{len(false)} false cause(s): {named}")
+        if correct / len(members) < gates.min_top1:
+            reasons.append(f"found the cause below the {gates.min_top1:.0%} needed")
+        status: Status = "not_ready" if reasons else "ready"
+        cls = ClassReadiness(
+            f"live:{label}",
+            hypothesis,
+            label,
+            hypothesis,
+            round(len(members) / len(outcomes), 3),
+            sum(o.severity == "P1" for o in members),
+            status,
+            tuple(reasons),
+            scenarios=len(members),
+            correct=correct,
+            false_causes=false,
+            outcomes=tuple((o.case_id, o.supported, o.cause == "right") for o in members),
+            proven_live=tuple(o.case_id for o in members),
+            shadow=tuple(redecide(o, calibration, min_score) for o in members),
+            lab_status=status,
+        )
+        # Shadow's gate, and what calibration still waits for, even before the rest holds.
+        why = _shadow_failure(cls, gates, calibration, min_score)
+        if why is not None:
+            cls = replace(cls, status="not_ready", reasons=(*cls.reasons, why))
+        out.append(cls)
+    out.sort(key=lambda c: (-c.share, c.class_id))
+    return out
+
+
 _UNREPLAYED = {
     "live_only": "visible only live",
     "aged_out": "aged out",
@@ -701,12 +802,15 @@ __all__ = [
     "ReadinessReport",
     "Replayed",
     "ShadowCase",
+    "alert_observations",
     "apply_shadow",
     "assess",
+    "assess_alert_outcomes",
     "fit_calibration",
     "history_scenarios",
     "incident_scenario",
     "observations_needed",
+    "redecide",
     "regressions",
     "service_entry",
 ]
