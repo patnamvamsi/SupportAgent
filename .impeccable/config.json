@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "src/supportagent/entrypoints/api/templates/layout.html"
+        ],
+        "createdAt": "2026-11-28T12:04:33.916Z",
+        "reason": "Claude: .rail .who has padding 14px 10px 0 in app.css; the static check reads the HTML without the stylesheet"
+      }
+    ]
+  }
+}

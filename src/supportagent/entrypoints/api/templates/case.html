@@ -1,120 +1,155 @@
 {% extends "layout.html" %}
 {% block title %}Case {{ c.case.id }}{% endblock %}
 {% block content %}
-<h1>Case {{ c.case.id }}</h1>
-<div class="grid">
-  <span class="muted">Status</span><span>{{ c.case.status }}</span>
-  <span class="muted">Service</span><span>{{ c.case.service or "unresolved" }}</span>
-  <span class="muted">Severity</span><span class="sev-{{ c.case.severity }}">{{ c.case.severity or "—" }}</span>
-  <span class="muted">Classification</span><span>{{ c.case.classification or "—" }}</span>
-  <span class="muted">Record</span><span>{{ c.case.external_table or "" }} {{ c.case.external_id or "" }}</span>
-  <span class="muted">Duplicates</span><span>{{ c.case.duplicate_count }}</span>
-  <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ c.case.trace_id }}">{{ c.case.trace_id }}</a></span>
-</div>
+{% set svc = c.case.service %}
+{% set pending = c.proposals | selectattr("status", "equalto", "pending_approval") | list %}
+{% set ex = {} %}{% if c.rca %}{% for e in c.rca.evidence or [] %}{% set _ = ex.update({e.step: "E-%02d" | format(loop.index)}) %}{% endfor %}{% endif %}
+<header class="page-head case-head" data-case="{{ c.case.id }}">
+  <div>
+    <p class="crumbs"><a href="/ui/cases">Cases</a> › {% if svc %}<a href="/ui/system?focus={{ ('service:' ~ svc) | urlencode }}">{{ svc }}</a>{% else %}unresolved service{% endif %} › <code>{{ c.case.id }}</code></p>
+    <h1>{{ c.case.classification or "Not classified yet" }}{% if svc %} on {{ svc }}{% endif %}</h1>
+    <div class="chips">
+      {% if c.case.severity %}<span class="sev sev-{{ c.case.severity }}">{{ c.case.severity }}</span>{% endif %}
+      <span class="chip">{{ c.case.status | replace("_", " ") }}</span>
+      {% if c.decision %}<span class="chip{{ ' ok' if c.decision.outcome == 'routed' else '' }}">{{ "routed" if c.decision.outcome == "routed" else "held for a person" }}</span>{% endif %}
+      <span class="chip">{{ c.case.ticket_number or c.case.source or c.case.origin }}</span>
+      {% if c.case.duplicate_count %}<span class="chip">{{ c.case.duplicate_count }} repeat{{ "s" if c.case.duplicate_count != 1 }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="keys" data-case-keys hidden><span><kbd>J</kbd> next case</span><span><kbd>K</kbd> previous</span></div>
+</header>
+
 {% if c.event_counts.get("page_recommended") %}
 <p class="warn"><strong>Page recommended.</strong> Triage suggests a P1/P2 and no open page was found for this alert. SupportAgent never pages: decide in your own paging tool. The reason is in the work note and the <a href="/api/v1/traces/{{ c.case.trace_id }}">trace</a>.</p>
 {% endif %}
 {% if c.case.status == "human_owned" %}
-<p class="warn">A person owns this case: the agent proposes and sends nothing until it is handed back.</p>
+<div class="warn"><p>A person owns this case: the agent proposes and sends nothing until it is handed back.</p>
 {% if can_hand_back %}
 <form method="post" action="/ui/cases/{{ c.case.id }}/hand-back">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button type="submit">Hand back to the agent</button>
 </form>
 {% endif %}
+</div>
 {% endif %}
 
-{% if outcome %}
-<h2>Outcome</h2>
-<p class="muted">This case has no ticket, so a person resolves it. What you record here is what it really was: each outcome calibrates the label triage gave and proves (or not) the RCA's cause.</p>
-<form method="post" action="/ui/cases/{{ c.case.id }}/outcome" class="outcome">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <label>What it was
-    <select name="classification">{% for l in outcome.labels %}
-      <option value="{{ l }}"{% if l == (c.case.classification or (c.decision.classification if c.decision else "")) %} selected{% endif %}>{{ l }}</option>{% endfor %}
-    </select></label>
-  <label>Severity
-    <select name="severity">{% for s in outcome.severities %}
-      <option value="{{ s }}"{% if s == c.case.severity %} selected{% endif %}>{{ s }}</option>{% endfor %}
-    </select></label>
-  {% if outcome.rca_cause %}
-  <fieldset><legend>The RCA's cause, <code>{{ outcome.rca_cause }}</code>, was</legend>
-    <label><input type="radio" name="cause" value="right"> the real cause</label>
-    <label><input type="radio" name="cause" value="wrong"> not the cause</label>
-  </fieldset>
-  {% endif %}
-  <label><input type="checkbox" name="drill"> a drill (a failure caused on purpose)</label>
-  <button type="submit">Resolve with this outcome</button>
-</form>
-{% endif %}
+<div class="case-layout">
+<div class="case-main">
 
-<h2>Decision</h2>
-{% if c.decision %}
-<p>{{ c.decision.outcome }} · reason <strong>{{ c.decision.reason }}</strong>
-{% if c.decision.route_id %} · route {{ c.decision.route_id }}{% endif %}</p>
+<h2>How the agent decided</h2>
+{% if gates %}
+<p class="muted">Triage asks these questions in order and stops at the first one a case doesn't pass. A stop hands the case to a person, with the model's answer as a suggestion.</p>
+<ol class="gates">{% for g in gates %}
+  <li class="gate {{ g.state }}">
+    <span class="mark" aria-hidden="true">{% if g.state == "passed" %}<svg class="icon"><use href="#i-check"/></svg>{% elif g.state == "stopped" %}<svg class="icon"><use href="#i-stop"/></svg>{% elif g.state == "routed" %}<svg class="icon"><use href="#i-route"/></svg>{% endif %}</span>
+    <span class="q">{{ g.question }}<span class="sr-only"> ({{ g.state | replace("_", " ") }})</span></span>
+    {% if g.detail %}<span class="d">{{ g.detail }}</span>{% endif %}
+  </li>{% endfor %}
+</ol>
+<p class="muted">Decision: {{ c.decision.outcome }} · reason <strong>{{ c.decision.reason }}</strong>{% if c.decision.route_id %} · route {{ c.decision.route_id }}{% endif %}</p>
 {% if c.decision.llm_suggestion %}
-<p class="warn">LLM suggestion (not acted on):</p>
+<details><summary>LLM suggestion (not acted on)</summary>
 <pre>{{ c.decision.llm_suggestion | tojson(indent=2) }}</pre>
+</details>
 {% endif %}
 {% else %}<p class="muted">Not decided yet.</p>{% endif %}
 
-<h2>RCA</h2>
-{% if c.rca %}
-<p><strong>{{ c.rca.outcome }}</strong> · {{ c.rca.reason }} · plan <code>{{ c.rca.plan }}</code></p>
-<p class="muted">What the evidence shows, not a confirmed cause. Internal only: RCA never drives customer comms.</p>
-{% if c.rca.evidence %}
-<div class="table-wrap"><table>
-  <thead><tr><th>Step</th><th>Hypothesis</th><th>Tool</th><th>Result</th><th>Why</th></tr></thead>
-  <tbody>{% for e in c.rca.evidence %}
-  <tr><td>{{ e.step }}</td><td>{{ e.hypothesis }}</td><td>{{ e.tool }}</td>
-      <td>{{ "held" if e.ok else ("did not hold" if e.ran else "did not run") }}</td><td>{{ e.why }}</td></tr>
-  {% endfor %}</tbody>
-</table></div>
-{% endif %}
-{% for claim in c.rca.claims %}
-<p{% if "contradicted" in claim.tags %} class="warn"{% endif %}>{{ claim.text }}
-{% if "contradicted" in claim.tags %}: <strong>contradicted by its evidence; never sent</strong>{% elif not claim.sendable %} <span class="muted">(speculation)</span>{% endif %}</p>
-{% endfor %}
-{% else %}<p class="muted">No RCA for this case.</p>{% endif %}
-
-<h2>Comms plans</h2>
-{% if c.comms_plans %}
-<div class="table-wrap"><table>
-  <thead><tr><th>Plan</th><th>Template</th><th>Cadence</th><th>Status</th></tr></thead>
-  <tbody>{% for cp in c.comms_plans %}
-  <tr><td><a href="/ui/proposals/{{ cp.proposal_id }}">{{ cp.id }}</a></td><td>{{ cp.template_id }}</td>
-      <td>{{ cp.cadence_minutes ~ " min" if cp.cadence_minutes else "on resolve" }}</td><td>{{ cp.status }}</td></tr>
-  {% endfor %}</tbody>
-</table></div>
-<p class="muted">Approve a pending plan on its proposal page: one approval covers every update that fits the plan.</p>
-{% else %}<p class="muted">No comms plan.</p>{% endif %}
-{% if c.drafts %}
-<h2>Drafts for the owner</h2>
-<p class="muted">A person owns this case, so these due updates were not sent.</p>
-{% for d in c.drafts %}<pre>{{ d.trigger }} #{{ d.interval_slot }}: {{ d.body }}</pre>{% endfor %}
-{% endif %}
-
-<h2>Customer updates</h2>
-{% if c.comms %}
-<div class="table-wrap"><table>
-  <thead><tr><th>Update</th><th>Plan</th><th>Status</th><th>Failed tries</th><th>Text</th></tr></thead>
-  <tbody>{% for m in c.comms %}
-  <tr><td>{{ m.id }}</td><td>{{ m.plan_id or "—" }}</td>
-      <td>{{ m.status }}{% if m.status == "failed" and m.last_error %}: {{ m.last_error }}{% endif %}</td>
-      <td>{{ m.attempts }}</td><td>{{ m.text }}</td></tr>
-  {% endfor %}</tbody>
-</table></div>
-{% else %}<p class="muted">No customer updates.</p>{% endif %}
-
-<h2>Proposals</h2>
-{% if c.proposals %}
-<div class="table-wrap"><table>
-  <thead><tr><th>Proposal</th><th>Kind</th><th>Status</th><th>Scope</th></tr></thead>
-  <tbody>{% for p in c.proposals %}
-  <tr><td><a href="/ui/proposals/{{ p.id }}">{{ p.id }}</a></td><td>{{ p.action_kind }}</td><td>{{ p.status }}</td><td><code>{{ p.scope }}</code></td></tr>
-  {% endfor %}</tbody>
-</table></div>
-{% else %}<p class="muted">No proposals.</p>{% endif %}
+<h2>Chain of custody</h2>
+<ol class="custody">
+  <li>
+    <span class="n">1</span>
+    <div class="head"><strong>{{ "Ticket received" if c.case.ticket_number else "Alert received" }}</strong><span class="muted">{{ c.case.opened_ts | age(now_ts) }} ago</span></div>
+    <div class="body"><p>From {{ c.case.ticket_number or c.case.source or c.case.origin }}{% if c.case.external_id %} · record {{ c.case.external_table or "" }} {{ c.case.external_id }}{% endif %}. Repeats join this case instead of opening new ones ({{ c.case.duplicate_count }} so far).</p></div>
+  </li>
+  <li>
+    <span class="n">2</span>
+    <div class="head"><strong>Triage: {{ c.case.classification or "no label" }}{% if c.case.severity %}, {{ c.case.severity }}{% endif %}</strong></div>
+    <div class="body"><p>{% if c.decision %}{{ "Routed." if c.decision.outcome == "routed" else "Held for a person: " ~ c.decision.reason | replace("-", " ") ~ "." }}{% else %}Not decided yet.{% endif %} The steps are above.</p></div>
+  </li>
+  <li>
+    <span class="n">3</span>
+    <div class="head"><strong>RCA{% if c.rca %}: {{ c.rca.outcome }}{% endif %}</strong>{% if c.rca %}<span class="muted">plan <code>{{ c.rca.plan }}</code></span>{% endif %}</div>
+    <div class="body">
+    {% if c.rca %}
+      <p>{{ c.rca.reason }}. <span class="muted">What the evidence shows, not a confirmed cause. Internal only: RCA never drives customer comms.</span></p>
+      {% if c.rca.evidence %}
+      <ul class="exhibits">{% for e in c.rca.evidence %}
+        <li class="{{ 'held' if e.ok else ('not-held' if e.ran else 'not-run') }}">
+          <span class="tag">{{ ex[e.step] }}</span>
+          <span class="what">{{ e.step }} <span class="muted">· {{ e.hypothesis }}{% if e.tool %} · {{ e.tool }}{% endif %}</span></span>
+          <span class="res">{{ "held" if e.ok else ("did not hold" if e.ran else "did not run") }}</span>
+          {% if e.why %}<span class="why">{{ e.why }}</span>{% endif %}
+        </li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% for claim in c.rca.claims %}
+      <p class="claim{% if 'contradicted' in claim.tags %} contradicted{% elif not claim.sendable %} speculation{% endif %}">{% for s in claim.cites or [] %}{% if ex.get(s) %}<span class="tag">{{ ex[s] }}</span> {% endif %}{% endfor %}{{ claim.text }}
+      {% if "contradicted" in claim.tags %}: <strong>contradicted by its evidence; never sent</strong>{% elif not claim.sendable %} <span class="muted">(speculation)</span>{% endif %}</p>
+      {% endfor %}
+    {% else %}<p class="muted">No RCA for this case.</p>{% endif %}
+    </div>
+  </li>
+  <li>
+    <span class="n">4</span>
+    <div class="head"><strong>Proposals</strong><span class="muted">{{ c.proposals | length }} · {{ pending | length }} waiting for a seal</span></div>
+    <div class="body">
+    {% if c.proposals %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Proposal</th><th>Kind</th><th>Status</th><th>Scope</th></tr></thead>
+      <tbody>{% for p in c.proposals %}
+      <tr><td><a href="/ui/proposals/{{ p.id }}">{{ p.id }}</a></td><td>{{ p.action_kind }}</td><td>{{ p.status }}</td><td><code>{{ p.scope }}</code></td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="muted">No proposals.</p>{% endif %}
+    </div>
+  </li>
+  <li>
+    <span class="n">5</span>
+    <div class="head"><strong>Comms plans</strong></div>
+    <div class="body">
+    {% if c.comms_plans %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Plan</th><th>Template</th><th>Cadence</th><th>Status</th></tr></thead>
+      <tbody>{% for cp in c.comms_plans %}
+      <tr><td><a href="/ui/proposals/{{ cp.proposal_id }}">{{ cp.id }}</a></td><td>{{ cp.template_id }}</td>
+          <td>{{ cp.cadence_minutes ~ " min" if cp.cadence_minutes else "on resolve" }}</td><td>{{ cp.status }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    <p class="muted">Approve a pending plan on its proposal page: one approval covers every update that fits the plan.</p>
+    {% else %}<p class="muted">No comms plan.</p>{% endif %}
+    {% if c.drafts %}
+    <h3>Drafts for the owner</h3>
+    <p class="muted">A person owns this case, so these due updates were not sent.</p>
+    {% for d in c.drafts %}<pre>{{ d.trigger }} #{{ d.interval_slot }}: {{ d.body }}</pre>{% endfor %}
+    {% endif %}
+    <h3>Customer updates</h3>
+    {% if c.comms %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Update</th><th>Plan</th><th>Status</th><th>Failed tries</th><th>Text</th></tr></thead>
+      <tbody>{% for m in c.comms %}
+      <tr><td>{{ m.id }}</td><td>{{ m.plan_id or "—" }}</td>
+          <td>{{ m.status }}{% if m.status == "failed" and m.last_error %}: {{ m.last_error }}{% endif %}</td>
+          <td>{{ m.attempts }}</td><td>{{ m.text }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="muted">No customer updates.</p>{% endif %}
+    </div>
+  </li>
+  <li>
+    <span class="n">6</span>
+    <div class="head"><strong>Sends</strong></div>
+    <div class="body">
+    {% if c.outbox %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Outbox</th><th>Kind</th><th>Status</th><th>Attempts</th><th>External ref</th></tr></thead>
+      <tbody>{% for o in c.outbox %}
+      <tr><td>{{ o.id }}</td><td>{{ o.action_kind }}</td><td>{{ o.status }}</td><td>{{ o.attempts }}</td><td>{{ o.external_ref or "—" }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="muted">Nothing sent.</p>{% endif %}
+    </div>
+  </li>
+</ol>
 
 <h2>SOP auto mode</h2>
 {% if auto %}
@@ -141,17 +176,73 @@
 </table></div>
 {% else %}<p class="muted">No SOP step was checked against an auto grant.</p>{% endif %}
 
-<h2>Sends</h2>
-{% if c.outbox %}
-<div class="table-wrap"><table>
-  <thead><tr><th>Outbox</th><th>Kind</th><th>Status</th><th>Attempts</th><th>External ref</th></tr></thead>
-  <tbody>{% for o in c.outbox %}
-  <tr><td>{{ o.id }}</td><td>{{ o.action_kind }}</td><td>{{ o.status }}</td><td>{{ o.attempts }}</td><td>{{ o.external_ref or "—" }}</td></tr>
-  {% endfor %}</tbody>
-</table></div>
-{% else %}<p class="muted">Nothing sent.</p>{% endif %}
+<h2>Replay</h2>
+{% if steps %}
+<p class="muted">Every step the agent took on this case, in order: model calls in violet, with their tokens and time. Filter by kind or text; select a step to read all of it.</p>
+<div class="replay" data-replay>
+  <div class="replay-tools">
+    <input type="search" placeholder="Filter steps" aria-label="Filter steps" data-replay-filter>
+    <div class="kinds" role="group" aria-label="Kinds">{% for kind, n in c.event_counts.items() %}<button type="button" data-kind="{{ kind }}" aria-pressed="true">{{ kind }} {{ n }}</button>{% endfor %}</div>
+    <span class="count" data-replay-count>{{ steps | length }} steps</span>
+  </div>
+  <ol class="steps-list" data-total="{{ steps[-1].at_ms + steps[-1].latency_ms }}">{% for s in steps %}
+    <li class="{{ s.kind }} st-{{ s.status }} d{{ [s.depth, 3] | min }}" data-kind="{{ s.kind }}" data-at="{{ s.at_ms }}" data-ms="{{ s.latency_ms }}" tabindex="0">
+      <span class="t">+{{ "%.1f" | format(s.at_ms / 1000) }}s</span>
+      <span class="k">{{ s.kind }}</span>
+      <span class="s">{{ s.summary }}{% if s.model %} <span class="muted">· {{ s.model }} · {{ s.tokens }} tokens</span>{% endif %}{% if s.status != "ok" %} <strong>{{ s.status }}</strong>{% endif %}</span>
+      <span class="bar" aria-hidden="true"><i></i></span>
+    </li>{% endfor %}
+  </ol>
+</div>
+{% else %}<p class="muted">No steps recorded for this case yet.</p>{% endif %}
+<p><a href="/api/v1/traces/{{ c.case.trace_id }}">Full replay</a> <span class="muted">(JSON, trace <code>{{ c.case.trace_id }}</code>)</span></p>
 
-<h2>Timeline</h2>
-<p>{% for kind, n in c.event_counts.items() %}<code>{{ kind }}</code> × {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
-<p><a href="/api/v1/traces/{{ c.case.trace_id }}">Full replay</a></p>
+</div>
+<aside class="case-side">
+  {% if outcome %}
+  <section class="seal-box" aria-labelledby="outcome-h">
+    <h2 id="outcome-h">Outcome</h2>
+    <p class="muted">This case has no ticket, so a person resolves it. What you record here is what it really was: each outcome calibrates the label triage gave and proves (or not) the RCA's cause.</p>
+    <form method="post" action="/ui/cases/{{ c.case.id }}/outcome" class="outcome">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>What it was
+        <select name="classification">{% for l in outcome.labels %}
+          <option value="{{ l }}"{% if l == (c.case.classification or (c.decision.classification if c.decision else "")) %} selected{% endif %}>{{ l }}</option>{% endfor %}
+        </select></label>
+      <label>Severity
+        <select name="severity">{% for s in outcome.severities %}
+          <option value="{{ s }}"{% if s == c.case.severity %} selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></label>
+      {% if outcome.rca_cause %}
+      <fieldset><legend>The RCA's cause, <code>{{ outcome.rca_cause }}</code>, was</legend>
+        <label><input type="radio" name="cause" value="right"> the real cause</label>
+        <label><input type="radio" name="cause" value="wrong"> not the cause</label>
+      </fieldset>
+      {% endif %}
+      <label class="check"><input type="checkbox" name="drill"> a drill (a failure caused on purpose)</label>
+      <button type="submit" class="seal">Resolve with this outcome</button>
+    </form>
+  </section>
+  {% endif %}
+  {% if pending %}
+  <section class="seal-box">
+    <h2>Waiting for a seal</h2>
+    <p class="muted">Nothing below reaches anyone until a person approves it, once.</p>
+    <ul class="needs">{% for p in pending %}<li><a href="/ui/proposals/{{ p.id }}">{{ p.action_kind | replace("_", " ") }}</a> <span class="muted">{{ p.id }}</span></li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+  <section class="panel">
+    <h2>At a glance</h2>
+    <div class="grid">
+      <span class="muted">Status</span><span>{{ c.case.status }}</span>
+      <span class="muted">Service</span><span>{{ c.case.service or "unresolved" }}</span>
+      <span class="muted">Severity</span><span class="sev-{{ c.case.severity }}">{{ c.case.severity or "—" }}</span>
+      <span class="muted">Classification</span><span>{{ c.case.classification or "—" }}</span>
+      <span class="muted">Record</span><span>{{ c.case.external_table or "" }} {{ c.case.external_id or "—" }}</span>
+      <span class="muted">Duplicates</span><span>{{ c.case.duplicate_count }}</span>
+      <span class="muted">Trace</span><span><a href="/api/v1/traces/{{ c.case.trace_id }}"><code>{{ c.case.trace_id }}</code></a></span>
+    </div>
+  </section>
+</aside>
+</div>
 {% endblock %}

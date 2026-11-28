@@ -312,6 +312,18 @@ class AdminQueries:
                 entry["open"] += int(n)
         return counts
 
+    def waiting(self) -> dict[str, int]:
+        """What waits for a person, for the navigation: open cases and pending approvals."""
+        sql = (
+            "SELECT (SELECT COUNT(*) FROM cases WHERE tenant_id = :t"
+            " AND status NOT IN ('resolved', 'closed')) AS open_cases,"
+            " (SELECT COUNT(*) FROM proposals WHERE tenant_id = :t"
+            " AND status = 'pending_approval') AS approvals"
+        )
+        with self._uow:
+            row = self._uow.connection.execute(sa.text(sql), {"t": self._tenant}).one()
+        return {"open_cases": int(row.open_cases), "approvals": int(row.approvals)}
+
     def doctor_report(self) -> dict[str, object] | None:
         """BL-031: the last saved ``doctor`` report for ``/ui/setup``, or ``None``."""
         with self._uow:

@@ -1,13 +1,92 @@
 {% extends "layout.html" %}
 {% block title %}System{% endblock %}
+{% block head %}<script src="/static/vendor/three/three.min.js" defer></script><script src="/static/vendor/three/OrbitControls.js" defer></script><script src="/static/graph3d.js" defer></script>{% endblock %}
 {% block content %}
-<h1>The system</h1>
 {% if not o.components %}
-<p class="muted">SupportAgent hasn't learned this system yet. {% if can_review %}<a href="/ui/onboarding">Start onboarding</a>: it reads the system's code and configuration and builds this view.{% endif %}</p>
+<div class="page-head"><div><h1>The system</h1>
+<p class="muted">SupportAgent hasn't learned this system yet. {% if can_review %}<a href="/ui/onboarding">Start onboarding</a>: it reads the system's code and configuration and builds this view.{% endif %}</p></div></div>
 {% else %}
-<p class="lede">{{ o.components | length }} components, learned from the system's own code, configuration and signals.
-  {% for kind, n in o.kinds.items() %}<span class="pill">{{ n }} {{ kind | lower }}{{ "s" if n != 1 and not kind.endswith("s") }}</span>{% endfor %}
-  {% if o.proposed %}<a href="/ui/onboarding/graph?status=proposed#cards">{{ o.proposed }} fact{{ "s" if o.proposed != 1 }} to review</a>{% endif %}</p>
+{% set open_services = counts.items() | selectattr("1.open") | list %}
+<div class="explorer" data-graph="/ui/system/graph.json">
+  <section class="stage" aria-label="The system as a 3D graph">
+    <div class="stage-head">
+      <div>
+        <h1>The system</h1>
+        <p class="sub">{{ o.components | length }} components, learned from its own code, configuration and signals.</p>
+      </div>
+      <div class="stage-tools">
+        <label class="find"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input type="search" list="graph-nodes" placeholder="Find a component" aria-label="Find a component" data-find></label>
+        <div class="seg" role="group" aria-label="What to show">
+          <button type="button" data-scope="key" aria-pressed="true">Key elements</button>
+          <button type="button" data-scope="all" aria-pressed="false">Everything</button>
+        </div>
+        <button type="button" data-paths aria-pressed="true" hidden>Case paths</button>
+        <button type="button" data-reset>Reset view</button>
+      </div>
+    </div>
+    <div class="viewport">
+      <canvas class="scene" aria-hidden="true"></canvas>
+      <div class="labels"></div>
+    </div>
+    <p class="no-webgl" hidden>This browser can't draw the 3D view. The components are listed below.</p>
+    <div class="legend" aria-label="Legend">
+      <span class="kinds"><b class="k-service">service</b><b class="k-job">job</b><b class="k-data">data</b><b class="k-topic">topic</b><b class="k-external">other</b></span>
+      <span><i></i>confirmed</span><span><i class="dash"></i>proposed</span><span><i class="open"></i>open case</span><span><i class="path"></i>agent's path</span><span><b class="tag">n/m held</b>RCA checks</span>
+    </div>
+  </section>
+  <aside class="dossier" aria-live="polite" data-dossier>
+    {% set lead = pressing.lead %}
+    {% if lead %}
+    {% set k = lead.case %}
+    {% set stop = pressing.lead_gates | rejectattr("state", "in", ["passed", "not_reached"]) | first %}
+    {% set waiting_seal = lead.proposals | selectattr("status", "equalto", "pending_approval") | list %}
+    <section class="case-file" aria-labelledby="lead-h">
+      <h2 id="lead-h"><a href="/ui/cases/{{ k.id }}">{{ k.classification or "Not classified yet" }} on {{ k.service }}</a></h2>
+      <div class="chips">
+        {% if k.severity %}<span class="sev sev-{{ k.severity }}">{{ k.severity }}</span>{% endif %}
+        {% if lead.decision %}<span class="chip">{{ "routed" if lead.decision.outcome == "routed" else "held for a person" }}</span>{% endif %}
+        <span class="chip">{{ k.source or k.ticket_number or k.origin }}</span>
+        <span class="chip">{{ k.last_alert_ts | age(now_ts) }} ago</span>
+      </div>
+      <ol class="custody compact">
+        <li><span class="n">1</span><div class="head"><strong>Alert</strong><span class="muted">{{ k.duplicate_count }} repeat{{ "s" if k.duplicate_count != 1 }}</span></div></li>
+        <li><span class="n">2</span><div class="head"><strong>Triage</strong></div>
+          <div class="body"><p>{% if stop %}{{ stop.question }} {{ stop.detail }}{% else %}Not decided yet.{% endif %}</p></div></li>
+        <li><span class="n">3</span><div class="head"><strong>RCA{% if lead.rca %}: {{ lead.rca.outcome }}{% endif %}</strong></div>
+          {% if lead.rca and lead.rca.evidence %}<div class="body"><p class="exhibit-row">{% for e in lead.rca.evidence %}<span class="tag{{ '' if e.ok else ' hollow' }}" title="{{ e.step }}: {{ 'held' if e.ok else ('did not hold' if e.ran else 'did not run') }}">{{ "E-%02d" | format(loop.index) }}</span> {% endfor %}</p></div>{% endif %}</li>
+      </ol>
+      {% if waiting_seal %}
+      <div class="seal-box"><h3>Waiting for your seal</h3>
+        <p class="muted">{{ waiting_seal | length }} proposal{{ "s" if waiting_seal | length != 1 }}: nothing goes out until a person approves it, once.</p>
+        <a class="button seal" href="/ui/proposals/{{ waiting_seal[0].id }}">Review {{ waiting_seal[0].action_kind | replace("_", " ") }}</a>
+      </div>
+      {% endif %}
+      <div class="actions"><a class="button primary" href="/ui/cases/{{ k.id }}">Open the case</a>{% if pressing.open_cases | length > 1 %}<a class="button" href="/ui/cases">{{ pressing.open_cases | length - 1 }} more open</a>{% endif %}</div>
+    </section>
+    {% endif %}
+    <details class="intro"{% if not lead %} open{% endif %}>
+      <summary>How to read this</summary>
+      <ol>
+        <li>Each shape is a part of the system: spheres are services, diamonds are jobs, cylinders hold data, rings are topics.</li>
+        <li>Lines show what talks to what. A dashed line is a fact SupportAgent proposed and nobody has confirmed yet.</li>
+        <li>Select a part to fly to it. Its connections unfold, and this panel becomes its file.</li>
+        <li>A red ring means the part has an open case.</li>
+        <li>A red marker above a part is an open case's alert; the violet line is where the agent took it.</li>
+        <li>Drag to turn the model, scroll to zoom, <kbd>Esc</kbd> to step back out.</li>
+      </ol>
+    </details>
+    {% if open_services and not lead %}
+    <div class="alarm"><strong>{{ open_services | length }} part{{ "s" if open_services | length != 1 }} with open cases</strong>
+      <ul class="needs">{% for svc, n in open_services %}<li><a href="/ui/cases?service={{ svc | urlencode }}">{{ svc }}</a>: {{ n.open }} open</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <p class="lede">{% for kind, n in o.kinds.items() %}<span class="pill">{{ n }} {{ kind | lower }}{{ "s" if n != 1 and not kind.endswith("s") }}</span>{% endfor %}</p>
+    {% if o.proposed %}<p><a href="/ui/onboarding/graph?status=proposed#cards">{{ o.proposed }} fact{{ "s" if o.proposed != 1 }} to review</a></p>{% endif %}
+  </aside>
+</div>
+<datalist id="graph-nodes">{% for c in o.components %}<option value="{{ c.name }}"></option>{% endfor %}</datalist>
+<div class="below">
+<h2>Every component</h2>
 <div class="components">
 {% for c in o.components %}
   {% set n = counts.get(c.service, {}) %}
@@ -21,9 +100,10 @@
   </a>
 {% endfor %}
 </div>
-<details class="whole"><summary>The whole graph</summary>
+<details class="whole"><summary>The whole graph, flat</summary>
   <div class="graph-pane">{{ svg }}</div>
   <p class="muted">Solid lines are confirmed, dashed ones proposed. Select a component to open it.</p>
 </details>
+</div>
 {% endif %}
 {% endblock %}
